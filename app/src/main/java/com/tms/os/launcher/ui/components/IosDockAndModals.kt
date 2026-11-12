@@ -4,6 +4,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,8 +28,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.DeleteOutline
@@ -53,6 +55,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -62,6 +65,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tms.os.launcher.model.AppCategory
 import com.tms.os.launcher.model.AppInfo
+import com.tms.os.launcher.model.AppLanguage
 import com.tms.os.launcher.model.HomeGridItem
 
 @Composable
@@ -72,7 +76,9 @@ fun IosFrostedDock(
     showRecentInUnfolded: Boolean,
     showLabels: Boolean,
     showBadges: Boolean,
+    glassOpacity: Float = 0.78f,
     iconSize: Dp,
+    labelFontSizeSp: Float = 11.5f,
     isJiggleMode: Boolean,
     onAppClick: (AppInfo) -> Unit,
     onAppLongClick: (AppInfo) -> Unit,
@@ -82,33 +88,40 @@ fun IosFrostedDock(
         contentAlignment = Alignment.Center,
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 8.dp)
+            .padding(horizontal = 14.dp, vertical = 6.dp)
     ) {
+        val dockModifier = if (isUnfolded) {
+            Modifier
+        } else {
+            Modifier.fillMaxWidth()
+        }
+
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier
-                .shadow(16.dp, RoundedCornerShape(32.dp), clip = false)
+            horizontalArrangement = if (isUnfolded) Arrangement.spacedBy(14.dp) else Arrangement.SpaceEvenly,
+            modifier = dockModifier
+                .shadow(18.dp, RoundedCornerShape(32.dp), clip = false)
                 .clip(RoundedCornerShape(32.dp))
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            Color(0xCC38383C),
-                            Color(0xCC222226)
+                            Color(0xFF3E3E42).copy(alpha = glassOpacity.coerceIn(0.40f, 0.92f)),
+                            Color(0xFF222226).copy(alpha = (glassOpacity + 0.08f).coerceIn(0.48f, 0.95f))
                         )
                     )
                 )
                 .border(
                     width = 0.85.dp,
-                    color = Color.White.copy(alpha = 0.22f),
+                    color = Color.White.copy(alpha = 0.24f),
                     shape = RoundedCornerShape(32.dp)
                 )
-                .padding(horizontal = 16.dp, vertical = 10.dp)
+                .padding(horizontal = if (isUnfolded) 18.dp else 10.dp, vertical = 10.dp)
         ) {
             dockApps.forEach { app ->
                 IosAppIconView(
                     app = app,
                     iconSize = iconSize,
+                    labelFontSizeSp = labelFontSizeSp,
                     showLabel = showLabels,
                     showBadges = showBadges,
                     isJiggleMode = isJiggleMode,
@@ -117,19 +130,19 @@ fun IosFrostedDock(
                 )
             }
 
-            // iPadOS-style Recent Apps section on the unfolded Galaxy Fold main screen!
             if (isUnfolded && showRecentInUnfolded && recentApps.isNotEmpty()) {
                 Box(
                     modifier = Modifier
                         .width(1.5.dp)
-                        .height(iconSize * 0.75f)
-                        .background(Color.White.copy(alpha = 0.25f))
+                        .height(iconSize * 0.78f)
+                        .background(Color.White.copy(alpha = 0.26f))
                 )
 
                 recentApps.forEach { recentApp ->
                     IosAppIconView(
                         app = recentApp,
                         iconSize = iconSize,
+                        labelFontSizeSp = labelFontSizeSp,
                         showLabel = showLabels,
                         showBadges = showBadges,
                         isJiggleMode = false,
@@ -161,15 +174,36 @@ fun IosExpandedFolderModal(
         contentAlignment = Alignment.Center,
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xCC09090D))
-            .clickable(onClick = onDismiss)
-            .padding(24.dp)
+            .background(Color(0x9908080C))
+            .pointerInput(Unit) {
+                var dy = 0f
+                detectVerticalDragGestures(
+                    onDragStart = { dy = 0f },
+                    onVerticalDrag = { _, dragAmount ->
+                        dy += dragAmount
+                        if (dy > 55f || dy < -55f) {
+                            dy = 0f
+                            onDismiss()
+                        }
+                    }
+                )
+            }
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onDismiss
+            )
+            .padding(22.dp)
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier
                 .widthIn(max = 420.dp)
-                .clickable(enabled = false) {}
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = {}
+                )
         ) {
             // Editable Folder Title
             BasicTextField(
@@ -181,7 +215,7 @@ fun IosExpandedFolderModal(
                 singleLine = true,
                 textStyle = TextStyle(
                     color = Color.White,
-                    fontSize = 26.sp,
+                    fontSize = 27.sp,
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center
                 ),
@@ -196,26 +230,26 @@ fun IosExpandedFolderModal(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 240.dp, max = 440.dp)
-                    .shadow(20.dp, RoundedCornerShape(36.dp), clip = false)
-                    .clip(RoundedCornerShape(36.dp))
+                    .shadow(24.dp, RoundedCornerShape(38.dp), clip = false)
+                    .clip(RoundedCornerShape(38.dp))
                     .background(
                         Brush.verticalGradient(
-                            colors = listOf(Color(0xEE2C2C2E), Color(0xEE1C1C1E))
+                            colors = listOf(Color(0xE8343438), Color(0xE8202024))
                         )
                     )
-                    .border(1.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(36.dp))
+                    .border(1.dp, Color.White.copy(alpha = 0.24f), RoundedCornerShape(38.dp))
                     .padding(20.dp)
             ) {
                 LazyVerticalGrid(
-                    columns = GridCells.Fixed(4),
+                    columns = GridCells.Fixed(3),
                     contentPadding = PaddingValues(4.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     items(folderApps, key = { it.packageName }) { app ->
                         IosAppIconView(
                             app = app,
-                            iconSize = 58.dp,
+                            iconSize = 62.dp,
                             showLabel = true,
                             showBadges = true,
                             isJiggleMode = false,
@@ -228,27 +262,25 @@ fun IosExpandedFolderModal(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 TextButton(onClick = onUnpackFolder) {
                     Icon(
                         imageVector = Icons.Default.FolderOpen,
                         contentDescription = null,
-                        tint = Color.White.copy(alpha = 0.75f),
+                        tint = Color.White.copy(alpha = 0.78f),
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = "Ordner auflösen",
-                        color = Color.White.copy(alpha = 0.75f),
-                        fontSize = 13.sp
+                        color = Color.White.copy(alpha = 0.78f),
+                        fontSize = 13.5.sp
                     )
                 }
 
                 TextButton(onClick = onDismiss) {
                     Text(
-                        text = "Fertig",
+                        text = "Schließen",
                         color = Color(0xFF0A84FF),
                         fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold
@@ -263,6 +295,7 @@ fun IosExpandedFolderModal(
 fun IosCategoryExpandedModal(
     category: AppCategory,
     apps: List<AppInfo>,
+    appLanguage: AppLanguage = AppLanguage.DE,
     onAppClick: (AppInfo) -> Unit,
     onAppLongClick: (AppInfo) -> Unit,
     onDismiss: () -> Unit
@@ -271,25 +304,46 @@ fun IosCategoryExpandedModal(
         contentAlignment = Alignment.Center,
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xD809090D))
-            .clickable(onClick = onDismiss)
-            .padding(24.dp)
+            .background(Color(0x9908080C))
+            .pointerInput(Unit) {
+                var dy = 0f
+                detectVerticalDragGestures(
+                    onDragStart = { dy = 0f },
+                    onVerticalDrag = { _, dragAmount ->
+                        dy += dragAmount
+                        if (dy > 55f || dy < -55f) {
+                            dy = 0f
+                            onDismiss()
+                        }
+                    }
+                )
+            }
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onDismiss
+            )
+            .padding(22.dp)
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier
                 .widthIn(max = 460.dp)
-                .clickable(enabled = false) {}
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = {}
+                )
         ) {
             Text(
-                text = category.titleDe,
+                text = category.localizedTitle(appLanguage),
                 color = Color.White,
-                fontSize = 26.sp,
+                fontSize = 27.sp,
                 fontWeight = FontWeight.Bold
             )
             Text(
                 text = "${category.subtitleDe} • ${apps.size} Apps",
-                color = Color.White.copy(alpha = 0.6f),
+                color = Color.White.copy(alpha = 0.65f),
                 fontSize = 13.sp,
                 modifier = Modifier.padding(top = 4.dp, bottom = 16.dp)
             )
@@ -298,20 +352,20 @@ fun IosCategoryExpandedModal(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 260.dp, max = 480.dp)
-                    .shadow(20.dp, RoundedCornerShape(36.dp), clip = false)
-                    .clip(RoundedCornerShape(36.dp))
+                    .shadow(24.dp, RoundedCornerShape(38.dp), clip = false)
+                    .clip(RoundedCornerShape(38.dp))
                     .background(
                         Brush.verticalGradient(
-                            colors = listOf(Color(0xEE2C2C2E), Color(0xEE1C1C1E))
+                            colors = listOf(Color(0xE8343438), Color(0xE8202024))
                         )
                     )
-                    .border(1.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(36.dp))
+                    .border(1.dp, Color.White.copy(alpha = 0.24f), RoundedCornerShape(38.dp))
                     .padding(20.dp)
             ) {
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(4),
                     contentPadding = PaddingValues(4.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     items(apps, key = { it.packageName }) { app ->
@@ -350,45 +404,49 @@ fun IosHapticTouchContextMenu(
     onUninstallApp: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    var subMenuState by remember { mutableStateOf("main") } // "main", "category", "folder", "rename"
+    var subMenuState by remember { mutableStateOf("main") }
     var customNameInput by remember(app.displayLabel) { mutableStateOf(app.displayLabel) }
 
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xCC08080C))
-            .clickable(onClick = onDismiss)
+            .background(Color(0x9908080C))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onDismiss
+            )
             .padding(24.dp)
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier
-                .widthIn(max = 340.dp)
-                .clickable(enabled = false) {}
+                .widthIn(max = 330.dp)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = {}
+                )
         ) {
-            // App Preview Header
+            // App Preview Header (Clean Squircle Icon without dark wrapper box)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .fillMaxWidth()
+                    .shadow(16.dp, RoundedCornerShape(22.dp), clip = false)
                     .clip(RoundedCornerShape(22.dp))
-                    .background(Color(0xEE252529))
-                    .border(0.8.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(22.dp))
+                    .background(Color(0xEE2C2C30))
+                    .border(0.8.dp, Color.White.copy(alpha = 0.20f), RoundedCornerShape(22.dp))
                     .clickable { onLaunchApp() }
                     .padding(14.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(54.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xFF1C1C1E))
-                ) {
+                Box(modifier = Modifier.size(56.dp)) {
                     if (app.iconBitmap != null) {
                         Image(
                             bitmap = app.iconBitmap,
                             contentDescription = app.displayLabel,
-                            contentScale = ContentScale.Crop,
+                            contentScale = ContentScale.Fit,
                             modifier = Modifier.fillMaxSize()
                         )
                     }
@@ -413,33 +471,32 @@ fun IosHapticTouchContextMenu(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Context Menu Card
+            // Frosted Context Menu Card
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .shadow(20.dp, RoundedCornerShape(22.dp), clip = false)
+                    .shadow(22.dp, RoundedCornerShape(22.dp), clip = false)
                     .clip(RoundedCornerShape(22.dp))
-                    .background(Color(0xF2252529))
-                    .border(0.8.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(22.dp))
+                    .background(Color(0xF228282C))
+                    .border(0.8.dp, Color.White.copy(alpha = 0.20f), RoundedCornerShape(22.dp))
             ) {
                 when (subMenuState) {
                     "main" -> {
-                        // Position Shift Row
                         Row(
                             horizontalArrangement = Arrangement.SpaceEvenly,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 8.dp)
+                                .padding(vertical = 6.dp)
                         ) {
                             TextButton(onClick = onMovePositionLeft) {
-                                Icon(Icons.Default.ArrowBack, contentDescription = null, tint = Color.White)
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, tint = Color.White)
                                 Spacer(Modifier.width(4.dp))
                                 Text("Nach vorn", color = Color.White, fontSize = 13.sp)
                             }
                             TextButton(onClick = onMovePositionRight) {
                                 Text("Nach hinten", color = Color.White, fontSize = 13.sp)
                                 Spacer(Modifier.width(4.dp))
-                                Icon(Icons.Default.ArrowForward, contentDescription = null, tint = Color.White)
+                                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = Color.White)
                             }
                         }
                         MenuDivider()

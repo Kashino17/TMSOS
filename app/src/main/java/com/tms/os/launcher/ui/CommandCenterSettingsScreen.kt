@@ -2,6 +2,7 @@ package com.tms.os.launcher.ui
 
 import android.content.Intent
 import android.provider.Settings
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -21,17 +22,18 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.CompareArrows
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Cloud
-import androidx.compose.material.icons.filled.CompareArrows
 import androidx.compose.material.icons.filled.DevicesFold
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Home
@@ -39,8 +41,10 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.NotificationsNone
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.Wallpaper
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Slider
@@ -69,9 +73,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.tms.os.launcher.model.AppCategory
+import com.tms.os.launcher.model.AppLanguage
 import com.tms.os.launcher.model.FoldPostureMode
+import com.tms.os.launcher.model.LeftWidgetType
 import com.tms.os.launcher.model.PageTransitionEffect
+import com.tms.os.launcher.ui.components.IosAppIconView
 import com.tms.os.launcher.viewmodel.LauncherViewModel
+import kotlin.math.roundToInt
 
 @Composable
 fun CommandCenterSettingsScreen(
@@ -103,7 +112,7 @@ fun CommandCenterSettingsScreen(
                 verticalArrangement = Arrangement.spacedBy(18.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
-                // Hero Header Card (exact match to screenshot with floating "OS" badge & "Explore >" pill)
+                // Hero Header Card
                 item {
                     Box(
                         modifier = Modifier
@@ -115,6 +124,7 @@ fun CommandCenterSettingsScreen(
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(26.dp))
                                 .background(Color(0xFF1C1C1E))
+                                .border(0.8.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(26.dp))
                                 .padding(
                                     top = 48.dp,
                                     start = 22.dp,
@@ -130,21 +140,21 @@ fun CommandCenterSettingsScreen(
                             )
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
-                                text = "Willkommen in deinem persönlichen Command Center – kostenlos, werbefrei & optimiert für dein Samsung Galaxy Fold.",
+                                text = "Dein maßgeschneidertes iOS 18 Command Center – mit randlosen Squircle-Icons, echtem Live-Wetter, Hardware-Blur & Galaxy Fold Optimierung.",
                                 color = Color(0xFF98989F),
-                                fontSize = 14.sp,
-                                lineHeight = 19.sp
+                                fontSize = 13.5.sp,
+                                lineHeight = 18.5.sp
                             )
                             Spacer(modifier = Modifier.height(10.dp))
                             Text(
-                                text = "TMS OS Version 1.0.0-FoldEdition (Keine Abo-Kosten)",
+                                text = "TMS OS v2.0.0 Pro • ${state.allApps.size} Apps indexiert",
                                 color = Color(0xFF0A84FF),
-                                fontSize = 13.5.sp,
-                                fontWeight = FontWeight.Medium
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold
                             )
                         }
 
-                        // Floating Circular Rainbow "OS" Logo (top-left overlapping the card like the screenshot)
+                        // Floating Circular Rainbow "OS" Logo
                         Box(
                             contentAlignment = Alignment.Center,
                             modifier = Modifier
@@ -152,7 +162,7 @@ fun CommandCenterSettingsScreen(
                                 .size(78.dp)
                                 .clip(CircleShape)
                                 .background(Color(0xFF050507))
-                                .border(1.dp, Color.White.copy(alpha = 0.1f), CircleShape)
+                                .border(1.dp, Color.White.copy(alpha = 0.14f), CircleShape)
                         ) {
                             Text(
                                 text = buildAnnotatedString {
@@ -176,7 +186,7 @@ fun CommandCenterSettingsScreen(
                             )
                         }
 
-                        // Blue "Homescreen >" ("Explore >") Pill Button in top-right of card
+                        // Blue "Homescreen >" Pill Button
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
@@ -204,7 +214,6 @@ fun CommandCenterSettingsScreen(
                     }
                 }
 
-                // Status Banner if an action was triggered (e.g. 1-Click Smart Sort)
                 if (statusMessage != null) {
                     item {
                         Row(
@@ -233,12 +242,12 @@ fun CommandCenterSettingsScreen(
                     }
                 }
 
-                // Section: "Intelligente Funktionen (Fold & Auto-Sortierung)"
+                // Section: "Intelligente Funktionen"
                 item {
                     Text(
                         text = "Intelligente Funktionen",
                         color = Color(0xFF8E8E93),
-                        fontSize = 16.sp,
+                        fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.padding(horizontal = 4.dp)
                     )
@@ -253,29 +262,29 @@ fun CommandCenterSettingsScreen(
                             icon = Icons.Default.AutoAwesome,
                             iconBgColors = listOf(Color(0xFFFF9F0A), Color(0xFFFF375F)),
                             title = "Homescreen in Smart-Ordner sortieren",
-                            subtitle = "Gruppiert alle Apps automatisch nach Kategorien",
+                            subtitle = "Gruppiert alle Apps automatisch & präzise nach iOS-Kategorien",
                             onClick = {
                                 viewModel.autoOrganizeHomeWithSmartFolders()
-                                statusMessage = "Alle Apps wurden intelligent in iOS-Kategorie-Ordner sortiert!"
+                                statusMessage = "Alle Apps wurden sauber in iOS-Kategorie-Ordner sortiert!"
                             }
                         )
 
                         FeatureActionRow(
                             icon = Icons.Default.DevicesFold,
                             iconBgColors = listOf(Color(0xFF0A84FF), Color(0xFF5E5CE6)),
-                            title = "Galaxy Fold Display-Modus (${settings.foldMode.titleDe})",
-                            subtitle = "Anpassen, wie sich der Innenscreen aufgeklappt verhält",
-                            onClick = { activeSubPage = "fold" }
+                            title = "Galaxy Fold Display-Modus",
+                            subtitle = "${settings.foldMode.titleDe} • Außen ${settings.coverColumns}×${settings.coverRows} • Innen ${settings.mainUnfoldedColumns}×${settings.mainUnfoldedRows}",
+                            onClick = { activeSubPage = "grid" }
                         )
                     }
                 }
 
-                // Section: "Allgemein" (Exact menu rows from the user's screenshot!)
+                // Section: "Allgemein"
                 item {
                     Text(
-                        text = "Allgemein",
+                        text = "Allgemein & Design",
                         color = Color(0xFF8E8E93),
-                        fontSize = 16.sp,
+                        fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
                     )
@@ -291,8 +300,8 @@ fun CommandCenterSettingsScreen(
                         SettingsMenuRow(
                             icon = Icons.Default.Settings,
                             iconBg = Color(0xFF00C7BE),
-                            title = "Allgemein & Suche",
-                            subtitle = if ( settings.instantLaunchSingleSearchResult ) "Direkt-Start aktiv" else "Spotlight & Sortierung",
+                            title = "Allgemein & Spotlight-Suche",
+                            subtitle = "Swipe-Down, Direkt-Start, Web-Suche & Sortierung",
                             onClick = { activeSubPage = "general" }
                         )
                         RowDivider()
@@ -300,8 +309,8 @@ fun CommandCenterSettingsScreen(
                         SettingsMenuRow(
                             icon = Icons.Default.Palette,
                             iconBg = Color(0xFFCE52C9),
-                            title = "Erscheinungsbild",
-                            subtitle = "Icon-Größe ${(settings.iconSizeScale * 100).toInt()}%, Labels & Dock",
+                            title = "Erscheinungsbild & iOS-Icons",
+                            subtitle = "iOS 18 System-Icons, Icon-Größe ${(settings.iconSizeScale * 100).roundToInt()}%, Glas & Blur",
                             onClick = { activeSubPage = "appearance" }
                         )
                         RowDivider()
@@ -309,14 +318,14 @@ fun CommandCenterSettingsScreen(
                         SettingsMenuRow(
                             icon = Icons.Default.Cloud,
                             iconBg = Color(0xFF32ADE6),
-                            title = "Wetter & Smart Widgets",
-                            subtitle = "${settings.weatherCity}, ${settings.weatherTempCelsius}°C",
+                            title = "Live-Wetter & Smart Widgets",
+                            subtitle = "${settings.weatherCity}: ${settings.weatherTempCelsius}°C (${settings.weatherCondition}) • ${settings.leftWidgetType.titleDe}",
                             onClick = { activeSubPage = "weather" }
                         )
                         RowDivider()
 
                         SettingsMenuRow(
-                            icon = Icons.Default.CompareArrows,
+                            icon = Icons.AutoMirrored.Filled.CompareArrows,
                             iconBg = Color(0xFFAF52DE),
                             title = "Seitenübergang",
                             subtitle = settings.pageTransition.titleDe,
@@ -327,8 +336,8 @@ fun CommandCenterSettingsScreen(
                         SettingsMenuRow(
                             icon = Icons.Default.GridView,
                             iconBg = Color(0xFF5856D6),
-                            title = "Screen Grid & Fold-Layout",
-                            subtitle = "Außen ${settings.coverColumns}x${settings.coverRows} • Innen ${settings.mainUnfoldedColumns}x${settings.mainUnfoldedRows}",
+                            title = "Screen Grid & Dock-Konfiguration",
+                            subtitle = "Cover ${settings.coverColumns}×${settings.coverRows} • Main ${settings.mainUnfoldedColumns}×${settings.mainUnfoldedRows} • ${settings.dockIconCount} Dock-Apps",
                             onClick = { activeSubPage = "grid" }
                         )
                         RowDivider()
@@ -337,16 +346,16 @@ fun CommandCenterSettingsScreen(
                             icon = Icons.Default.NotificationsNone,
                             iconBg = Color(0xFF5AC8FA),
                             title = "Badge-Benachrichtigungen",
-                            subtitle = if (state.isBadgeServiceEnabled) "Aktiviert" else "Berechtigung prüfen",
+                            subtitle = if (state.isBadgeServiceEnabled) "Live-Zähler aktiv" else "Tippen zum Aktivieren",
                             onClick = { activeSubPage = "badges" }
                         )
                         RowDivider()
 
                         SettingsMenuRow(
                             icon = Icons.Default.Visibility,
-                            iconBg = Color(0xFF8E8E93),
-                            title = "Ausgeblendete Apps & Kategorien",
-                            subtitle = "${state.allApps.count { it.isHidden }} ausgeblendet • ${state.allApps.size} gesamt",
+                            iconBg = Color(0xFFFF9F0A),
+                            title = "Kategorien-Manager & Apps ausblenden",
+                            subtitle = "${state.allApps.size} Apps verwalten • ${state.allApps.count { it.isHidden }} ausgeblendet",
                             onClick = { activeSubPage = "hidden" }
                         )
                         RowDivider()
@@ -354,19 +363,17 @@ fun CommandCenterSettingsScreen(
                         SettingsMenuRow(
                             icon = Icons.Default.Language,
                             iconBg = Color(0xFF9B8BF4),
-                            title = "Sprache",
-                            subtitle = "Deutsch (Systemstandard)",
-                            onClick = {
-                                statusMessage = "Sprache ist auf Deutsch (DACH) optimiert."
-                            }
+                            title = "Sprache & Region",
+                            subtitle = settings.appLanguage.displayName,
+                            onClick = { activeSubPage = "language" }
                         )
                         RowDivider()
 
                         SettingsMenuRow(
                             icon = Icons.Default.Home,
-                            iconBg = Color(0xFF00C7BE),
+                            iconBg = Color(0xFF30D158),
                             title = "Standard-Startbildschirm auswählen",
-                            subtitle = if (state.isDefaultLauncher) "TMS OS ist als Standard aktiv" else "Tippen, um TMS OS als Standard festzulegen",
+                            subtitle = if (state.isDefaultLauncher) "TMS OS ist als Standard-Launcher aktiv" else "Tippen, um TMS OS als Standard festzulegen",
                             onClick = {
                                 try {
                                     val intent = Intent(Settings.ACTION_HOME_SETTINGS).apply {
@@ -518,7 +525,7 @@ private fun SettingsSubPageContent(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 18.dp)
+                .padding(bottom = 16.dp)
         ) {
             Box(
                 contentAlignment = Alignment.Center,
@@ -529,7 +536,7 @@ private fun SettingsSubPageContent(
                     .clickable { onBack() }
             ) {
                 Icon(
-                    imageVector = Icons.Default.ArrowBack,
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "Zurück",
                     tint = Color.White
                 )
@@ -537,14 +544,14 @@ private fun SettingsSubPageContent(
             Spacer(modifier = Modifier.width(12.dp))
             Text(
                 text = when (subPage) {
-                    "general" -> "Allgemein & Intelligente Suche"
-                    "appearance" -> "Erscheinungsbild & Icons"
-                    "weather" -> "Wetter & Smart Widgets"
+                    "general" -> "Allgemein & Spotlight-Suche"
+                    "appearance" -> "Erscheinungsbild & iOS-Icons"
+                    "weather" -> "Live-Wetter & Smart Widgets"
                     "transition" -> "Seitenübergang"
-                    "grid" -> "Screen Grid & Fold-Raster"
-                    "fold" -> "Samsung Galaxy Fold Modus"
+                    "grid" -> "Screen Grid & Fold-Layout"
                     "badges" -> "Badge-Benachrichtigungen"
-                    "hidden" -> "Ausgeblendete Apps"
+                    "hidden" -> "Kategorien & Apps verwalten"
+                    "language" -> "Sprache & Region"
                     else -> "Einstellungen"
                 },
                 color = Color.White,
@@ -555,17 +562,48 @@ private fun SettingsSubPageContent(
 
         LazyColumn(
             verticalArrangement = Arrangement.spacedBy(14.dp),
+            contentPadding = PaddingValues(bottom = 32.dp),
             modifier = Modifier.fillMaxSize()
         ) {
             when (subPage) {
                 "general" -> {
                     item {
                         SettingsSwitchCard(
+                            title = "Swipe-Down für Spotlight-Suche",
+                            subtitle = "Wische irgendwo auf dem Homescreen nach unten, um sofort Spotlight zu öffnen",
+                            checked = settings.enableSwipeDownSpotlight,
+                            onCheckedChange = { v ->
+                                viewModel.updateSettings { it.copy(enableSwipeDownSpotlight = v) }
+                            }
+                        )
+                    }
+                    item {
+                        SettingsSwitchCard(
+                            title = "Tastatur in Spotlight sofort öffnen",
+                            subtitle = "Blendet die Tastatur direkt beim Herunterziehen ein, sodass du sofort tippen kannst",
+                            checked = settings.autoOpenKeyboardInSpotlight,
+                            onCheckedChange = { v ->
+                                viewModel.updateSettings { it.copy(autoOpenKeyboardInSpotlight = v) }
+                            }
+                        )
+                    }
+                    item {
+                        SettingsSwitchCard(
                             title = "Direkt-Start bei eindeutigem Suchtreffer",
-                            subtitle = "Startet die App in Spotlight sofort, sobald nur noch 1 Treffer übrig ist",
+                            subtitle = "Startet die App in Spotlight automatisch, sobald nur noch 1 passender Treffer übrig ist",
                             checked = settings.instantLaunchSingleSearchResult,
                             onCheckedChange = { v ->
                                 viewModel.updateSettings { it.copy(instantLaunchSingleSearchResult = v) }
+                            }
+                        )
+                    }
+                    item {
+                        SettingsSwitchCard(
+                            title = "Web-Suche (Google, YouTube, Play Store) in Spotlight",
+                            subtitle = "Zeigt unter den App-Treffern Direkt-Buttons für Web-, Video- und Store-Suche",
+                            checked = settings.showWebSearchInSpotlight,
+                            onCheckedChange = { v ->
+                                viewModel.updateSettings { it.copy(showWebSearchInSpotlight = v) }
                             }
                         )
                     }
@@ -595,7 +633,7 @@ private fun SettingsSubPageContent(
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "Wähle, wie dein Homescreen automatisch strukturiert werden soll:",
+                                text = "Ordnet deinen gesamten Homescreen automatisch ohne manuelles Verschieben:",
                                 color = Color(0xFF8E8E93),
                                 fontSize = 13.sp
                             )
@@ -612,7 +650,7 @@ private fun SettingsSubPageContent(
                                     .padding(vertical = 13.dp)
                             ) {
                                 Text(
-                                    text = "Wichtigste Apps + Smart-Kategorie-Ordner anlegen",
+                                    text = "Alltags-Apps + Smart-Kategorie-Ordner anlegen",
                                     color = Color.White,
                                     fontWeight = FontWeight.SemiBold,
                                     fontSize = 14.sp
@@ -631,7 +669,7 @@ private fun SettingsSubPageContent(
                                     .padding(vertical = 13.dp)
                             ) {
                                 Text(
-                                    text = "Alle Ordner auflösen & nach Kategorie sortieren",
+                                    text = "Alle Ordner auflösen & flach nach Kategorien sortieren",
                                     color = Color.White,
                                     fontWeight = FontWeight.Medium,
                                     fontSize = 14.sp
@@ -642,6 +680,72 @@ private fun SettingsSubPageContent(
                 }
 
                 "appearance" -> {
+                    // Live Icon Preview Card
+                    item {
+                        val sampleApps = state.allApps.take(4)
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(22.dp))
+                                .background(
+                                    Brush.verticalGradient(
+                                        listOf(Color(0xFF1F2430), Color(0xFF12141C))
+                                    )
+                                )
+                                .border(0.8.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(22.dp))
+                                .padding(16.dp)
+                        ) {
+                            Text(
+                                text = "LIVE-VORSCHAU",
+                                color = Color.White.copy(alpha = 0.5f),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.8.sp
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Row(
+                                horizontalArrangement = Arrangement.SpaceEvenly,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                sampleApps.forEach { app ->
+                                    IosAppIconView(
+                                        app = app,
+                                        iconSize = 59.dp * settings.iconSizeScale,
+                                        labelFontSizeSp = settings.labelFontSizeSp,
+                                        showLabel = settings.showAppLabels,
+                                        showBadges = settings.enableBadges,
+                                        isJiggleMode = false,
+                                        onClick = {},
+                                        onLongClick = {}
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    item {
+                        SettingsSwitchCard(
+                            title = "Echte iOS 18 System-Icons verwenden",
+                            subtitle = "Ersetzt Kamera, Fotos, Live-Kalender (mit aktuellem Datum!), Uhr, Telefon & Einstellungen durch native Apple iOS 18 Icons",
+                            checked = settings.useIosSystemIcons,
+                            onCheckedChange = { v ->
+                                viewModel.updateSettings { it.copy(useIosSystemIcons = v) }
+                            }
+                        )
+                    }
+
+                    item {
+                        SettingsSwitchCard(
+                            title = "Randlose Vollbild-Squircle-Icons (Full-Bleed)",
+                            subtitle = "Entfernt automatisch dunkle Kästchen/Ränder um Samsung- & Android-Icons für 100% echte Apple-Squircles",
+                            checked = settings.fullBleedAdaptiveIcons,
+                            onCheckedChange = { v ->
+                                viewModel.updateSettings { it.copy(fullBleedAdaptiveIcons = v) }
+                            }
+                        )
+                    }
+
                     item {
                         Column(
                             modifier = Modifier
@@ -650,12 +754,23 @@ private fun SettingsSubPageContent(
                                 .background(Color(0xFF1C1C1E))
                                 .padding(16.dp)
                         ) {
-                            Text(
-                                text = "Icon-Größe: ${(settings.iconSizeScale * 100).toInt()}%",
-                                color = Color.White,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
+                            Row(
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = "Icon-Größe",
+                                    color = Color.White,
+                                    fontSize = 15.5.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = "${(settings.iconSizeScale * 100).roundToInt()}%",
+                                    color = Color(0xFF0A84FF),
+                                    fontSize = 15.5.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                             Slider(
                                 value = settings.iconSizeScale,
                                 onValueChange = { scale ->
@@ -667,73 +782,156 @@ private fun SettingsSubPageContent(
                                     activeTrackColor = Color(0xFF0A84FF)
                                 )
                             )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Row(
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = "Schriftgröße der App-Namen",
+                                    color = Color.White,
+                                    fontSize = 15.5.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = "${settings.labelFontSizeSp.roundToInt()} sp",
+                                    color = Color(0xFF0A84FF),
+                                    fontSize = 15.5.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            Slider(
+                                value = settings.labelFontSizeSp,
+                                onValueChange = { sz ->
+                                    viewModel.updateSettings { it.copy(labelFontSizeSp = sz) }
+                                },
+                                valueRange = 9.5f..14.0f,
+                                colors = SliderDefaults.colors(
+                                    thumbColor = Color.White,
+                                    activeTrackColor = Color(0xFF0A84FF)
+                                )
+                            )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Row(
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = "Frosted-Glass Deckkraft (Dock & Ordner)",
+                                    color = Color.White,
+                                    fontSize = 15.5.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = "${(settings.glassOpacity * 100).roundToInt()}%",
+                                    color = Color(0xFF0A84FF),
+                                    fontSize = 15.5.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            Slider(
+                                value = settings.glassOpacity,
+                                onValueChange = { op ->
+                                    viewModel.updateSettings { it.copy(glassOpacity = op) }
+                                },
+                                valueRange = 0.45f..0.95f,
+                                colors = SliderDefaults.colors(
+                                    thumbColor = Color.White,
+                                    activeTrackColor = Color(0xFF0A84FF)
+                                )
+                            )
                         }
                     }
+
                     item {
                         SettingsSwitchCard(
                             title = "App-Namen auf dem Homescreen anzeigen",
-                            subtitle = "Blendet die Beschriftung unter den Icons ein oder aus",
+                            subtitle = "Blendet die Beschriftung unter den Icons auf dem Homescreen ein oder aus",
                             checked = settings.showAppLabels,
                             onCheckedChange = { v ->
                                 viewModel.updateSettings { it.copy(showAppLabels = v) }
                             }
                         )
                     }
+
                     item {
                         SettingsSwitchCard(
                             title = "App-Namen im Dock anzeigen",
-                            subtitle = "Standardmäßig bei iOS ausgeblendet für einen cleanen Look",
+                            subtitle = "Bei iOS standardmäßig ausgeblendet für ein cleanes Dock",
                             checked = settings.showDockLabels,
                             onCheckedChange = { v ->
                                 viewModel.updateSettings { it.copy(showDockLabels = v) }
                             }
                         )
                     }
+
                     item {
-                        SettingsSwitchCard(
-                            title = "Zuletzt genutzte Apps im aufgeklappten Dock",
-                            subtitle = "Zeigt auf dem großen Fold-Display rechts im Dock die 3 zuletzt geöffneten Apps (wie iPadOS)",
-                            checked = settings.showRecentInUnfoldedDock,
-                            onCheckedChange = { v ->
-                                viewModel.updateSettings { it.copy(showRecentInUnfoldedDock = v) }
-                            }
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(18.dp))
+                                .background(Color(0xFF0A84FF))
+                                .clickable { viewModel.openWallpaperPicker() }
+                                .padding(15.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Wallpaper,
+                                contentDescription = null,
+                                tint = Color.White
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = "System-Hintergrundbild (Wallpaper) ändern",
+                                color = Color.White,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
 
                 "weather" -> {
                     item {
-                        SettingsSwitchCard(
-                            title = "iOS Uhr- & Wetter-Widgets auf Seite 1 anzeigen",
-                            subtitle = "Zeigt oben auf dem ersten Homescreen das Kalender-/Uhr- und Wetter-Widget",
-                            checked = settings.showTopWidgetsOnFirstPage,
-                            onCheckedChange = { v ->
-                                viewModel.updateSettings { it.copy(showTopWidgetsOnFirstPage = v) }
-                            }
-                        )
-                    }
-                    item {
                         var cityInput by remember(settings.weatherCity) { mutableStateOf(settings.weatherCity) }
+
                         Column(
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(20.dp))
+                                .clip(RoundedCornerShape(22.dp))
                                 .background(Color(0xFF1C1C1E))
                                 .padding(16.dp)
                         ) {
-                            Text(
-                                text = "Standort für Wetter-Widget",
-                                color = Color.White,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column {
+                                    Text(
+                                        text = "Live-Wetter Standort",
+                                        color = Color.White,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "Aktuell: ${settings.weatherCity} • ${settings.weatherTempCelsius}°C (${settings.weatherCondition})",
+                                        color = Color(0xFF30D158),
+                                        fontSize = 12.5.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
+
                             BasicTextField(
                                 value = cityInput,
-                                onValueChange = {
-                                    cityInput = it
-                                    viewModel.updateSettings { s -> s.copy(weatherCity = it) }
-                                },
+                                onValueChange = { cityInput = it },
                                 singleLine = true,
                                 textStyle = TextStyle(color = Color.White, fontSize = 16.sp),
                                 cursorBrush = SolidColor(Color(0xFF0A84FF)),
@@ -741,8 +939,128 @@ private fun SettingsSubPageContent(
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(12.dp))
                                     .background(Color(0xFF2C2C2E))
-                                    .padding(12.dp)
+                                    .padding(13.dp)
                             )
+
+                            // Quick City Chips
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                items(listOf("Berlin", "Dubai", "München", "Frankfurt", "Hamburg", "Wien", "Zürich", "Istanbul")) { presetCity ->
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(CircleShape)
+                                            .background(
+                                                if (cityInput.equals(presetCity, ignoreCase = true)) Color(0xFF0A84FF)
+                                                else Color(0xFF2C2C2E)
+                                            )
+                                            .clickable {
+                                                cityInput = presetCity
+                                                viewModel.refreshLiveWeatherForCity(presetCity)
+                                            }
+                                            .padding(horizontal = 14.dp, vertical = 7.dp)
+                                    ) {
+                                        Text(
+                                            text = presetCity,
+                                            color = Color.White,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                }
+                            }
+
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(Color(0xFF0A84FF))
+                                    .clickable {
+                                        viewModel.refreshLiveWeatherForCity(cityInput)
+                                    }
+                                    .padding(vertical = 13.dp)
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.Refresh,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = if (state.isWeatherRefreshing) "Lade Live-Wetterdaten…" else "Jetzt Live-Wetter für „$cityInput“ abrufen",
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    item {
+                        SettingsSwitchCard(
+                            title = "Top-Widgets auf Seite 1 anzeigen",
+                            subtitle = "Zeigt die zwei iOS Smart-Widgets oben auf der ersten Homescreen-Seite",
+                            checked = settings.showTopWidgetsOnFirstPage,
+                            onCheckedChange = { v ->
+                                viewModel.updateSettings { it.copy(showTopWidgetsOnFirstPage = v) }
+                            }
+                        )
+                    }
+
+                    item {
+                        SettingsSwitchCard(
+                            title = "Temperatur in Fahrenheit (°F)",
+                            subtitle = "Standardmäßig in Celsius (°C)",
+                            checked = settings.useFahrenheit,
+                            onCheckedChange = { v ->
+                                viewModel.updateSettings { it.copy(useFahrenheit = v) }
+                            }
+                        )
+                    }
+
+                    item {
+                        Text(
+                            text = "Linkes Smart-Widget auswählen (oder direkt auf dem Homescreen antippen)",
+                            color = Color(0xFF8E8E93),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+
+                    items(LeftWidgetType.entries) { wType ->
+                        val selected = settings.leftWidgetType == wType
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(Color(0xFF1C1C1E))
+                                .border(
+                                    width = if (selected) 1.5.dp else 0.dp,
+                                    color = if (selected) Color(0xFF0A84FF) else Color.Transparent,
+                                    shape = RoundedCornerShape(16.dp)
+                                )
+                                .clickable {
+                                    viewModel.updateSettings { it.copy(leftWidgetType = wType) }
+                                }
+                                .padding(16.dp)
+                        ) {
+                            Text(
+                                text = wType.titleDe,
+                                color = Color.White,
+                                fontSize = 15.5.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            if (selected) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = null,
+                                    tint = Color(0xFF0A84FF)
+                                )
+                            }
                         }
                     }
                 }
@@ -757,17 +1075,30 @@ private fun SettingsSubPageContent(
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(18.dp))
                                 .background(Color(0xFF1C1C1E))
+                                .border(
+                                    width = if (selected) 1.5.dp else 0.dp,
+                                    color = if (selected) Color(0xFF0A84FF) else Color.Transparent,
+                                    shape = RoundedCornerShape(18.dp)
+                                )
                                 .clickable {
                                     viewModel.updateSettings { it.copy(pageTransition = effect) }
                                 }
-                                .padding(18.dp)
+                                .padding(16.dp)
                         ) {
-                            Text(
-                                text = effect.titleDe,
-                                color = Color.White,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Medium
-                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = effect.titleDe,
+                                    color = Color.White,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Spacer(modifier = Modifier.height(3.dp))
+                                Text(
+                                    text = effect.descDe,
+                                    color = Color(0xFF8E8E93),
+                                    fontSize = 12.5.sp
+                                )
+                            }
                             if (selected) {
                                 Icon(
                                     imageVector = Icons.Default.Check,
@@ -779,10 +1110,10 @@ private fun SettingsSubPageContent(
                     }
                 }
 
-                "fold", "grid" -> {
+                "grid" -> {
                     item {
                         Text(
-                            text = "Verhalten im aufgeklappten Zustand (Galaxy Fold Innendisplay)",
+                            text = "Samsung Galaxy Fold Innendisplay-Modus (Aufgeklappt)",
                             color = Color(0xFF8E8E93),
                             fontSize = 13.5.sp,
                             fontWeight = FontWeight.SemiBold
@@ -841,57 +1172,75 @@ private fun SettingsSubPageContent(
                                 .padding(16.dp)
                         ) {
                             Text(
-                                text = "Frontdisplay Raster (Cover Screen): ${settings.coverColumns} Spalten × ${settings.coverRows} Zeilen",
+                                text = "Frontdisplay (Cover Screen): ${settings.coverColumns} Spalten × ${settings.coverRows} Zeilen",
                                 color = Color.White,
                                 fontSize = 15.sp,
-                                fontWeight = FontWeight.SemiBold
+                                fontWeight = FontWeight.Bold
                             )
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                listOf(4 to 5, 4 to 6, 5 to 6).forEach { (c, r) ->
-                                    val active = settings.coverColumns == c && settings.coverRows == r
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(12.dp))
-                                            .background(if (active) Color(0xFF0A84FF) else Color(0xFF2C2C2E))
-                                            .clickable {
-                                                viewModel.updateSettings {
-                                                    it.copy(coverColumns = c, coverRows = r)
-                                                }
-                                            }
-                                            .padding(horizontal = 16.dp, vertical = 10.dp)
-                                    ) {
-                                        Text("${c}×${r}", color = Color.White, fontWeight = FontWeight.Bold)
-                                    }
-                                }
-                            }
+                            Text("Spalten (Außen):", color = Color(0xFF8E8E93), fontSize = 12.5.sp)
+                            IosSegmentedRow(
+                                options = listOf(3, 4, 5),
+                                selected = settings.coverColumns,
+                                labelFor = { "$it Spalten" },
+                                onSelect = { c -> viewModel.updateSettings { it.copy(coverColumns = c) } }
+                            )
+                            Text("Zeilen (Außen):", color = Color(0xFF8E8E93), fontSize = 12.5.sp)
+                            IosSegmentedRow(
+                                options = listOf(4, 5, 6, 7),
+                                selected = settings.coverRows,
+                                labelFor = { "$it Zeilen" },
+                                onSelect = { r -> viewModel.updateSettings { it.copy(coverRows = r) } }
+                            )
 
-                            Spacer(modifier = Modifier.height(8.dp))
+                            HorizontalDivider(thickness = 0.5.dp, color = Color.White.copy(alpha = 0.1f))
 
                             Text(
-                                text = "Innendisplay Raster (iPadOS Modus): ${settings.mainUnfoldedColumns} Spalten × ${settings.mainUnfoldedRows} Zeilen",
+                                text = "Innendisplay (Main Unfolded): ${settings.mainUnfoldedColumns} Spalten × ${settings.mainUnfoldedRows} Zeilen",
                                 color = Color.White,
                                 fontSize = 15.sp,
-                                fontWeight = FontWeight.SemiBold
+                                fontWeight = FontWeight.Bold
                             )
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                listOf(6 to 5, 6 to 6, 7 to 5, 8 to 5).forEach { (c, r) ->
-                                    val active = settings.mainUnfoldedColumns == c && settings.mainUnfoldedRows == r
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(12.dp))
-                                            .background(if (active) Color(0xFF0A84FF) else Color(0xFF2C2C2E))
-                                            .clickable {
-                                                viewModel.updateSettings {
-                                                    it.copy(mainUnfoldedColumns = c, mainUnfoldedRows = r)
-                                                }
-                                            }
-                                            .padding(horizontal = 16.dp, vertical = 10.dp)
-                                    ) {
-                                        Text("${c}×${r}", color = Color.White, fontWeight = FontWeight.Bold)
-                                    }
-                                }
-                            }
+                            Text("Spalten (Innen):", color = Color(0xFF8E8E93), fontSize = 12.5.sp)
+                            IosSegmentedRow(
+                                options = listOf(5, 6, 7, 8),
+                                selected = settings.mainUnfoldedColumns,
+                                labelFor = { "$it Spalten" },
+                                onSelect = { c -> viewModel.updateSettings { it.copy(mainUnfoldedColumns = c) } }
+                            )
+                            Text("Zeilen (Innen):", color = Color(0xFF8E8E93), fontSize = 12.5.sp)
+                            IosSegmentedRow(
+                                options = listOf(4, 5, 6),
+                                selected = settings.mainUnfoldedRows,
+                                labelFor = { "$it Zeilen" },
+                                onSelect = { r -> viewModel.updateSettings { it.copy(mainUnfoldedRows = r) } }
+                            )
+
+                            HorizontalDivider(thickness = 0.5.dp, color = Color.White.copy(alpha = 0.1f))
+
+                            Text(
+                                text = "Anzahl der gepinnten Apps im Dock: ${settings.dockIconCount}",
+                                color = Color.White,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            IosSegmentedRow(
+                                options = listOf(4, 5, 6),
+                                selected = settings.dockIconCount,
+                                labelFor = { "$it Dock-Apps" },
+                                onSelect = { d -> viewModel.updateSettings { it.copy(dockIconCount = d) } }
+                            )
                         }
+                    }
+
+                    item {
+                        SettingsSwitchCard(
+                            title = "Zuletzt genutzte Apps im aufgeklappten Dock",
+                            subtitle = "Zeigt auf dem Innendisplay rechts im Dock automatisch die 3 zuletzt geöffneten Apps (wie bei iPadOS)",
+                            checked = settings.showRecentInUnfoldedDock,
+                            onCheckedChange = { v ->
+                                viewModel.updateSettings { it.copy(showRecentInUnfoldedDock = v) }
+                            }
+                        )
                     }
                 }
 
@@ -917,16 +1266,16 @@ private fun SettingsSubPageContent(
                         ) {
                             Text(
                                 text = if (state.isBadgeServiceEnabled) {
-                                    "Status: Benachrichtigungszugriff ist aktiv"
+                                    "✓ Benachrichtigungszugriff ist aktiv"
                                 } else {
-                                    "Status: Benachrichtigungszugriff noch nicht erteilt"
+                                    "Benachrichtigungszugriff noch nicht erteilt"
                                 },
                                 color = if (state.isBadgeServiceEnabled) Color(0xFF30D158) else Color(0xFFFF9F0A),
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "Damit TMS OS die Anzahl ungelesener Nachrichten (z. B. bei WhatsApp oder Mail) zählen kann, aktiviere „TMS OS“ in den Android-Benachrichtigungszugriffen.",
+                                text = "Damit TMS OS ungelesene Nachrichten (z. B. bei WhatsApp, Telegram oder Mail) in Echtzeit zählen kann, aktiviere „TMS OS“ in den Android-Benachrichtigungszugriffen.",
                                 color = Color(0xFF8E8E93),
                                 fontSize = 13.sp
                             )
@@ -958,46 +1307,224 @@ private fun SettingsSubPageContent(
                 }
 
                 "hidden" -> {
-                    val hiddenApps = state.allApps.filter { it.isHidden }
-                    if (hiddenApps.isEmpty()) {
-                        item {
-                            Text(
-                                text = "Aktuell sind keine Apps ausgeblendet. Du kannst jede App auf dem Homescreen gedrückt halten und auf „App ausblenden“ tippen.",
-                                color = Color(0xFF8E8E93),
-                                fontSize = 14.sp,
-                                modifier = Modifier.padding(8.dp)
-                            )
+                    item {
+                        var filterQuery by remember { mutableStateOf("") }
+                        var onlyHidden by remember { mutableStateOf(false) }
+                        var editingCategoryForPkg by remember { mutableStateOf<String?>(null) }
+
+                        val filteredApps = remember(state.allApps, filterQuery, onlyHidden) {
+                            state.allApps.filter { app ->
+                                (!onlyHidden || app.isHidden) &&
+                                    (filterQuery.isBlank() ||
+                                        app.displayLabel.contains(filterQuery, ignoreCase = true) ||
+                                        app.category.titleDe.contains(filterQuery, ignoreCase = true))
+                            }
                         }
-                    } else {
-                        items(hiddenApps, key = { it.packageName }) { app ->
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .background(Color(0xFF1C1C1E))
-                                    .padding(14.dp)
-                            ) {
-                                Text(
-                                    text = app.displayLabel,
-                                    color = Color.White,
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Medium
+
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                BasicTextField(
+                                    value = filterQuery,
+                                    onValueChange = { filterQuery = it },
+                                    singleLine = true,
+                                    textStyle = TextStyle(color = Color.White, fontSize = 15.sp),
+                                    cursorBrush = SolidColor(Color(0xFF0A84FF)),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(Color(0xFF1C1C1E))
+                                        .padding(12.dp)
                                 )
                                 Box(
+                                    contentAlignment = Alignment.Center,
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(Color(0xFF0A84FF))
-                                        .clickable { viewModel.hideOrUnhideApp(app.packageName, false) }
-                                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(if (onlyHidden) Color(0xFF0A84FF) else Color(0xFF1C1C1E))
+                                        .clickable { onlyHidden = !onlyHidden }
+                                        .padding(horizontal = 14.dp, vertical = 12.dp)
                                 ) {
-                                    Text("Einblenden", color = Color.White, fontSize = 13.sp)
+                                    Text(
+                                        text = if (onlyHidden) "Nur Ausgeblendete" else "Alle (${state.allApps.size})",
+                                        color = Color.White,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+
+                            filteredApps.forEach { app ->
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .background(Color(0xFF1C1C1E))
+                                        .padding(12.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Box(modifier = Modifier.size(42.dp)) {
+                                                if (app.iconBitmap != null) {
+                                                    Image(
+                                                        bitmap = app.iconBitmap,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.fillMaxSize()
+                                                    )
+                                                }
+                                            }
+                                            Spacer(modifier = Modifier.width(12.dp))
+                                            Column {
+                                                Text(
+                                                    text = app.displayLabel,
+                                                    color = Color.White,
+                                                    fontSize = 15.sp,
+                                                    fontWeight = FontWeight.SemiBold
+                                                )
+                                                Text(
+                                                    text = "Kategorie: ${app.category.titleDe} (Tippen zum Ändern)",
+                                                    color = Color(0xFF0A84FF),
+                                                    fontSize = 12.sp,
+                                                    modifier = Modifier.clickable {
+                                                        editingCategoryForPkg =
+                                                            if (editingCategoryForPkg == app.packageName) null else app.packageName
+                                                    }
+                                                )
+                                            }
+                                        }
+
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(10.dp))
+                                                .background(
+                                                    if (app.isHidden) Color(0xFF30D158)
+                                                    else Color(0xFF2C2C2E)
+                                                )
+                                                .clickable {
+                                                    viewModel.hideOrUnhideApp(app.packageName, !app.isHidden)
+                                                }
+                                                .padding(horizontal = 12.dp, vertical = 7.dp)
+                                        ) {
+                                            Text(
+                                                text = if (app.isHidden) "Einblenden" else "Ausblenden",
+                                                color = Color.White,
+                                                fontSize = 12.5.sp,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                        }
+                                    }
+
+                                    if (editingCategoryForPkg == app.packageName) {
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            items(AppCategory.entries.filter { it != AppCategory.SUGGESTIONS }) { cat ->
+                                                val isCurrent = cat == app.category
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(CircleShape)
+                                                        .background(
+                                                            if (isCurrent) Color(0xFF0A84FF) else Color(0xFF2C2C2E)
+                                                        )
+                                                        .clickable {
+                                                            viewModel.changeAppCategory(app.packageName, cat)
+                                                            editingCategoryForPkg = null
+                                                        }
+                                                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                                                ) {
+                                                    Text(
+                                                        text = cat.titleDe,
+                                                        color = Color.White,
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.Medium
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
                 }
+
+                "language" -> {
+                    items(AppLanguage.entries) { lang ->
+                        val selected = settings.appLanguage == lang
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(18.dp))
+                                .background(Color(0xFF1C1C1E))
+                                .border(
+                                    width = if (selected) 1.5.dp else 0.dp,
+                                    color = if (selected) Color(0xFF0A84FF) else Color.Transparent,
+                                    shape = RoundedCornerShape(18.dp)
+                                )
+                                .clickable {
+                                    viewModel.updateSettings { it.copy(appLanguage = lang) }
+                                }
+                                .padding(18.dp)
+                        ) {
+                            Text(
+                                text = lang.displayName,
+                                color = Color.White,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            if (selected) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = null,
+                                    tint = Color(0xFF0A84FF)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun <T> IosSegmentedRow(
+    options: List<T>,
+    selected: T,
+    labelFor: (T) -> String,
+    onSelect: (T) -> Unit
+) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color(0xFF2C2C2E))
+            .padding(4.dp)
+    ) {
+        options.forEach { opt ->
+            val isSelected = opt == selected
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(9.dp))
+                    .background(if (isSelected) Color(0xFF0A84FF) else Color.Transparent)
+                    .clickable { onSelect(opt) }
+                    .padding(vertical = 8.dp)
+            ) {
+                Text(
+                    text = labelFor(opt),
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                )
             }
         }
     }
@@ -1017,9 +1544,14 @@ private fun SettingsSwitchCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(20.dp))
             .background(Color(0xFF1C1C1E))
+            .clickable { onCheckedChange(!checked) }
             .padding(16.dp)
     ) {
-        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(end = 12.dp)
+        ) {
             Text(
                 text = title,
                 color = Color.White,
@@ -1038,7 +1570,9 @@ private fun SettingsSwitchCard(
             onCheckedChange = onCheckedChange,
             colors = SwitchDefaults.colors(
                 checkedThumbColor = Color.White,
-                checkedTrackColor = Color(0xFF30D158)
+                checkedTrackColor = Color(0xFF30D158),
+                uncheckedThumbColor = Color.White,
+                uncheckedTrackColor = Color(0xFF39393D)
             )
         )
     }

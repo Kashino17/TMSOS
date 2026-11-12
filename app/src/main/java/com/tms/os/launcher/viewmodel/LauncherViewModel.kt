@@ -10,6 +10,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.tms.os.launcher.data.LauncherRepository
 import com.tms.os.launcher.domain.SpotlightSearchEngine
+import com.tms.os.launcher.domain.WeatherService
 import com.tms.os.launcher.model.AppCategory
 import com.tms.os.launcher.model.AppInfo
 import com.tms.os.launcher.model.HomeGridItem
@@ -41,8 +42,13 @@ data class LauncherUiState(
     val activeCategoryModal: AppCategory? = null,
     val selectedAppForMenu: AppInfo? = null,
     val isDefaultLauncher: Boolean = false,
-    val isBadgeServiceEnabled: Boolean = false
-)
+    val isBadgeServiceEnabled: Boolean = false,
+    val batteryPercent: Int = 85,
+    val isWeatherRefreshing: Boolean = false
+) {
+    val isAnyOverlayOpen: Boolean
+        get() = isSpotlightOpen || activeFolder != null || activeCategoryModal != null || selectedAppForMenu != null
+}
 
 class LauncherViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -52,7 +58,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         LauncherUiState(
             settings = repository.loadSettings(),
             isDefaultLauncher = repository.isDefaultLauncher(),
-            isBadgeServiceEnabled = repository.isNotificationListenerEnabled()
+            isBadgeServiceEnabled = repository.isNotificationListenerEnabled(),
+            batteryPercent = repository.getDeviceBatteryPercent()
         )
     )
     val uiState: StateFlow<LauncherUiState> = _uiState.asStateFlow()
@@ -76,7 +83,6 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             application.registerReceiver(packageReceiver, filter)
         }
 
-        // Observe live notification badges
         viewModelScope.launch {
             BadgeNotificationService.badgeCounts.collect { badgeMap ->
                 updateBadgesInMemory(badgeMap)
@@ -84,6 +90,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         }
 
         refreshApps()
+        refreshLiveWeatherIfNeeded()
     }
 
     override fun onCleared() {
@@ -95,12 +102,53 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun refreshSystemStatus() {
+        val loadedSettings = repository.loadSettings()
+        val prevSettings = _uiState.value.settings
+        val iconsChanged = prevSettings.useIosSystemIcons != loadedSettings.useIosSystemIcons ||
+            prevSettings.fullBleedAdaptiveIcons != loadedSettings.fullBleedAdaptiveIcons
+
         _uiState.update {
             it.copy(
-                settings = repository.loadSettings(),
+                settings = loadedSettings,
                 isDefaultLauncher = repository.isDefaultLauncher(),
-                isBadgeServiceEnabled = repository.isNotificationListenerEnabled()
+                isBadgeServiceEnabled = repository.isNotificationListenerEnabled(),
+                batteryPercent = repository.getDeviceBatteryPercent()
             )
+        }
+
+        if (iconsChanged) {
+            repository.clearIconCache()
+            refreshApps()
+        }
+        refreshLiveWeatherIfNeeded()
+    }
+
+    fun refreshLiveWeatherIfNeeded(force: Boolean = false) {
+        val s = _uiState.value.settings
+        val elapsed = System.currentTimeMillis() - s.weatherLastUpdated
+        if (!force && elapsed < 20 * 60 * 1000L && s.weatherLastUpdated > 0L) return
+
+        refreshLiveWeatherForCity(s.weatherCity)
+    }
+
+    fun refreshLiveWeatherForCity(cityQuery: String) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isWeatherRefreshing = true) }
+            val data = WeatherService.fetchLiveWeatherForCity(cityQuery)
+            if (data != null) {
+                updateSettings { current ->
+                    current.copy(
+                        weatherCity = data.resolvedCity,
+                        weatherTempCelsius = data.tempCelsius,
+                        weatherHighCelsius = data.highCelsius,
+                        weatherLowCelsius = data.lowCelsius,
+                        weatherCode = data.weatherCode,
+                        weatherCondition = data.conditionDe,
+                        weatherLastUpdated = System.currentTimeMillis()
+                    )
+                }
+            }
+            _uiState.update { it.copy(isWeatherRefreshing = false) }
         }
     }
 
@@ -108,9 +156,9 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             val badges = BadgeNotificationService.badgeCounts.value
             val settings = repository.loadSettings()
-            val apps = repository.loadInstalledApps(badges)
+            val apps = repository.loadInstalledApps(badges, settings)
             val appMap = apps.associateBy { it.packageName }
-            val dock = repository.loadDockPackages(apps)
+            val dock = repository.loadDockPackages(apps, settings.dockIconCount)
             val grid = repository.loadHomeGridItems(apps, dock)
             val recents = computeRecentPackages(apps, dock)
             val categorized = buildCategoryMap(apps)
@@ -131,7 +179,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                     activeFolder = updatedFolder,
                     spotlightResults = SpotlightSearchEngine.searchApps(state.spotlightQuery, apps),
                     isDefaultLauncher = repository.isDefaultLauncher(),
-                    isBadgeServiceEnabled = repository.isNotificationListenerEnabled()
+                    isBadgeServiceEnabled = repository.isNotificationListenerEnabled(),
+                    batteryPercent = repository.getDeviceBatteryPercent()
                 )
             }
         }
@@ -165,7 +214,6 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         val visible = apps.filter { !it.isHidden }
         val map = LinkedHashMap<AppCategory, List<AppInfo>>()
 
-        // 1. Suggestions (top used + recently installed)
         val suggestions = visible
             .sortedWith(
                 compareByDescending<AppInfo> { it.launchCount }
@@ -177,7 +225,6 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             map[AppCategory.SUGGESTIONS] = suggestions
         }
 
-        // 2. Group by Smart Category and sort each category by usage frequency then label
         val grouped = visible.groupBy { it.category }
         for (cat in AppCategory.entries) {
             if (cat == AppCategory.SUGGESTIONS) continue
@@ -220,10 +267,28 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun searchWeb(query: String, engine: String = "google") {
+        repository.launchWebSearch(query, engine)
+        closeSpotlight()
+    }
+
+    fun openWallpaperPicker() {
+        repository.openWallpaperPicker()
+    }
+
     fun updateSettings(transform: (LauncherSettings) -> LauncherSettings) {
-        val newSettings = transform(_uiState.value.settings)
+        val old = _uiState.value.settings
+        val newSettings = transform(old)
         repository.saveSettings(newSettings)
         _uiState.update { it.copy(settings = newSettings) }
+
+        if (old.useIosSystemIcons != newSettings.useIosSystemIcons ||
+            old.fullBleedAdaptiveIcons != newSettings.fullBleedAdaptiveIcons ||
+            old.dockIconCount != newSettings.dockIconCount
+        ) {
+            repository.clearIconCache()
+            refreshApps()
+        }
     }
 
     fun setJiggleMode(enabled: Boolean) {
@@ -266,7 +331,6 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             )
         }
 
-        // Instant launch if enabled and query is at least 2 chars and unambiguous
         if (state.settings.instantLaunchSingleSearchResult &&
             query.trim().length >= 2 &&
             results.size == 1 &&
@@ -348,7 +412,6 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     fun moveAppIntoFolder(packageName: String, targetFolderId: String) {
         val current = _uiState.value.homeGridItems.toMutableList()
-        // Remove standalone AppItem or from existing folder
         current.removeAll { it is HomeGridItem.AppItem && it.packageName == packageName }
         for (i in current.indices) {
             val item = current[i]
@@ -357,7 +420,6 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 current[i] = item.copy(appPackages = remaining)
             }
         }
-        // Add to target folder
         for (i in current.indices) {
             val item = current[i]
             if (item is HomeGridItem.FolderItem && item.folderId == targetFolderId) {
@@ -392,13 +454,14 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun togglePinToDock(packageName: String) {
+        val maxDock = _uiState.value.settings.dockIconCount.coerceIn(3, 6)
         val currentDock = _uiState.value.dockPackages.toMutableList()
         if (currentDock.contains(packageName)) {
             if (currentDock.size > 1) {
                 currentDock.remove(packageName)
             }
         } else {
-            if (currentDock.size >= 6) {
+            if (currentDock.size >= maxDock) {
                 currentDock.removeAt(currentDock.lastIndex)
             }
             currentDock.add(packageName)
@@ -415,6 +478,15 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         if (target == idx) return
         val item = list.removeAt(idx)
         list.add(target, item)
+        repository.saveHomeGridItems(list)
+        _uiState.update { it.copy(homeGridItems = list) }
+    }
+
+    fun swapGridItemsByIndex(fromIndex: Int, toIndex: Int) {
+        val list = _uiState.value.homeGridItems.toMutableList()
+        if (fromIndex !in list.indices || toIndex !in list.indices || fromIndex == toIndex) return
+        val item = list.removeAt(fromIndex)
+        list.add(toIndex, item)
         repository.saveHomeGridItems(list)
         _uiState.update { it.copy(homeGridItems = list) }
     }
