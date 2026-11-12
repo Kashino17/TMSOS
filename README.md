@@ -8,27 +8,76 @@ Ein maßgeschneiderter, werbefreier und kostenloser **iOS-Style Homescreen-Launc
 
 ---
 
+## Neu in v5.4.0 – Ordner wie bei iOS
+- **Apps in Ordnern verschieben**: im Ordner per Ziehen umsortieren; aus dem Ordner herausziehen – er klappt zu und die App hängt auf dem Home-Bildschirm am Finger (Seiten wechseln, ablegen, in andere Ordner ziehen).
+- **Ordner springen auf**: eine App länger über einen Ordner halten öffnet ihn, die Position im Ordner lässt sich direkt bestimmen.
+- **App-Mediathek**: nach unten ziehen öffnet die Suche.
+- **Spotlight**: nach oben wischen schließt.
+- **Dialoge** („… entfernen?“): deckender Hintergrund, Beschriftungen vollständig.
+- **Icons** für Rechner, Einstellungen und Kamera neu gezeichnet.
+- **Entfernt**: die eigene App-Übersicht (Wischen vom Dock nach oben) – dafür ist die System-Übersicht da.
+
+## Neu in v5.3.0 – fließende Übergänge
+- **App-Mediathek**: Kategorien wachsen aus ihrer Kachel heraus und schrumpfen wieder hinein; die Suche gleitet (Feld rückt nach links, „Abbrechen“ schiebt sich herein, Kacheln und Liste blenden ineinander).
+- **Spotlight**: Vorschläge und Treffer blenden weich über, Karten ändern ihre Größe animiert.
+- **Ordner und Long-Press-Menü**: der Hintergrund wird weich unscharf (in 1/8-Auflösung berechnet statt als Vollbild-Unschärfe pro Bild).
+- **Apps öffnen**: Start direkt aus dem Icon – auch aus Ordnern und Kategorien, ohne dass diese erst zuklappen; der Homescreen weicht sanfter zurück.
+- **Flüssiger**: Icons tragen ihre Form im Bild (kein Zuschneiden pro Frame mehr), beim Seitenwischen wird nicht mehr der ganze Bildschirm neu aufgebaut.
+
+## Neu in v5.2.0 – Icons füllen die Fläche
+- **App-Symbole ausgefüllt**: Android-Icons werden jetzt korrekt auf den sichtbaren Ausschnitt zugeschnitten, kleine Logos zusätzlich zentriert vergrößert – wie bei iOS füllt das Motiv das Icon.
+- **Icon-Stil „Dunkel"** neu: nur helle Hintergrundplatten werden dunkel, Motive behalten ihre Farbe.
+- **Icon-Stil „Getönt"** neu: dunkler Grund, Motiv in der Akzentfarbe.
+- **Echte Statusleiste** bleibt sichtbar (Netz, VPN, Benachrichtigungen); nur im Bearbeiten-Modus weicht sie den Knöpfen.
+
+## Neu in v5.1.0 – ruhiges, neutrales Design
+- **Neutrales dunkles Material** statt buntem Glas: Dock, Such-Pille, Mediathek-Kacheln, Menüs und Karten in einem einheitlichen Grau mit Haarlinie.
+- **Kompaktes Raster**: quadratische Zellen, oben ausgerichtet; Dock über dem Navigationsbalken, Dock-Icons exakt in den Rasterspalten.
+- **App-Mediathek** neu: zentrierte Such-Pille, Kategorie-Kacheln in Homescreen-Icon-Größe, Kategorien öffnen im Vollbild (Titel + Raster), alphabetische Suche mit A–Z-Leiste.
+- **Spotlight** neu: Vorschläge-Karte, Verlauf-Chips, große Trefferzeilen, Kontakte mit Nachricht/Anruf, „In Apps suchen“ (Web, Store, Karten), Suchfeld unten.
+- **Heute-Ansicht**: Kalender (mittel) + Wetter (groß), ohne Suchfeld.
+
+## Neu in v5.0.0 – iOS 26 Edition
+- **Echte Widgets** wie bei iOS (klein 2×2, mittel 4×2, groß 4×4): Wetter mit Stunden- und Tagesvorhersage, Kalender, Uhr/Weltzeit, Batterien, Siri-Vorschläge, Notizen – Icons fließen um Widgets herum.
+- **Smart Stack:** mehrere Widgets übereinander, vertikal durchwischen; entsteht aus der Galerie oder durch Ziehen eines Widgets auf ein gleich großes.
+- **Heute-Ansicht** links von Seite 1 und **Widget-Galerie** mit Suche und Größenauswahl („Bearbeiten“ → „Widget hinzufügen“).
+- **Bearbeiten wie iOS:** lang drücken und ziehen, andere Icons weichen animiert aus, am Rand halten wechselt die Seite, Ordner per Draufhalten, Apps zwischen Dock und Raster ziehen, Apps aus Ordnern ziehen.
+- **Spotlight folgt dem Finger** beim Herunterziehen.
+- **Ordner** wachsen aus dem Icon zum Glas-Panel; **Long-Press-Menü** am angehobenen Icon mit echten App-Kurzbefehlen.
+- **App-Umschalter:** auf dem Homescreen vom Dock hochwischen – Karten seitlich durchblättern, hochschnippen zum Schließen.
+- **iOS-Bewegung:** App-Start zoomt aus dem Icon, beim Zurückkehren federn die Icons an ihren Platz; Liquid-Glass-Dock.
+
+> Update: einfach die neue APK über die alte installieren – das Homescreen-Layout bleibt erhalten.
+
 ## Hauptfunktionen
 
 1. **Samsung Galaxy Fold Dual-Display Engine:**
    - **Cover Screen (Zugeklappt):** Klassisches iPhone-Raster (`4x6`, anpassbar) + Frosted-Glass-Dock.
    - **Main Screen (Aufgeklappt):** Wählbar zwischen **iPadOS Breitbild-Raster (`6x5` bis `8x5`)** inkl. *Zuletzt genutzte Apps*-Sektion im Dock oder **Dual-Page Buch-Modus** (zwei iPhone-Seiten nebeneinander).
-2. **Intelligente Auto-Kategorisierung & Smart App-Mediathek:**
+2. **Echte iOS-18-System-Symbole:**
+   - Native, von Hand nachgezeichnete Apple-Icons für Telefon, Nachrichten, Kamera, Uhr, Kalender (mit Live-Datum), Einstellungen, Dateien, Kontakte, Rechner, Fotos, Notizen, Mail, Musik und Wetter – inkl. echter **Superellipse (Squircle)** statt Android-`RoundedCornerShape`.
+   - **Inter** als SF-Pro-Ersatz (Inter Display für Large Titles), damit Typografie und Gewichte Apple's entsprechen.
+3. **Intelligente Auto-Kategorisierung & Smart App-Mediathek:**
    - Sortiert alle installierten Apps automatisch in sinnvolle Kategorien (*Soziale Netze, Finanzen & Banking, Produktivität & Büro, Unterhaltung & Medien, Shopping & Essen, Reisen & Navigation, Kreativität & Foto, Spiele, Dienstprogramme*).
    - **1-Klick Smart-Ordner Sortierung:** Räumt den gesamten Homescreen auf Wunsch mit einem Klick automatisch in iOS-Kategorie-Ordner auf.
    - **iOS App-Mediathek** auf der letzten Seite rechts (inkl. Direktstart der Top-3-Apps je Box, 2x2-Ordner-Erweiterung und A–Z Schnellliste).
-3. **Blitzschnelle Spotlight-Suche (Swipe Down):**
+4. **Blitzschnelle Spotlight-Suche (Swipe Down):**
    - Überall auf dem Homescreen nach unten wischen öffnet sofort Spotlight mit aktiver Tastatur.
    - **Fuzzy-Search & Kürzel-Erkennung:** Findet z. B. **W**hats**A**pp über `wa` oder **DB** Navigator über `db`, inklusive Tippfehler-Toleranz.
    - **Integrierter Sofort-Rechner:** Direkte Berechnung von Ausdrücken wie `45*12` in der Suchzeile.
    - **Optionaler Direkt-Start:** Startet die App automatisch, sobald nur noch 1 eindeutiger Treffer übrig ist.
-4. **TMS OS Command Center:**
-   - Dunkles iOS-Einstellungs-Dashboard zur kompletten Individualisierung von Icon-Größe, Raster, Seitenübergängen (Slide, 3D-Cube, Depth, Zoom), Wetter-Widget, ausgeblendeten Apps und Notification-Badges.
+5. **iOS-native Einstellungen (v4.1):**
+   - Komplett neu gebaut im iOS-Settings-Stil: **gruppierte Inset-Listen**, **Large Title mit Collapse**, 17-pt-Zeilen, echte **iOS-Switches**, echte **iOS-Slider**, echtes **Segmented Control** und System-Icon-Kacheln.
+   - Vollständig lokalisiert in **Deutsch, Englisch und Türkisch**.
+6. **iOS-Feeling im Detail:**
+   - Eigenes, gezeichnetes **Statusleiste**-Overlay (Uhr, Empfang, WLAN, Akku) – immer scharf, auch über Spotlight, Ordnern und Menüs.
+   - **Hardware-Blur** hinter allen Overlays, echte **Zoom-from-Icon**-App-Animation, **Jiggle-Modus** mit „Bearbeiten"/„Fertig"-Leiste wie auf iOS.
 
 ---
 
 ## Build aus dem Quellcode
 ```bash
-gradle assembleRelease
+./gradlew assembleRelease
+# APK: app/build.nosync/outputs/apk/release/app-release.apk
 ```
 Die signierte und R8-optimierte APK wird unter `app/build/outputs/apk/release/app-release.apk` sowie im Projekt-Root als `TMS-OS-Launcher.apk` abgelegt.

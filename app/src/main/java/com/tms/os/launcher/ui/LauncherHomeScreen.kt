@@ -1,1023 +1,1497 @@
 package com.tms.os.launcher.ui
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Spring
+import android.app.ActivityOptions
+import android.os.Build
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerDefaults
+import androidx.compose.foundation.pager.PagerSnapDistance
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.BlurEffect
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
-import com.tms.os.launcher.data.SystemStorageRamInfo
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.tms.os.launcher.domain.PlacedCell
+import com.tms.os.launcher.domain.calculateHomeLayout
+import com.tms.os.launcher.domain.packIntoPages
 import com.tms.os.launcher.model.AppCategory
 import com.tms.os.launcher.model.AppInfo
-import com.tms.os.launcher.model.FoldPostureMode
 import com.tms.os.launcher.model.HomeGridItem
-import com.tms.os.launcher.model.LeftWidgetType
-import com.tms.os.launcher.model.PageTransitionEffect
-import com.tms.os.launcher.model.RightWidgetType
-import com.tms.os.launcher.ui.components.IosAppIconView
-import com.tms.os.launcher.ui.components.IosAppLibraryScreen
-import com.tms.os.launcher.ui.components.IosCategoryExpandedModal
-import com.tms.os.launcher.ui.components.IosExpandedFolderModal
-import com.tms.os.launcher.ui.components.IosFolderGridIconView
-import com.tms.os.launcher.ui.components.IosFrostedDock
-import com.tms.os.launcher.ui.components.IosHapticTouchContextMenu
-import com.tms.os.launcher.ui.components.IosTopWidgetsHeader
-import com.tms.os.launcher.ui.components.IosWidgetGalleryBottomSheet
-import com.tms.os.launcher.ui.components.SpotlightSearchOverlay
+import com.tms.os.launcher.model.WidgetKind
+import com.tms.os.launcher.ui.components.IosAppIcon
+import com.tms.os.launcher.ui.components.IosAppLibraryPage
+import com.tms.os.launcher.ui.components.IosLibraryCategoryView
+import com.tms.os.launcher.ui.components.IosCustomizeSheet
+import com.tms.os.launcher.ui.components.IosFolderIcon
+import com.tms.os.launcher.ui.components.IosPageDots
+import com.tms.os.launcher.ui.components.IosSearchButton
+import com.tms.os.launcher.ui.home.IosSpotlight
+import com.tms.os.launcher.ui.home.AlertAction
+import com.tms.os.launcher.ui.home.GridGeometry
+import com.tms.os.launcher.ui.home.HomeDragState
+import com.tms.os.launcher.ui.home.FolderDragSession
+import com.tms.os.launcher.ui.home.FolderSlots
+import com.tms.os.launcher.ui.home.withoutFolderApp
+import com.tms.os.launcher.ui.home.HomeGridPage
+import com.tms.os.launcher.ui.home.Hover
+import com.tms.os.launcher.ui.home.IosAlert
+import com.tms.os.launcher.ui.home.IosAppMenu
+import com.tms.os.launcher.ui.home.IosFolderView
+import com.tms.os.launcher.ui.home.IosEditTopBar
+import com.tms.os.launcher.ui.home.IosWidgetGallery
+import com.tms.os.launcher.ui.home.RemoveBadge
+import com.tms.os.launcher.ui.home.TodayView
+import com.tms.os.launcher.ui.home.distance
+import com.tms.os.launcher.ui.home.homeDragGesture
+import com.tms.os.launcher.ui.home.jiggle
+import com.tms.os.launcher.ui.home.reorderFor
+import com.tms.os.launcher.ui.home.span
+import com.tms.os.launcher.ui.theme.IosMaterial
+import com.tms.os.launcher.ui.theme.IosMetrics
+import com.tms.os.launcher.ui.theme.IosText
+import com.tms.os.launcher.ui.theme.LocalWallpaperBackdrop
+import com.tms.os.launcher.ui.theme.WallpaperTone
+import com.tms.os.launcher.ui.theme.homeStrings
+import com.tms.os.launcher.ui.theme.iosStrings
+import com.tms.os.launcher.ui.theme.rememberWallpaperBackdrop
+import com.tms.os.launcher.ui.theme.wallpaperGlass
+import com.tms.os.launcher.ui.widgets.IosWidget
+import com.tms.os.launcher.ui.widgets.IosSmartStack
+import com.tms.os.launcher.ui.widgets.WidgetEnv
+import com.tms.os.launcher.ui.widgets.canonicalHeight
+import com.tms.os.launcher.ui.widgets.canonicalWidth
 import com.tms.os.launcher.viewmodel.LauncherViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlin.math.absoluteValue
-import kotlin.math.hypot
+import kotlinx.coroutines.withContext
+import kotlin.math.abs
 import kotlin.math.max
+import kotlin.math.roundToInt
 
-@OptIn(ExperimentalFoundationApi::class)
+/** How far the home screen is pushed "into" the display while an app is open. */
+private const val IOS_ZOOM_OUT = 1.14f
+/** Fast start, long gentle settle: the curve SpringBoard uses for app launch. */
+// Gentle start, long settle: the home screen eases away under the opening app
+// instead of vanishing within the first two frames.
+private val IosLaunchEasing = CubicBezierEasing(0.33f, 0f, 0.2f, 1f)
+/** Search pill / page dots row above the dock: 10 dp + 24 dp pill + 16 dp gap. */
+private val PillAreaHeight = 50.dp
+/** Pull distance that fully reveals Spotlight. */
+private val SpotlightPullDistance = 170.dp
+
 @Composable
 fun LauncherHomeScreen(
     viewModel: LauncherViewModel,
     onOpenSettingsActivity: () -> Unit
 ) {
     val state by viewModel.uiState.collectAsState()
-    val scope = rememberCoroutineScope()
-    val haptic = LocalHapticFeedback.current
+    var revision by remember { mutableStateOf(0) }
+    val lifecycle = LocalLifecycleOwner.current
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) revision++ }
+        lifecycle.lifecycle.addObserver(observer)
+        onDispose { lifecycle.lifecycle.removeObserver(observer) }
+    }
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val backdrop = rememberWallpaperBackdrop(
+            IntSize(constraints.maxWidth, constraints.maxHeight), state.settings.useSystemWallpaper, revision
+        )
+        CompositionLocalProvider(
+            LocalWallpaperBackdrop provides backdrop,
+            com.tms.os.launcher.ui.theme.LocalLauncherSettings provides state.settings
+        ) {
+            LauncherHomeContent(viewModel, onOpenSettingsActivity)
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActivity: () -> Unit) {
+    val state by viewModel.uiState.collectAsState()
     val settings = state.settings
-    var showWidgetGallerySheet by remember { mutableStateOf(false) }
+    val strings = remember(settings.appLanguage) { iosStrings(settings.appLanguage) }
+    val hs = remember(settings.appLanguage) { homeStrings(settings.appLanguage) }
+    val haptic = LocalHapticFeedback.current
+    val density = LocalDensity.current
+    val configuration = LocalConfiguration.current
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val view = LocalView.current
+    val lifecycleOwner = LocalLifecycleOwner.current
 
-    val anyModalOpen = state.isAnyOverlayOpen || showWidgetGallerySheet
+    var showCustomizeSheet by remember { mutableStateOf(false) }
+    var showGallery by remember { mutableStateOf(false) }
+    var removeTarget by remember { mutableStateOf<HomeGridItem?>(null) }
+    var menuAnchor by remember { mutableStateOf<Pair<String, Rect>?>(null) }
+    // Where each open folder grows out of / shrinks back into.
+    val folderOrigins = remember { androidx.compose.runtime.mutableStateMapOf<String, Rect>() }
+    /** Category opened from the App Library: title and its apps. */
+    var openPod by remember { mutableStateOf<OpenPod?>(null) }
+    val podProgress = remember { Animatable(0f) }
+    val podProgressRead = remember { { podProgress.value } }
+    var statusBarLightContent by remember { mutableStateOf(true) }
 
-    // Authentic iOS Depth-of-Field Scale & Hardware Blur when any overlay opens
-    val homeScale by animateFloatAsState(
-        targetValue = if (state.isSpotlightOpen || state.activeFolder != null || state.activeCategoryModal != null || state.selectedAppForMenu != null) 0.94f else 1.0f,
-        animationSpec = spring(
-            dampingRatio = 0.82f,
-            stiffness = Spring.StiffnessMediumLow
-        ),
-        label = "homeDepthScale"
+    val homeZoom = remember { Animatable(1f) }
+    val homeZoomRead = remember { { homeZoom.value } }
+    val spotlight = remember { Animatable(0f) }
+    var leftToApp by remember { mutableStateOf(false) }
+    val drag = remember { HomeDragState() }
+    // Folder that is open underneath the running drag (started inside it, or sprung open).
+    val fs = remember { FolderDragSession() }
+    val folderSlots = remember { mutableMapOf<String, Pair<FolderSlots, Int>>() }
+    var sessionFolder by remember { mutableStateOf<HomeGridItem.FolderItem?>(null) }
+    // Smart Stacks scroll vertically; a pull-down that starts on one must not open Spotlight.
+    val stackRects = remember { androidx.compose.runtime.mutableStateMapOf<String, Rect>() }
+
+    suspend fun refreshStatusBarTone() {
+        statusBarLightContent = withContext(Dispatchers.IO) { !WallpaperTone.isTopBandLight(context) }
+    }
+    LaunchedEffect(Unit) { refreshStatusBarTone() }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_STOP -> leftToApp = true
+                Lifecycle.Event.ON_RESUME -> {
+                    scope.launch { refreshStatusBarTone() }
+                    if (leftToApp || homeZoom.value != 1f) {
+                        leftToApp = false
+                        scope.launch {
+                            homeZoom.snapTo(IOS_ZOOM_OUT)
+                            homeZoom.animateTo(1f, spring(dampingRatio = 0.84f, stiffness = 230f))
+                        }
+                    }
+                }
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    // Spotlight follows the finger; the committed open/closed state lives in the VM.
+    LaunchedEffect(state.isSpotlightOpen) {
+        spotlight.animateTo(if (state.isSpotlightOpen) 1f else 0f, spring(dampingRatio = 0.86f, stiffness = 320f))
+    }
+
+    val suggestions = remember(state.categorizedApps) { state.categorizedApps[AppCategory.SUGGESTIONS].orEmpty().take(16) }
+    val widgetEnv = WidgetEnv(
+        strings = hs,
+        language = settings.appLanguage,
+        dark = isSystemInDarkTheme(),
+        city = settings.weatherCity,
+        tempC = settings.weatherTempCelsius,
+        highC = settings.weatherHighCelsius,
+        lowC = settings.weatherLowCelsius,
+        weatherCode = settings.weatherCode,
+        condition = settings.weatherCondition,
+        fahrenheit = settings.useFahrenheit,
+        forecast = state.weatherForecast,
+        batteryPercent = state.batteryPercent,
+        note = settings.quickNoteText,
+        suggestedApps = suggestions,
+        onAppClick = { viewModel.launchApp(it.packageName) }
     )
 
-    val homeBlurDp by animateDpAsState(
-        targetValue = if (state.isSpotlightOpen || state.activeFolder != null || state.activeCategoryModal != null || state.selectedAppForMenu != null) (20.dp * settings.blurIntensity) else 0.dp,
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-        label = "homeBlur"
-    )
+    fun appForWidget(kind: WidgetKind): AppInfo? {
+        val keys = when (kind) {
+            WidgetKind.WEATHER -> listOf("weather")
+            WidgetKind.CALENDAR -> listOf("calendar")
+            WidgetKind.CLOCK -> listOf("deskclock", "clock")
+            WidgetKind.NOTES -> listOf("keep", "notes", "memo")
+            WidgetKind.BATTERY, WidgetKind.SUGGESTIONS -> emptyList()
+        }
+        return keys.firstNotNullOfOrNull { k -> state.allApps.firstOrNull { it.packageName.contains(k) } }
+    }
 
-    BoxWithConstraints(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        Color.Black.copy(alpha = 0.14f),
-                        Color.Black.copy(alpha = 0.06f),
-                        Color.Black.copy(alpha = 0.24f)
-                    )
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val screenW = maxWidth
+        val isUnfolded = maxWidth >= 600.dp
+        val bookMode = isUnfolded && settings.foldMode == com.tms.os.launcher.model.FoldPostureMode.BOOK_SPLIT
+        val perScreen = if (bookMode) 2 else 1
+        val layout = calculateHomeLayout(
+            width = maxWidth.value / perScreen, height = maxHeight.value,
+            columns = if (isUnfolded && !bookMode && settings.foldMode != com.tms.os.launcher.model.FoldPostureMode.CLASSIC_SCALED) settings.mainUnfoldedColumns else settings.coverColumns,
+            requestedRows = if (isUnfolded && !bookMode) settings.mainUnfoldedRows else settings.coverRows,
+            iconScale = settings.iconSizeScale, labelSize = settings.labelFontSizeSp,
+            fontScale = density.fontScale
+        )
+        val columns = layout.columns
+        val rows = layout.rows
+        val iconSize = layout.iconSize.dp
+        val sidePadding = layout.sidePadding.dp
+        val dockCount = settings.dockIconCount.coerceIn(3, 6)
+        val dockIconSize = minOf(iconSize, (maxWidth - 48.dp) / dockCount - 12.dp)
+        val dockHeight = dockIconSize + 32.dp
+        val navInset = with(density) { WindowInsets.navigationBars.getBottom(this).toDp() }
+        // The dock floats above the gesture handle (28 dp from the screen edge);
+        // with 3-button navigation it clears the buttons.
+        val dockBottomGap = maxOf(navInset + 6.dp, 28.dp)
+        val dockMargin = 14.dp
+        // Search pill row + dock + gap: home pages keep clear of it, Today View
+        // and App Library run underneath it to the bottom edge like on iOS.
+        val chromeHeight = PillAreaHeight + dockHeight + dockBottomGap
+
+        val displayOrder = drag.order ?: state.homeGridItems
+        val pages = remember(displayOrder, columns, rows) {
+            packIntoPages(displayOrder, columns, { rows }) { it.span() }
+        }
+        val homePageCount = ((pages.size + perScreen - 1) / perScreen).coerceAtLeast(1)
+        // Pager: 0 = Today View, 1..n = home pages, n+1 = App Library.
+        val pagerState = rememberPagerState(initialPage = 1, pageCount = { homePageCount + 2 })
+        val libraryPage = homePageCount + 1
+        // The *settled* page on purpose: reading currentPage here would rebuild this
+        // whole screen in the middle of every page swipe. Anything that must follow
+        // the finger (dots, dock fade) reads the pager inside its own small scope.
+        val isAppLibrary = pagerState.settledPage == libraryPage
+        val isToday = pagerState.settledPage == 0
+        val homePageIndex = (pagerState.settledPage - 1).coerceIn(0, homePageCount - 1)
+
+        LaunchedEffect(state.homePressGeneration) {
+            if (state.homePressGeneration > 0) {
+                showCustomizeSheet = false; showGallery = false
+                if (openPod != null) { podProgress.animateTo(0f, spring(dampingRatio = 1f, stiffness = 260f, visibilityThreshold = 0.004f)); openPod = null }
+                if (pagerState.currentPage != 1) pagerState.animateScrollToPage(1, animationSpec = spring(dampingRatio = 1f, stiffness = 300f))
+            }
+        }
+        BackHandler(enabled = showCustomizeSheet || pagerState.settledPage != 1 || state.isAnyOverlayOpen || state.isJiggleMode) {
+            when {
+                showCustomizeSheet -> showCustomizeSheet = false
+                state.isAnyOverlayOpen || state.isJiggleMode -> viewModel.handleBackOrHomePress()
+                else -> scope.launch { pagerState.animateScrollToPage(1) }
+            }
+        }
+
+        val anyOverlay = state.isSpotlightOpen || state.activeFolder != null ||
+            state.activeCategoryModal != null || state.selectedAppForMenu != null || showCustomizeSheet || showGallery || openPod != null
+        // Folder, menu and gallery sit on a frosted home screen. The frost is the
+        // home content redrawn at 1/8 size and blurred there (64x fewer pixels than a
+        // full-size blur, and nothing is read back from the GPU), then stretched back.
+        val needsFrost = state.activeFolder != null || fs.active || state.selectedAppForMenu != null || showGallery
+        val frost = animateFloatAsState(if (needsFrost) 1f else 0f, tween(280, easing = IosEase), label = "frost")
+        val canFrost = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+        val showFrost by remember { androidx.compose.runtime.derivedStateOf { frost.value > 0.002f } }
+        val homeLayer = rememberGraphicsLayer()
+        val frostLayer = rememberGraphicsLayer()
+        val homeScale by animateFloatAsState(
+            if (state.selectedAppForMenu != null) 0.985f else 1f, spring(dampingRatio = 0.9f, stiffness = 420f), label = "homeScale"
+        )
+        val overlayGlass = animateFloatAsState(if (anyOverlay) 1f else 0f, tween(220), label = "glass")
+
+        /** 1 on Today View / App Library, 0 on a home page; read only in draw. */
+        fun edgeFraction(): Float {
+            val pos = pagerState.currentPage + pagerState.currentPageOffsetFraction
+            return when {
+                pos < 1f -> 1f - pos
+                pos > homePageCount -> pos - homePageCount
+                else -> 0f
+            }.coerceIn(0f, 1f)
+        }
+
+        val openAppWithAnimation: (AppInfo, Rect) -> Unit = { app, bounds ->
+            if (!state.isJiggleMode) {
+                val options = if (bounds.width > 0 && bounds.height > 0) {
+                    ActivityOptions.makeScaleUpAnimation(view, bounds.left.toInt(), bounds.top.toInt(), bounds.width.toInt(), bounds.height.toInt()).toBundle()
+                } else null
+                leftToApp = true
+                scope.launch { homeZoom.animateTo(IOS_ZOOM_OUT, tween(380, easing = IosLaunchEasing)) }
+                viewModel.launchApp(app.packageName, options)
+            }
+        }
+
+        fun openFolder(folder: HomeGridItem.FolderItem, bounds: Rect) {
+            folderOrigins[folder.folderId] = bounds
+            val width = configuration.screenWidthDp.toFloat().coerceAtLeast(1f)
+            val height = configuration.screenHeightDp.toFloat().coerceAtLeast(1f)
+            viewModel.openFolder(
+                folder,
+                Offset(
+                    (bounds.center.x / density.density / width).coerceIn(0.12f, 0.88f),
+                    (bounds.center.y / density.density / height).coerceIn(0.12f, 0.88f)
                 )
             )
-    ) {
-        val isUnfolded = maxWidth >= 580.dp
-
-        val columns = when {
-            !isUnfolded -> settings.coverColumns
-            settings.foldMode == FoldPostureMode.IPAD_GRID -> settings.mainUnfoldedColumns
-            else -> settings.coverColumns
-        }
-        val rows = when {
-            !isUnfolded -> settings.coverRows
-            settings.foldMode == FoldPostureMode.IPAD_GRID -> settings.mainUnfoldedRows
-            else -> settings.coverRows
         }
 
-        val itemsPerPage = max(columns * rows, 12)
-        val firstPageRows = if (settings.showTopWidgetsOnFirstPage) max(rows - 2, 2) else rows
-        val page0Capacity = max(columns * firstPageRows, 8)
+        val dockPkgs = drag.dockOrder ?: state.dockPackages
+        val dockApps = remember(dockPkgs, state.appMap) { dockPkgs.take(dockCount).mapNotNull { state.appMap[it] } }
+        var dockRect by remember { mutableStateOf(Rect.Zero) }
+        val dockIconRects = remember { androidx.compose.runtime.mutableStateMapOf<String, Rect>() }
+        // Folder whose panel owns the running gesture: it must stay composed until the drop.
+        var ownerFolder by remember { mutableStateOf<HomeGridItem.FolderItem?>(null) }
+        val recentApps = remember(state.recentPackages, state.appMap) { state.recentPackages.mapNotNull { state.appMap[it] } }
 
-        val pages: List<List<HomeGridItem>> = remember(
-            state.homeGridItems,
-            page0Capacity,
-            itemsPerPage,
-            settings.showTopWidgetsOnFirstPage
-        ) {
-            if (state.homeGridItems.isEmpty()) {
-                listOf(emptyList())
-            } else {
-                val hasFolders = state.homeGridItems.any { it is HomeGridItem.FolderItem }
-                val explicitPage0 = state.homeGridItems.filter { it.page == 0 }
-                val explicitPage1Plus = state.homeGridItems.filter { it.page >= 1 }
+        // ------------------------------------------------------------ wallpaper
+        val backdrop = LocalWallpaperBackdrop.current
+        if (!settings.useSystemWallpaper) Box(Modifier.fillMaxSize().background(Color(0xFF202132)))
+        backdrop.image?.let {
+            Image(it, null, contentScale = androidx.compose.ui.layout.ContentScale.FillBounds,
+                modifier = Modifier.fillMaxSize().graphicsLayer {
+                    val s = 1f + (homeZoom.value - 1f) * 0.35f
+                    scaleX = s; scaleY = s
+                })
+        }
+        backdrop.glass?.let {
+            Image(it, null, contentScale = androidx.compose.ui.layout.ContentScale.FillBounds,
+                modifier = Modifier.fillMaxSize().graphicsLayer {
+                    alpha = maxOf(overlayGlass.value, spotlight.value.coerceIn(0f, 1f), edgeFraction())
+                })
+        }
+        // Today View and App Library also dim the wallpaper a little, like iOS.
+        Box(Modifier.fillMaxSize().graphicsLayer {
+            alpha = maxOf(edgeFraction() * 0.62f, spotlight.value.coerceIn(0f, 1f) * 0.72f, overlayGlass.value * 0.45f)
+        }.background(Color.Black))
 
-                if (hasFolders && explicitPage0.isNotEmpty() && explicitPage1Plus.isNotEmpty()) {
-                    val result = mutableListOf<List<HomeGridItem>>()
-                    result.add(explicitPage0.take(page0Capacity))
-                    val overflowPage0 = explicitPage0.drop(page0Capacity)
-                    val combinedRest = overflowPage0 + explicitPage1Plus
-                    combinedRest.chunked(itemsPerPage).forEach { result.add(it) }
-                    result
-                } else {
-                    val result = mutableListOf<List<HomeGridItem>>()
-                    val firstPage = state.homeGridItems.take(page0Capacity)
-                    result.add(firstPage)
-                    val rest = state.homeGridItems.drop(page0Capacity)
-                    rest.chunked(itemsPerPage).forEach { chunk ->
-                        result.add(chunk)
-                    }
-                    result
+        // ------------------------------------------------------ grid geometry
+        var gridOrigin by remember { mutableStateOf(Offset.Zero) }
+        var pageSizePx by remember { mutableStateOf(IntSize.Zero) }
+        val topPad = 9.dp
+        val bottomPad = 4.dp
+        val geometry = remember(pageSizePx, columns, rows, iconSize, sidePadding, perScreen, chromeHeight) {
+            with(density) {
+                val w = pageSizePx.width.toFloat() / perScreen
+                val h = (pageSizePx.height - (topPad + bottomPad + chromeHeight).toPx()).coerceAtLeast(1f)
+                GridGeometry(
+                    sidePx = sidePadding.toPx(),
+                    cellW = (w - 2 * sidePadding.toPx()).coerceAtLeast(1f) / columns,
+                    // Square cells, top-aligned: rows never stretch to fill a tall screen.
+                    cellH = minOf(h / rows, (w - 2 * sidePadding.toPx()).coerceAtLeast(1f) / columns),
+                    iconPx = iconSize.toPx(),
+                    columns = columns,
+                    rows = rows
+                )
+            }
+        }
+        val pageWidthPx = pageSizePx.width.toFloat() / perScreen
+        fun logicalPageAt(pagerPage: Int, local: Offset): Pair<Int, Offset> {
+            val half = if (perScreen == 2 && local.x >= pageWidthPx) 1 else 0
+            return ((pagerPage - 1) * perScreen + half) to Offset(local.x - half * pageWidthPx, local.y)
+        }
+        fun rootOfPlaced(p: PlacedCell<HomeGridItem>): Offset? {
+            val screen = p.page / perScreen + 1
+            if (screen != pagerState.currentPage) return null
+            val half = p.page % perScreen
+            return gridOrigin + Offset(half * pageWidthPx, 0f) + geometry.frameOffset(p)
+        }
+        fun placedOf(id: String): PlacedCell<HomeGridItem>? = pages.asSequence().flatten().firstOrNull { it.item.id == id }
+
+        // ------------------------------------------------------ drag callbacks
+        val edgePx = with(density) { 22.dp.toPx() }
+        val screenWPx = with(density) { screenW.toPx() }
+
+        fun dragStart(item: HomeGridItem, downAt: Offset, pointer: Offset) {
+            if (!state.isJiggleMode) {
+                viewModel.selectAppForContextMenu(null)
+                viewModel.setJiggleMode(true)
+            }
+            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            val p = placedOf(item.id) ?: return
+            val topLeft = rootOfPlaced(p) ?: return
+            // Grab point = where the finger first touched the icon, so the icon
+            // stays under the finger however far the first move event jumps.
+            drag.grab = downAt - topLeft
+            drag.pointer = pointer
+            drag.order = state.homeGridItems
+            drag.item = item
+        }
+
+        /** Drag that starts in the dock or in an open folder; [iconTopLeft] is the icon image's corner. */
+        fun externalDragStart(pkg: String, iconTopLeft: Offset, downAt: Offset, pointer: Offset) {
+            if (!state.isJiggleMode) {
+                viewModel.selectAppForContextMenu(null)
+                viewModel.setJiggleMode(true)
+            }
+            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            val item = HomeGridItem.AppItem(pkg)
+            // The carried visual is a grid cell with the icon centred at the top.
+            val frameTopLeft = iconTopLeft - Offset((geometry.cellW - geometry.iconPx) / 2f, 0f)
+            drag.grab = downAt - frameTopLeft
+            drag.pointer = pointer
+            drag.external = true
+            drag.order = state.homeGridItems.filterNot { it.id == item.id }
+            drag.dockOrder = state.dockPackages.filterNot { it == pkg }
+            drag.item = item
+        }
+
+        fun dragMove(pointer: Offset) {
+            val item = drag.item ?: return
+            drag.pointer = pointer
+            // A folder is open under the finger: the app is arranged inside it.
+            val sessionId = fs.folderId
+            if (sessionId != null && item is HomeGridItem.AppItem) {
+                drag.edge = 0; drag.hover = null; drag.folderTarget = null
+                if (drag.overDock) {
+                    drag.overDock = false
+                    drag.dockOrder = drag.dockOrder?.filterNot { it == item.packageName }
                 }
+                val (slots, page) = folderSlots[sessionId] ?: return
+                if (slots.panel.inflate(edgePx).contains(pointer)) {
+                    fs.armed = true; fs.entered = true
+                    fs.outside = false
+                    fs.edge = when {
+                        pointer.x < slots.panel.left + edgePx -> -1
+                        pointer.x > slots.panel.right - edgePx -> 1
+                        else -> 0
+                    }
+                    val idx = (page * 9 + slots.slotAt(pointer)).coerceIn(0, (fs.order.size - 1).coerceAtLeast(0))
+                    if (idx != fs.hoverIndex) fs.hoverIndex = idx
+                } else {
+                    // A folder that just sprang open stays until the finger moves on.
+                    if (!fs.armed && distance(pointer, fs.openedAt) > edgePx * 2f) fs.armed = true
+                    fs.edge = 0
+                    fs.hoverIndex = -1
+                    fs.outside = fs.armed
+                }
+                return
+            }
+            // Over the dock: apps slot into it (if there is room), the grid closes its gap.
+            if (item is HomeGridItem.AppItem && dockRect.contains(pointer)) {
+                val pkg = item.packageName
+                val base = (drag.dockOrder ?: state.dockPackages).filterNot { it == pkg }
+                drag.overDock = true
+                drag.edge = 0
+                drag.hover = null
+                drag.folderTarget = null
+                // The grid keeps the item until the drop: removing it now would dispose
+                // the composable that owns this very gesture.
+                if (base.size < dockCount) {
+                    val slot = ((pointer.x - dockRect.left) / (dockRect.width / (base.size + 1))).toInt().coerceIn(0, base.size)
+                    val next = base.toMutableList().apply { add(slot, pkg) }
+                    if (next != drag.dockOrder) drag.dockOrder = next
+                } else drag.dockOrder = base
+                return
+            } else if (drag.overDock) {
+                drag.overDock = false
+                if (item is HomeGridItem.AppItem) drag.dockOrder = drag.dockOrder?.filterNot { it == item.packageName }
+            }
+            drag.edge = when {
+                pointer.x < edgePx -> -1
+                pointer.x > screenWPx - edgePx -> 1
+                else -> 0
+            }
+            val topLeft = pointer - drag.grab - gridOrigin
+            val probe = if (item.span().cols == 1) topLeft + Offset(geometry.cellW / 2f, geometry.iconPx / 2f)
+            else topLeft + Offset(geometry.iconPx / 2f, geometry.iconPx / 2f)
+            val (logical, local) = logicalPageAt(pagerState.currentPage, probe)
+            val (c, r) = geometry.cellAt(local)
+            val over = pages.getOrNull(logical)?.firstOrNull {
+                c >= it.col && c < it.col + it.span.cols && r >= it.row && r < it.row + it.span.rows
+            }
+            val folder = over != null && over.item.id != item.id && when {
+                item is HomeGridItem.AppItem ->
+                    (over.item is HomeGridItem.AppItem || over.item is HomeGridItem.FolderItem) &&
+                        distance(local, geometry.iconCenter(over)) < geometry.iconPx * 0.36f
+                // Widget on a same-size widget, near its centre: Smart Stack.
+                item is HomeGridItem.WidgetItem && over.item is HomeGridItem.WidgetItem && (over.item as HomeGridItem.WidgetItem).size == item.size -> {
+                    val o = geometry.frameOffset(over)
+                    val centre = o + Offset(geometry.frameWidth(over) / 2f, geometry.frameHeight(over) / 2f)
+                    val probeCentre = local - Offset(geometry.iconPx / 2f, geometry.iconPx / 2f) + Offset(geometry.frameWidth(over) / 2f, geometry.frameHeight(over) / 2f)
+                    distance(probeCentre, centre) < geometry.frameWidth(over) * 0.3f
+                }
+                else -> false
+            }
+            val h = Hover(logical, c, r, over?.item?.id, folder)
+            if (h != drag.hover) {
+                if (!(folder && drag.folderTarget == over?.item?.id)) drag.folderTarget = null
+                drag.hover = h
             }
         }
 
-        val isBookSplitMode = isUnfolded && settings.foldMode == FoldPostureMode.BOOK_SPLIT
-        val homeSpreadsCount = if (isBookSplitMode) {
-            max((pages.size + 1) / 2, 1)
-        } else {
-            pages.size
+        fun dragEnd() {
+            val item = drag.item ?: return
+            val folderTarget = drag.folderTarget
+            var finalOrder = drag.order ?: state.homeGridItems
+            drag.edge = 0
+            val pkg = (item as? HomeGridItem.AppItem)?.packageName
+            // Dropped inside the open folder: it takes the app at the previewed slot.
+            val sessionId = fs.folderId
+            if (sessionId != null && pkg != null) {
+                val apps = fs.order.let { if (pkg in it) it else it + pkg }
+                val next = finalOrder.filterNot { it.id == item.id }.withoutFolderApp(pkg, keep = sessionId)
+                    .map { if (it is HomeGridItem.FolderItem && it.folderId == sessionId) it.copy(appPackages = apps) else it }
+                val folder = next.firstOrNull { it is HomeGridItem.FolderItem && it.folderId == sessionId } as? HomeGridItem.FolderItem
+                if (state.dockPackages.contains(pkg)) viewModel.setDockOrder(state.dockPackages - pkg)
+                viewModel.commitHomeOrder(next)
+                viewModel.openFolder(folder)
+                scope.launch {
+                    drag.dropping = true
+                    drag.dropAnim.snapTo(drag.pointer - drag.grab)
+                    val idx = apps.indexOf(pkg)
+                    val target = folderSlots[sessionId]?.takeIf { it.second == idx / 9 }?.first?.iconTopLeft(idx % 9)
+                    if (target != null) drag.dropAnim.animateTo(target - Offset((geometry.cellW - geometry.iconPx) / 2f, 0f), spring(0.8f, 400f))
+                    else delay(120)
+                    fs.clear(); sessionFolder = null; ownerFolder = null
+                    drag.clear()
+                }
+                return
+            }
+            val intoDock = pkg != null && drag.overDock && drag.dockOrder?.contains(pkg) == true
+            if (intoDock) {
+                viewModel.setDockOrder(drag.dockOrder!!)
+                viewModel.commitHomeOrder(finalOrder.filterNot { it.id == item.id })
+                ownerFolder = null
+                drag.clear()
+                return
+            }
+            // Never lose an app: if it never reached a grid slot, it goes to the end of this page.
+            if (folderTarget == null && finalOrder.none { it.id == item.id }) {
+                finalOrder = reorderFor(finalOrder + item, item, Hover(homePageIndex * perScreen, columns - 1, rows - 1, null, false), pages)
+            }
+            if (pkg != null && state.dockPackages.contains(pkg)) viewModel.setDockOrder(state.dockPackages - pkg)
+            ownerFolder = null
+            scope.launch {
+                drag.dropping = true
+                drag.dropAnim.snapTo(drag.pointer - drag.grab)
+                if (folderTarget != null) {
+                    val target = placedOf(folderTarget)?.let { rootOfPlaced(it) }
+                    launch { animateFloat(1f, 0.4f) { drag.dropScale = it } }
+                    if (target != null) drag.dropAnim.animateTo(target, spring(0.85f, 420f))
+                    if (item is HomeGridItem.WidgetItem) viewModel.mergeWidgets(item.id, folderTarget)
+                    else {
+                        // The preview order first: it no longer lists the app in the folder it came from.
+                        viewModel.commitHomeOrder(finalOrder)
+                        viewModel.mergeIntoFolder(item.id, folderTarget)
+                    }
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                } else {
+                    viewModel.commitHomeOrder(finalOrder)
+                    val finalPages = packIntoPages(finalOrder, columns, { rows }) { it.span() }
+                    val p = finalPages.asSequence().flatten().firstOrNull { it.item.id == item.id }
+                    val target = p?.let { rootOfPlaced(it) }
+                    if (target != null) drag.dropAnim.animateTo(target, spring(0.78f, 380f))
+                }
+                drag.clear()
+            }
         }
 
-        val totalPagerPages = homeSpreadsCount + 1
-        val pagerState = rememberPagerState(
-            initialPage = 0,
-            pageCount = { totalPagerPages }
-        )
+        // Everything the pages, dock and overlays can ask for. A fresh object every
+        // composition (so it always sees current state) behind one stable handle:
+        // children receive [actions] and are skipped when nothing they show changed.
+        // (An anonymous object on purpose: Compose memoises lambdas and references
+        // to local functions, which once froze the first, empty grid geometry.)
+        val ops = androidx.compose.runtime.rememberUpdatedState<HomeOps>(object : HomeOps {
+            override fun openApp(app: AppInfo, bounds: Rect) = openAppWithAnimation(app, bounds)
+            override fun appMenu(app: AppInfo, bounds: Rect) { menuAnchor = app.packageName to bounds; viewModel.selectAppForContextMenu(app) }
+            override fun folder(folder: HomeGridItem.FolderItem, bounds: Rect) = openFolder(folder, bounds)
+            override fun widgetTap(kind: WidgetKind) { appForWidget(kind)?.let { leftToApp = true; viewModel.launchApp(it.packageName) } }
+            override fun enterJiggle() { haptic.performHapticFeedback(HapticFeedbackType.LongPress); viewModel.setJiggleMode(true) }
+            override fun exitJiggle() { if (state.isJiggleMode) viewModel.setJiggleMode(false) }
+            override fun remove(item: HomeGridItem) { removeTarget = item }
+            override fun stackBounds(id: String, r: Rect?) { if (r == null) stackRects.remove(id) else stackRects[id] = r }
+            override fun startDrag(item: HomeGridItem, downAt: Offset, at: Offset) = dragStart(item, downAt, at)
+            override fun startExternalDrag(pkg: String, iconTopLeft: Offset, downAt: Offset, at: Offset) = externalDragStart(pkg, iconTopLeft, downAt, at)
+            override fun moveDrag(at: Offset) = dragMove(at)
+            override fun endDrag() = dragEnd()
+            override fun springFolder(itemId: String) {
+                val app = drag.item as? HomeGridItem.AppItem ?: return
+                val folder = (drag.order ?: state.homeGridItems).firstOrNull { it.id == itemId } as? HomeGridItem.FolderItem ?: return
+                placedOf(itemId)?.let { p ->
+                    rootOfPlaced(p)?.let { tl ->
+                        folderOrigins[folder.folderId] = Rect(
+                            tl + Offset((geometry.cellW - geometry.iconPx) / 2f, 0f),
+                            androidx.compose.ui.geometry.Size(geometry.iconPx, geometry.iconPx)
+                        )
+                    }
+                }
+                sessionFolder = folder
+                fs.open(folder.folderId, folder.appPackages - app.packageName + app.packageName, drag.pointer, armed = false)
+                drag.folderTarget = null; drag.hover = null
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            }
+            override fun leaveFolder() {
+                val id = fs.folderId ?: return
+                val app = drag.item as? HomeGridItem.AppItem ?: return
+                // From here on the app is only carried: no folder lists it any more.
+                drag.order = (drag.order ?: state.homeGridItems).withoutFolderApp(app.packageName)
+                fs.clear()
+                if (state.activeFolder?.folderId == id) viewModel.openFolder(null)
+            }
+            override fun spotlight() { viewModel.openSpotlight() }
+            override fun pod(title: String, apps: List<AppInfo>, origin: Rect) {
+                openPod = OpenPod(title, apps, origin)
+                scope.launch { podProgress.animateTo(1f, spring(dampingRatio = 0.86f, stiffness = 190f)) }
+            }
+            override fun dockIconBounds(pkg: String, r: Rect) { dockIconRects[pkg] = r }
+            override fun edge(): Float = edgeFraction()
+            override fun pageForDots(): Int = (pagerState.currentPage - 1).coerceIn(0, (homePageCount - 1).coerceAtLeast(0))
+            override fun isPaging(): Boolean = pagerState.isScrollInProgress
+        })
+        val actions = remember { HomeActions(ops) }
 
-        val isOnAppLibraryPage = pagerState.currentPage == totalPagerPages - 1
-
-        // Dynamic Full-Size iOS Icon Calculation matching Screenshot 3 & 4 (68.dp on 4-column cover screen!)
-        val effectiveCols = if (isBookSplitMode) columns * 2 else columns
-        val cellWidth = (maxWidth - 28.dp) / effectiveCols.coerceAtLeast(3)
-        val baseIconSize = (cellWidth * 0.74f).coerceIn(62.dp, 74.dp) * settings.iconSizeScale
-
-        val suggestedApps = remember(state.categorizedApps) {
-            state.categorizedApps[AppCategory.SUGGESTIONS].orEmpty().take(4)
+        // Dwell before reflowing (iOS waits a beat), longer dwell to form a folder.
+        LaunchedEffect(drag.hover) {
+            val h = drag.hover ?: return@LaunchedEffect
+            val item = drag.item ?: return@LaunchedEffect
+            if (h.overId == item.id) return@LaunchedEffect
+            if (h.folder) {
+                delay(420)
+                drag.folderTarget = h.overId
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                // iOS: keep holding an app over a folder and the folder opens, so the
+                // app can be placed inside it.
+                val over = h.overId
+                if (over != null && over.startsWith("folder:") && item is HomeGridItem.AppItem) {
+                    delay(650)
+                    ops.value.springFolder(over)
+                }
+            } else {
+                delay(140)
+                val order = drag.order ?: return@LaunchedEffect
+                val next = reorderFor(order, item, h, pages)
+                if (next != order) drag.order = next
+            }
+        }
+        // Inside an open folder: the other apps make room after a short dwell.
+        LaunchedEffect(fs.hoverIndex, fs.folderId) {
+            val i = fs.hoverIndex
+            val pkg = (drag.item as? HomeGridItem.AppItem)?.packageName ?: return@LaunchedEffect
+            if (!fs.active || i < 0) return@LaunchedEffect
+            delay(110)
+            val cur = fs.order
+            if (cur.indexOf(pkg) != i) fs.order = (cur - pkg).toMutableList().apply { add(i.coerceIn(0, size), pkg) }
+        }
+        // Carried out of the panel: the folder closes and the app is back on the home screen.
+        LaunchedEffect(fs.outside, fs.folderId) {
+            if (fs.active && fs.outside) {
+                delay(if (fs.entered) 380L else 900L)
+                ops.value.leaveFolder()
+            }
+        }
+        // Hold at the screen edge to carry the item to the neighbouring page.
+        LaunchedEffect(drag.edge, drag.item) {
+            if (drag.item == null || drag.edge == 0) return@LaunchedEffect
+            while (true) {
+                delay(620)
+                val target = (pagerState.currentPage + drag.edge).coerceIn(1, homePageCount)
+                if (target == pagerState.currentPage) break
+                pagerState.animateScrollToPage(target, animationSpec = spring(dampingRatio = 1f, stiffness = 260f))
+                drag.hover = Hover((target - 1) * perScreen, 0, 0, null, false)
+                delay(300)
+            }
         }
 
-        // BACKGROUND HOME LAYER
-        Column(
+        // --------------------------------------------------------- root gesture
+        val pullPx = with(density) { SpotlightPullDistance.toPx() }
+        val shadeZonePx = with(density) { 52.dp.toPx() }
+        val homeInteractive = !anyOverlay && !state.isJiggleMode && !isAppLibrary && !isToday && !drag.active
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer {
-                    scaleX = homeScale
-                    scaleY = homeScale
-                }
-                .blur(homeBlurDp)
-                .statusBarsPadding()
-                .navigationBarsPadding()
-                // Intercept downward swipe in Initial pass so swiping down ANYWHERE (even on top of an icon!) opens Spotlight reliably!
-                .pointerInput(
-                    anyModalOpen,
-                    state.isJiggleMode,
-                    isOnAppLibraryPage,
-                    settings.enableSwipeDownSpotlight
-                ) {
-                    if (anyModalOpen || state.isJiggleMode || isOnAppLibraryPage) return@pointerInput
+                .pointerInput(homeInteractive, settings.enableSwipeDownSpotlight) {
+                    if (!homeInteractive) return@pointerInput
+                    val slop = viewConfiguration.touchSlop
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-                        val startPos = down.position
-                        var totalDx = 0f
-                        var totalDy = 0f
-                        var triggered = false
-
-                        while (!triggered) {
-                            val event = awaitPointerEvent(pass = PointerEventPass.Initial)
-                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                            if (!change.pressed) break
-
-                            totalDx = change.position.x - startPos.x
-                            totalDy = change.position.y - startPos.y
-
-                            if (totalDy > 54f && totalDy > totalDx.absoluteValue * 1.35f) {
-                                triggered = true
-                                change.consume()
-                                if (startPos.y < 90f) {
-                                    viewModel.expandStatusBar()
-                                } else if (settings.enableSwipeDownSpotlight) {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    viewModel.openSpotlight()
+                        val tracker = VelocityTracker()
+                        tracker.addPosition(down.uptimeMillis, down.position)
+                        var pulling = false
+                        val onStack = stackRects.values.any { it.contains(down.position) }
+                        while (true) {
+                            val ev = awaitPointerEvent(PointerEventPass.Initial)
+                            val c = ev.changes.firstOrNull { it.id == down.id } ?: break
+                            tracker.addPosition(c.uptimeMillis, c.position)
+                            val dx = c.position.x - down.position.x
+                            val dy = c.position.y - down.position.y
+                            if (!c.pressed) {
+                                if (pulling) {
+                                    val v = tracker.calculateVelocity().y
+                                    if (spotlight.value > 0.35f || v > 1200f) viewModel.openSpotlight()
+                                    else scope.launch { spotlight.animateTo(0f, spring(0.9f, 400f)) }
                                 }
+                                break
+                            }
+                            // iOS: hold first, then move = pick up the icon. Leave such
+                            // gestures to the icon/drag handlers instead of Spotlight.
+                            if (!pulling && c.uptimeMillis - down.uptimeMillis > viewConfiguration.longPressTimeoutMillis) break
+                            if (!pulling) {
+                                if (dy > slop && dy > abs(dx) * 1.3f) {
+                                    if (down.position.y < shadeZonePx) {
+                                        viewModel.expandStatusBar(); c.consume(); break
+                                    }
+                                    if (!settings.enableSwipeDownSpotlight || onStack) break
+                                    pulling = true
+                                } else if (abs(dx) > slop || dy < -slop) break
+                            }
+                            if (pulling) {
+                                c.consume()
+                                // Rubber-band past the full reveal, like a UIScrollView.
+                                val raw = (dy - slop) / pullPx
+                                val p = if (raw <= 1f) raw else 1f + (raw - 1f) * 0.25f
+                                scope.launch { spotlight.snapTo(p.coerceAtLeast(0f)) }
                             }
                         }
                     }
                 }
         ) {
-            // 1:1 Authentic iOS Jiggle Mode Top Bar: "Bearbeiten" (left) & "Fertig" (right) matching Screenshot 3!
-            AnimatedVisibility(visible = state.isJiggleMode && !isOnAppLibraryPage) {
-                Row(
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 18.dp, vertical = 6.dp)
-                ) {
-                    // Left Pill: "Bearbeiten" -> Opens the iOS Widget Gallery Sheet (Screenshot 1!)
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            .background(Color(0x992C2C2E))
-                            .border(0.5.dp, Color.White.copy(alpha = 0.14f), CircleShape)
-                            .clickable {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                showWidgetGallerySheet = true
-                            }
-                            .padding(horizontal = 18.dp, vertical = 8.dp)
-                    ) {
-                        Text(
-                            text = "Bearbeiten",
-                            color = Color.White,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-
-                    // Right Pill: "Fertig"
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            .background(Color(0x992C2C2E))
-                            .border(0.5.dp, Color.White.copy(alpha = 0.14f), CircleShape)
-                            .clickable {
-                                viewModel.setJiggleMode(false)
-                            }
-                            .padding(horizontal = 18.dp, vertical = 8.dp)
-                    ) {
-                        Text(
-                            text = "Fertig",
-                            color = Color.White,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-            }
-
-            // Main Horizontal Pager (Home Screen Pages + App-Bibliothek on far right)
-            HorizontalPager(
-                state = pagerState,
-                userScrollEnabled = !state.isJiggleMode,
+            Column(
                 modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-            ) { pageIndex ->
-                val rawOffset = (pageIndex - pagerState.currentPage) - pagerState.currentPageOffsetFraction
-                val absOffset = rawOffset.absoluteValue
-
-                Box(
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        val z = homeZoom.value
+                        scaleX = homeScale * z
+                        scaleY = homeScale * z
+                        alpha = 1f - ((z - 1f) / (IOS_ZOOM_OUT - 1f)).coerceIn(0f, 1f)
+                    }
+            ) {
+                Spacer(Modifier.height(IosMetrics.statusBarHeight))
+                Column(
                     modifier = Modifier
-                        .fillMaxSize()
+                        .weight(1f)
+                        .fillMaxWidth()
                         .graphicsLayer {
-                            when (settings.pageTransition) {
-                                PageTransitionEffect.IOS_SLIDE -> {
-                                    alpha = 1f
-                                }
-                                PageTransitionEffect.CUBE_3D -> {
-                                    rotationY = rawOffset * 32f
-                                    cameraDistance = 14f * density
-                                }
-                                PageTransitionEffect.DEPTH_STACK -> {
-                                    val scale = 1f - (absOffset * 0.14f).coerceIn(0f, 0.22f)
-                                    scaleX = scale
-                                    scaleY = scale
-                                    alpha = 1f - (absOffset * 0.35f).coerceIn(0f, 0.55f)
-                                }
-                                PageTransitionEffect.ZOOM_FADE -> {
-                                    val scale = 0.86f + (1f - absOffset.coerceIn(0f, 1f)) * 0.14f
-                                    scaleX = scale
-                                    scaleY = scale
-                                    alpha = 1f - (absOffset * 0.45f).coerceIn(0f, 0.65f)
-                                }
-                                PageTransitionEffect.CAROUSEL_ROTATE -> {
-                                    rotationZ = rawOffset * 8f
-                                    translationY = absOffset * 36f
-                                }
-                            }
+                            val sp = spotlight.value.coerceIn(0f, 1f)
+                            // Fades out under Spotlight; cross-fades to the frosted snapshot
+                            // under folders and menus (stays faintly visible until it is ready).
+                            val f = frost.value
+                            // No offscreen buffer for the fade: alpha goes straight onto the draws.
+                            compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha
+                            alpha = (1f - sp) * (if (canFrost) 1f - f else 1f - f * 0.75f)
+                            val s = 1f - sp * 0.03f - f * 0.02f
+                            scaleX = s; scaleY = s
+                        }
+                        .drawWithContent {
+                            homeLayer.record { this@drawWithContent.drawContent() }
+                            drawLayer(homeLayer)
                         }
                 ) {
-                    if (pageIndex == totalPagerPages - 1) {
-                        IosAppLibraryScreen(
-                            categorizedApps = state.categorizedApps,
-                            allApps = state.allApps,
-                            isUnfolded = isUnfolded,
-                            glassOpacity = settings.glassOpacity,
-                            appLanguage = settings.appLanguage,
-                            onAppClick = { viewModel.launchApp(it.packageName) },
-                            onAppLongClick = { viewModel.selectAppForContextMenu(it) },
-                            onCategoryExpandClick = { viewModel.openCategoryModal(it) },
-                            onOpenSettingsClick = onOpenSettingsActivity
-                        )
-                    } else if (isBookSplitMode) {
-                        val leftIdx = pageIndex * 2
-                        val rightIdx = leftIdx + 1
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    Box(Modifier.weight(1f).fillMaxWidth()) {
+                    CompositionLocalProvider(LocalOverscrollConfiguration provides null) {
+                        HorizontalPager(
+                            state = pagerState,
+                            userScrollEnabled = !anyOverlay && !drag.active,
+                            flingBehavior = PagerDefaults.flingBehavior(state = pagerState, pagerSnapDistance = PagerSnapDistance.atMost(1)),
+                            beyondViewportPageCount = 1,
                             modifier = Modifier
                                 .fillMaxSize()
-                                .padding(horizontal = 8.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight()
-                            ) {
-                                val showWidgetsLeft = (leftIdx == 0 && settings.showTopWidgetsOnFirstPage)
-                                HomeGridPageContent(
-                                    pageItems = pages.getOrNull(leftIdx).orEmpty(),
-                                    showWidgets = showWidgetsLeft,
-                                    columns = columns,
-                                    slotRows = if (showWidgetsLeft) firstPageRows else rows,
-                                    iconSize = baseIconSize,
-                                    labelFontSizeSp = settings.labelFontSizeSp,
-                                    glassOpacity = settings.glassOpacity,
-                                    showLabels = settings.showAppLabels,
-                                    showBadges = settings.enableBadges,
-                                    isJiggleMode = state.isJiggleMode,
-                                    leftWidgetType = settings.leftWidgetType,
-                                    rightWidgetType = settings.rightWidgetType,
-                                    batteryPercent = state.batteryPercent,
-                                    storageRamInfo = state.storageRamInfo,
-                                    quickNoteText = settings.quickNoteText,
-                                    suggestedApps = suggestedApps,
-                                    weatherCity = settings.weatherCity,
-                                    weatherTemp = settings.weatherTempCelsius,
-                                    weatherHigh = settings.weatherHighCelsius,
-                                    weatherLow = settings.weatherLowCelsius,
-                                    weatherCondition = settings.weatherCondition,
-                                    useFahrenheit = settings.useFahrenheit,
-                                    isWeatherRefreshing = state.isWeatherRefreshing,
-                                    appMap = state.appMap,
-                                    onAppClick = { app ->
-                                        if (state.isJiggleMode) viewModel.selectAppForContextMenu(app)
-                                        else viewModel.launchApp(app.packageName)
-                                    },
-                                    onAppLongClick = { app ->
-                                        viewModel.selectAppForContextMenu(app)
-                                    },
-                                    onFolderClickWithOrigin = { folder, origin ->
-                                        viewModel.openFolder(folder, origin)
-                                    },
-                                    onFolderLongClickWithOrigin = { folder, origin ->
-                                        viewModel.openFolder(folder, origin)
-                                    },
-                                    onDragDropItem = { src, dst, merge ->
-                                        viewModel.onDragDropGridItem(src, dst, merge)
-                                    },
-                                    onEmptySpaceClick = {
-                                        if (state.isJiggleMode) viewModel.setJiggleMode(false)
-                                    },
-                                    onEmptySpaceLongClick = {
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        viewModel.setJiggleMode(!state.isJiggleMode)
-                                    },
-                                    onCycleLeftWidget = { dir -> viewModel.cycleLeftWidget(dir) },
-                                    onCycleRightWidget = { dir -> viewModel.cycleRightWidget(dir) },
-                                    onQuickNoteChange = { txt -> viewModel.updateQuickNote(txt) },
-                                    onMediaPlayPause = { viewModel.mediaPlayPause() },
-                                    onMediaNext = { viewModel.mediaNext() },
-                                    onMediaPrev = { viewModel.mediaPrevious() },
-                                    onWeatherClick = { showWidgetGallerySheet = true },
-                                    onRefreshWeatherClick = { viewModel.refreshLiveWeatherIfNeeded(force = true) }
+                                .onGloballyPositioned {
+                                    pageSizePx = it.size
+                                    gridOrigin = it.boundsInRoot().topLeft + Offset(0f, with(density) { topPad.toPx() })
+                                }
+                        ) { pageIndex ->
+                            when (pageIndex) {
+                                0 -> TodayView(
+                                    widgets = state.todayWidgets,
+                                    env = widgetEnv,
+                                    strings = hs,
+                                    jiggle = state.isJiggleMode,
+                                    onWidgetTap = actions.todayWidgetTap,
+                                    onRemove = actions.remove,
+                                    onEnterJiggle = actions.enterJiggle,
+                                    onExitJiggle = actions.exitJiggle
                                 )
-                            }
-
-                            Box(
-                                modifier = Modifier
-                                    .width(1.dp)
-                                    .fillMaxHeight(0.88f)
-                                    .align(Alignment.CenterVertically)
-                                    .background(Color.White.copy(alpha = 0.12f))
-                            )
-
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight()
-                            ) {
-                                HomeGridPageContent(
-                                    pageItems = pages.getOrNull(rightIdx).orEmpty(),
-                                    showWidgets = false,
-                                    columns = columns,
-                                    slotRows = rows,
-                                    iconSize = baseIconSize,
-                                    labelFontSizeSp = settings.labelFontSizeSp,
-                                    glassOpacity = settings.glassOpacity,
-                                    showLabels = settings.showAppLabels,
-                                    showBadges = settings.enableBadges,
-                                    isJiggleMode = state.isJiggleMode,
-                                    leftWidgetType = settings.leftWidgetType,
-                                    rightWidgetType = settings.rightWidgetType,
-                                    batteryPercent = state.batteryPercent,
-                                    storageRamInfo = state.storageRamInfo,
-                                    quickNoteText = settings.quickNoteText,
-                                    suggestedApps = suggestedApps,
-                                    weatherCity = settings.weatherCity,
-                                    weatherTemp = settings.weatherTempCelsius,
-                                    weatherHigh = settings.weatherHighCelsius,
-                                    weatherLow = settings.weatherLowCelsius,
-                                    weatherCondition = settings.weatherCondition,
-                                    useFahrenheit = settings.useFahrenheit,
-                                    isWeatherRefreshing = state.isWeatherRefreshing,
-                                    appMap = state.appMap,
-                                    onAppClick = { app ->
-                                        if (state.isJiggleMode) viewModel.selectAppForContextMenu(app)
-                                        else viewModel.launchApp(app.packageName)
-                                    },
-                                    onAppLongClick = { app ->
-                                        viewModel.selectAppForContextMenu(app)
-                                    },
-                                    onFolderClickWithOrigin = { folder, origin ->
-                                        viewModel.openFolder(folder, origin)
-                                    },
-                                    onFolderLongClickWithOrigin = { folder, origin ->
-                                        viewModel.openFolder(folder, origin)
-                                    },
-                                    onDragDropItem = { src, dst, merge ->
-                                        viewModel.onDragDropGridItem(src, dst, merge)
-                                    },
-                                    onEmptySpaceClick = {
-                                        if (state.isJiggleMode) viewModel.setJiggleMode(false)
-                                    },
-                                    onEmptySpaceLongClick = {
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        viewModel.setJiggleMode(!state.isJiggleMode)
-                                    },
-                                    onCycleLeftWidget = {},
-                                    onCycleRightWidget = {},
-                                    onQuickNoteChange = {},
-                                    onMediaPlayPause = {},
-                                    onMediaNext = {},
-                                    onMediaPrev = {},
-                                    onWeatherClick = { showWidgetGallerySheet = true },
-                                    onRefreshWeatherClick = { viewModel.refreshLiveWeatherIfNeeded(force = true) }
+                                libraryPage -> IosAppLibraryPage(
+                                    allApps = state.allApps,
+                                    categorizedApps = state.categorizedApps,
+                                    settings = settings,
+                                    strings = strings,
+                                    isUnfolded = isUnfolded,
+                                    podProgress = podProgressRead,
+                                    podOrigin = openPod?.origin,
+                                    onAppClick = actions.openApp,
+                                    onAppLongClick = actions.appMenu,
+                                    onOpenPod = actions.pod
                                 )
+                                else -> Row(
+                                    Modifier
+                                        .fillMaxSize()
+                                        .combinedClickable(
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = null,
+                                            onClick = actions.exitJiggle,
+                                            onLongClick = actions.enterJiggle
+                                        )
+                                        .padding(top = topPad, bottom = bottomPad + chromeHeight)
+                                ) {
+                                    for (half in 0 until perScreen) {
+                                        val logical = (pageIndex - 1) * perScreen + half
+                                        HomeGridPage(
+                                            placed = pages.getOrNull(logical).orEmpty(),
+                                            geometry = geometry,
+                                            hiddenId = drag.item?.id,
+                                            modifier = Modifier.weight(1f).fillMaxHeight()
+                                        ) { p, w, h ->
+                                            GridItem(
+                                                p = p, w = w, h = h,
+                                                appMap = state.appMap,
+                                                iconSize = iconSize,
+                                                labelSize = settings.labelFontSizeSp,
+                                                showLabels = settings.showAppLabels,
+                                                showBadges = settings.enableBadges,
+                                                jiggle = state.isJiggleMode,
+                                                folderTarget = drag.folderTarget == p.item.id,
+                                                env = widgetEnv,
+                                                widgetLabel = (p.item as? HomeGridItem.WidgetItem)?.let { hs.widgetName(it.kind) },
+                                                dragEnabled = !anyOverlay || state.selectedAppForMenu != null,
+                                                actions = actions
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
-                    } else {
-                        val showWidgetsOnPage = (pageIndex == 0 && settings.showTopWidgetsOnFirstPage)
-                        HomeGridPageContent(
-                            pageItems = pages.getOrNull(pageIndex).orEmpty(),
-                            showWidgets = showWidgetsOnPage,
-                            columns = columns,
-                            slotRows = if (showWidgetsOnPage) firstPageRows else rows,
-                            iconSize = baseIconSize,
-                            labelFontSizeSp = settings.labelFontSizeSp,
-                            glassOpacity = settings.glassOpacity,
-                            showLabels = settings.showAppLabels,
-                            showBadges = settings.enableBadges,
-                            isJiggleMode = state.isJiggleMode,
-                            leftWidgetType = settings.leftWidgetType,
-                            rightWidgetType = settings.rightWidgetType,
-                            batteryPercent = state.batteryPercent,
-                            storageRamInfo = state.storageRamInfo,
-                            quickNoteText = settings.quickNoteText,
-                            suggestedApps = suggestedApps,
-                            weatherCity = settings.weatherCity,
-                            weatherTemp = settings.weatherTempCelsius,
-                            weatherHigh = settings.weatherHighCelsius,
-                            weatherLow = settings.weatherLowCelsius,
-                            weatherCondition = settings.weatherCondition,
-                            useFahrenheit = settings.useFahrenheit,
-                            isWeatherRefreshing = state.isWeatherRefreshing,
-                            appMap = state.appMap,
-                            onAppClick = { app ->
-                                if (state.isJiggleMode) viewModel.selectAppForContextMenu(app)
-                                else viewModel.launchApp(app.packageName)
-                            },
-                            onAppLongClick = { app ->
-                                viewModel.selectAppForContextMenu(app)
-                            },
-                            onFolderClickWithOrigin = { folder, origin ->
-                                viewModel.openFolder(folder, origin)
-                            },
-                            onFolderLongClickWithOrigin = { folder, origin ->
-                                viewModel.openFolder(folder, origin)
-                            },
-                            onDragDropItem = { src, dst, merge ->
-                                viewModel.onDragDropGridItem(src, dst, merge)
-                            },
-                            onEmptySpaceClick = {
-                                if (state.isJiggleMode) viewModel.setJiggleMode(false)
-                            },
-                            onEmptySpaceLongClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                viewModel.setJiggleMode(!state.isJiggleMode)
-                            },
-                            onCycleLeftWidget = { dir -> viewModel.cycleLeftWidget(dir) },
-                            onCycleRightWidget = { dir -> viewModel.cycleRightWidget(dir) },
-                            onQuickNoteChange = { txt -> viewModel.updateQuickNote(txt) },
-                            onMediaPlayPause = { viewModel.mediaPlayPause() },
-                            onMediaNext = { viewModel.mediaNext() },
-                            onMediaPrev = { viewModel.mediaPrevious() },
-                            onWeatherClick = { showWidgetGallerySheet = true },
-                            onRefreshWeatherClick = { viewModel.refreshLiveWeatherIfNeeded(force = true) }
-                        )
-                    }
-                }
-            }
-
-            // Bottom Section: Authentic iOS Page Dots Pill (`• • •`) + Frosted Glass Dock (Exact match to Screenshot 3 & 4!)
-            if (!isOnAppLibraryPage) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center,
-                        modifier = Modifier
-                            .padding(bottom = 8.dp)
-                            .clip(CircleShape)
-                            .background(Color(0x882C2C2E))
-                            .border(0.5.dp, Color.White.copy(alpha = 0.12f), CircleShape)
-                            .clickable { viewModel.openSpotlight() }
-                            .padding(horizontal = 14.dp, vertical = 7.dp)
-                    ) {
-                        for (i in 0 until totalPagerPages) {
-                            val selected = pagerState.currentPage == i
-                            Box(
-                                modifier = Modifier
-                                    .padding(horizontal = 3.5.dp)
-                                    .size(6.5.dp)
-                                    .clip(CircleShape)
-                                    .background(
-                                        if (selected) Color.White
-                                        else Color.White.copy(alpha = 0.35f)
-                                    )
-                            )
-                        }
                     }
 
-                    val dockApps = remember(state.dockPackages, state.appMap) {
-                        state.dockPackages.mapNotNull { state.appMap[it] }
-                    }
-                    val recentApps = remember(state.recentPackages, state.appMap) {
-                        state.recentPackages.mapNotNull { state.appMap[it] }
-                    }
-
-                    IosFrostedDock(
+                    HomeChrome(
+                        modifier = Modifier.align(Alignment.BottomCenter),
+                        dockModifier = Modifier
+                            .onGloballyPositioned { dockRect = it.boundsInRoot() }
+                            .homeDragGesture(
+                                key = "dock",
+                                jiggle = state.isJiggleMode,
+                                enabled = !anyOverlay || state.selectedAppForMenu != null,
+                                onStart = { downAt, at ->
+                                    dockIconRects.entries.firstOrNull { it.value.contains(downAt) }?.let { (pkg, r) ->
+                                        actions.startExternalDrag(pkg, r.topLeft, downAt, at)
+                                    }
+                                },
+                                onMove = actions.moveDrag,
+                                onEnd = actions.endDrag
+                            ),
+                        onDockIconBounds = actions.dockIconBounds,
+                        hiddenPkg = (drag.item as? HomeGridItem.AppItem)?.packageName?.takeIf { drag.active && !drag.dropping },
+                        bottomGap = dockBottomGap,
+                        dockMargin = dockMargin,
+                        // Dock icons stand in the grid columns when the counts match.
+                        slotWidth = if (!isUnfolded && dockCount == columns) with(density) { geometry.cellW.toDp() } else Dp.Unspecified,
+                        pageCount = homePageCount,
+                        currentPage = actions.pageForDots,
+                        isPaging = actions.isPaging,
+                        strings = strings,
+                        showSearch = !state.isJiggleMode && !drag.active,
                         dockApps = dockApps,
                         recentApps = recentApps,
                         isUnfolded = isUnfolded,
-                        showRecentInUnfolded = settings.showRecentInUnfoldedDock,
-                        showLabels = settings.showDockLabels,
+                        showRecent = settings.showRecentInUnfoldedDock,
                         showBadges = settings.enableBadges,
+                        iconSize = dockIconSize,
+                        dockHeight = dockHeight,
                         glassOpacity = settings.glassOpacity,
-                        iconSize = baseIconSize,
-                        labelFontSizeSp = settings.labelFontSizeSp,
                         isJiggleMode = state.isJiggleMode,
-                        onAppClick = { app ->
-                            if (state.isJiggleMode) viewModel.selectAppForContextMenu(app)
-                            else viewModel.launchApp(app.packageName)
-                        },
-                        onAppLongClick = { viewModel.selectAppForContextMenu(it) }
+                        fade = actions.edgeFraction,
+                        onSearch = actions.spotlight,
+                        onAppClick = actions.openApp,
+                        onAppLongClick = actions.appMenu
+                    )
+                    }
+                }
+            }
+        }
+
+        if (canFrost && (showFrost || needsFrost)) {
+            Box(
+                Modifier
+                    .padding(top = IosMetrics.statusBarHeight)
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha
+                        alpha = frost.value * 0.9f
+                        val s = 1.03f - 0.03f * frost.value
+                        scaleX = s; scaleY = s
+                    }
+                    .drawBehind {
+                        val k = FrostDownscale
+                        frostLayer.renderEffect = BlurEffect(7f, 7f, TileMode.Clamp)
+                        frostLayer.record(size = IntSize((size.width / k).roundToInt().coerceAtLeast(1), (size.height / k).roundToInt().coerceAtLeast(1))) {
+                            scale(1f / k, 1f / k, pivot = Offset.Zero) { drawLayer(homeLayer) }
+                        }
+                        scale(k, k, pivot = Offset.Zero) { drawLayer(frostLayer) }
+                    }
+            )
+        }
+
+        // ------------------------------------------------- carried item (drag)
+        drag.item?.let { item ->
+            val p = placedOf(item.id) ?: PlacedCell(item, 0, 0, 0, item.span())
+            run {
+                val w = with(density) { geometry.frameWidth(p).toDp() }
+                val h = with(density) { geometry.frameHeight(p).toDp() }
+                val lift by animateFloatAsState(if (drag.dropping) 1f else 1.12f, spring(0.7f, 500f), label = "lift")
+                Box(
+                    Modifier
+                        .zIndex(50f)
+                        .offset {
+                            val o = if (drag.dropping) drag.dropAnim.value else drag.pointer - drag.grab
+                            IntOffset(o.x.roundToInt(), o.y.roundToInt())
+                        }
+                        .size(w, h)
+                        .graphicsLayer {
+                            val s = lift * drag.dropScale
+                            scaleX = s; scaleY = s
+                            alpha = if (drag.dropScale < 1f) drag.dropScale else 1f
+                        }
+                ) {
+                    GridItem(
+                        p = p, w = w, h = h, appMap = state.appMap, iconSize = iconSize,
+                        labelSize = settings.labelFontSizeSp, showLabels = false, showBadges = false,
+                        jiggle = false, folderTarget = false, env = widgetEnv, widgetLabel = null,
+                        dragEnabled = false, actions = InertActions
                     )
                 }
             }
         }
 
-        // OVERLAYS
-
-        // 0. Authentic iOS Widget Gallery Bottom Sheet (Screenshot 1!)
-        AnimatedVisibility(
-            visible = showWidgetGallerySheet,
-            enter = fadeIn() + slideInVertically(initialOffsetY = { it / 2 }),
-            exit = fadeOut() + slideOutVertically(targetOffsetY = { it / 2 })
-        ) {
-            IosWidgetGalleryBottomSheet(
-                weatherCity = settings.weatherCity,
-                weatherTempCelsius = settings.weatherTempCelsius,
-                weatherHighCelsius = settings.weatherHighCelsius,
-                weatherLowCelsius = settings.weatherLowCelsius,
-                weatherCondition = settings.weatherCondition,
-                useFahrenheit = settings.useFahrenheit,
-                batteryPercent = state.batteryPercent,
-                showWidgetsOnHome = settings.showTopWidgetsOnFirstPage,
-                onSelectWidgetsForHome = { leftW, rightW ->
-                    viewModel.updateSettings {
-                        it.copy(
-                            showTopWidgetsOnFirstPage = true,
-                            leftWidgetType = leftW,
-                            rightWidgetType = rightW
-                        )
-                    }
-                },
-                onToggleWidgetsOnHome = { show ->
-                    viewModel.updateSettings { it.copy(showTopWidgetsOnFirstPage = show) }
-                },
-                onAutoSortSmartFolders = {
-                    viewModel.autoOrganizeHomeWithSmartFolders()
-                },
-                onOpenSettings = onOpenSettingsActivity,
-                onDismiss = { showWidgetGallerySheet = false }
-            )
-        }
-
-        // 1. Expanded Folder Overlay (with Origin-based iOS Spring Zoom!)
-        val folderOrigin = TransformOrigin(
-            state.folderOriginNormalized.x.coerceIn(0.1f, 0.9f),
-            state.folderOriginNormalized.y.coerceIn(0.1f, 0.9f)
+        // ---------------------------------------------------------- overlays
+        IosSpotlight(
+            visible = state.isSpotlightOpen,
+            progress = { spotlight.value },
+            query = state.spotlightQuery,
+            results = state.spotlightResults,
+            contacts = state.spotlightContacts,
+            mathResult = state.spotlightMathResult,
+            history = remember(state.spotlightHistory, state.appMap) { state.spotlightHistory.mapNotNull { state.appMap[it] } },
+            settings = settings,
+            strings = strings,
+            hs = hs,
+            onQueryChange = viewModel::updateSpotlightQuery,
+            onAppClick = { app -> leftToApp = true; viewModel.launchFromSpotlight(app.packageName) },
+            onAppLongClick = { app -> viewModel.selectAppForContextMenu(app) },
+            onClearHistory = { viewModel.clearSpotlightHistory() },
+            onContactCall = { contact -> viewModel.dialContact(contact.phoneNumber) },
+            onContactMessage = { contact -> viewModel.messageContact(contact.phoneNumber) },
+            onWebSearch = { query, engine -> viewModel.searchWeb(query, engine) },
+            onClose = { viewModel.closeSpotlight() }
         )
-        AnimatedVisibility(
-            visible = state.activeFolder != null,
-            enter = fadeIn() + scaleIn(
-                initialScale = 0.25f,
-                transformOrigin = folderOrigin,
-                animationSpec = spring(dampingRatio = 0.80f, stiffness = Spring.StiffnessMediumLow)
-            ),
-            exit = fadeOut() + scaleOut(
-                targetScale = 0.25f,
-                transformOrigin = folderOrigin,
-                animationSpec = spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMedium)
-            )
-        ) {
-            state.activeFolder?.let { folder ->
-                IosExpandedFolderModal(
+
+        val carriedPkg = (drag.item as? HomeGridItem.AppItem)?.packageName
+        listOfNotNull(ownerFolder, sessionFolder, state.activeFolder).distinctBy { it.folderId }.forEach { snap ->
+            androidx.compose.runtime.key(snap.folderId) {
+                val folder = displayOrder.firstOrNull { it is HomeGridItem.FolderItem && it.folderId == snap.folderId } as? HomeGridItem.FolderItem ?: snap
+                val inSession = fs.folderId == folder.folderId
+                IosFolderView(
                     folder = folder,
+                    order = if (inSession) fs.order else folder.appPackages,
+                    open = inSession || state.activeFolder?.folderId == folder.folderId,
+                    dragPkg = carriedPkg,
+                    dragEdge = if (inSession) fs.edge else 0,
+                    onSlots = { slots, page -> folderSlots[folder.folderId] = slots to page },
+                    onClosed = { if (fs.folderId != folder.folderId && sessionFolder?.folderId == folder.folderId) sessionFolder = null },
+                    onDragStart = { app, iconTopLeft, downAt, at ->
+                        ownerFolder = folder
+                        actions.startExternalDrag(app.packageName, iconTopLeft, downAt, at)
+                        fs.open(folder.folderId, folder.appPackages, at, armed = true)
+                    },
+                    onDragMove = actions.moveDrag,
+                    onDragEnd = actions.endDrag,
+                    zoom = homeZoomRead,
                     appMap = state.appMap,
-                    originNormalized = state.folderOriginNormalized,
-                    onAppClick = { viewModel.launchApp(it.packageName) },
-                    onAppLongClick = { viewModel.selectAppForContextMenu(it) },
-                    onRenameFolder = { newName -> viewModel.renameFolder(folder.folderId, newName) },
-                    onUnpackFolder = { viewModel.removeFolderAndUnpackApps(folder.folderId) },
+                    iconBounds = folderOrigins[folder.folderId],
+                    iconSize = if (isUnfolded) 64.dp else minOf(iconSize, 62.dp),
+                    labelFontSizeSp = settings.labelFontSizeSp,
+                    jiggle = state.isJiggleMode,
+                    onAppClick = actions.openApp,
+                    onAppLongClick = actions.appMenu,
+                    onRename = { name -> viewModel.renameFolder(folder.folderId, name) },
+                    onEnterJiggle = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); viewModel.setJiggleMode(true) },
                     onDismiss = { viewModel.openFolder(null) }
                 )
             }
         }
 
-        // 2. Expanded Smart Category Overlay (from App Library)
-        AnimatedVisibility(
-            visible = state.activeCategoryModal != null,
-            enter = fadeIn() + scaleIn(initialScale = 0.85f),
-            exit = fadeOut() + scaleOut(targetScale = 0.85f)
-        ) {
-            state.activeCategoryModal?.let { category ->
-                val catApps = state.categorizedApps[category].orEmpty()
-                IosCategoryExpandedModal(
-                    category = category,
-                    apps = catApps,
-                    appLanguage = settings.appLanguage,
-                    onAppClick = { viewModel.launchApp(it.packageName) },
-                    onAppLongClick = { viewModel.selectAppForContextMenu(it) },
-                    onDismiss = { viewModel.openCategoryModal(null) }
+        // App Library category: grows out of its pod to full screen, like iOS.
+        openPod?.let { pod ->
+            IosLibraryCategoryView(
+                title = pod.title,
+                apps = pod.apps,
+                origin = pod.origin,
+                progress = podProgressRead,
+                columns = columns,
+                sidePadding = sidePadding,
+                iconSize = iconSize,
+                labelFontSizeSp = settings.labelFontSizeSp,
+                onAppClick = actions.openApp,
+                onAppLongClick = actions.appMenu,
+                onRequestClose = {
+                    scope.launch {
+                        podProgress.animateTo(0f, spring(dampingRatio = 1f, stiffness = 260f, visibilityThreshold = 0.004f))
+                        openPod = null
+                    }
+                }
+            )
+        }
+
+        if (!drag.active) state.selectedAppForMenu?.let { app ->
+            val folders = remember(state.homeGridItems) { state.homeGridItems.filterIsInstance<HomeGridItem.FolderItem>() }
+            IosAppMenu(
+                app = app,
+                anchor = menuAnchor?.takeIf { it.first == app.packageName }?.second,
+                iconSize = iconSize,
+                strings = strings,
+                hs = hs,
+                language = settings.appLanguage,
+                isPinnedInDock = state.dockPackages.contains(app.packageName),
+                folders = folders,
+                quickActions = state.menuQuickActions,
+                onQuickAction = { a -> leftToApp = true; viewModel.runQuickAction(a) },
+                onEditHome = { viewModel.setJiggleMode(true) },
+                onShare = {
+                    val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(android.content.Intent.EXTRA_TEXT, "https://play.google.com/store/apps/details?id=${app.packageName}")
+                    }
+                    runCatching { context.startActivity(android.content.Intent.createChooser(send, app.displayLabel).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                },
+                onRemove = { removeTarget = HomeGridItem.AppItem(app.packageName) },
+                onToggleDock = { viewModel.togglePinToDock(app.packageName) },
+                onAppInfo = { viewModel.openAppInfo(app.packageName) },
+                onHide = { viewModel.hideOrUnhideApp(app.packageName, true) },
+                onRename = { name -> viewModel.renameApp(app.packageName, name) },
+                onChangeCategory = { cat -> viewModel.changeAppCategory(app.packageName, cat) },
+                onMoveToFolder = { folderId -> viewModel.moveAppIntoFolder(app.packageName, folderId) },
+                onCreateFolder = { title -> viewModel.createNewFolderWithApp(app.packageName, title) },
+                onLaunch = { viewModel.launchApp(app.packageName) },
+                onDismiss = { viewModel.selectAppForContextMenu(null) }
+            )
+        }
+
+        IosCustomizeSheet(
+            visible = showCustomizeSheet,
+            settings = settings,
+            strings = strings,
+            onSettingsChange = { transform -> viewModel.updateSettings(transform) },
+            onSmartOrganize = { viewModel.autoOrganizeHomeWithSmartFolders() },
+            onOpenSettings = onOpenSettingsActivity,
+            onDismiss = { showCustomizeSheet = false }
+        )
+
+        IosWidgetGallery(
+            visible = showGallery,
+            env = widgetEnv,
+            strings = hs,
+            onAddStack = { kinds, size ->
+                showGallery = false
+                if (isToday) viewModel.addWidget(kinds.first(), size, toToday = true, index = 0, stack = kinds)
+                else {
+                    val first = pages.getOrNull(homePageIndex * perScreen)?.firstOrNull()?.item
+                    val index = first?.let { f -> state.homeGridItems.indexOfFirst { it.id == f.id } } ?: state.homeGridItems.size
+                    viewModel.addWidget(kinds.first(), size, toToday = false, index = index.coerceAtLeast(0), stack = kinds)
+                }
+            },
+            onAdd = { kind, size ->
+                showGallery = false
+                if (isToday) viewModel.addWidget(kind, size, toToday = true, index = 0)
+                else {
+                    val first = pages.getOrNull(homePageIndex * perScreen)?.firstOrNull()?.item
+                    val index = first?.let { f -> state.homeGridItems.indexOfFirst { it.id == f.id } } ?: state.homeGridItems.size
+                    viewModel.addWidget(kind, size, toToday = false, index = index.coerceAtLeast(0))
+                }
+            },
+            onDismiss = { showGallery = false }
+        )
+
+        // ----------------------------------------------------- removal alert
+        val target = removeTarget
+        val (alertTitle, alertMessage, alertActions) = when (target) {
+            is HomeGridItem.AppItem -> {
+                val label = state.appMap[target.packageName]?.displayLabel ?: ""
+                Triple(hs.removeAppTitle.format(label), hs.removeAppMessage, listOf(
+                    AlertAction(hs.deleteApp, destructive = true) { removeTarget = null; viewModel.uninstallApp(target.packageName) },
+                    AlertAction(hs.removeFromHome) { removeTarget = null; viewModel.removeAppFromHome(target.packageName) },
+                    AlertAction(hs.cancel, cancel = true) { removeTarget = null }
+                ))
+            }
+            is HomeGridItem.FolderItem -> Triple(hs.removeFolderTitle.format(target.title), hs.removeFolderMessage, listOf(
+                AlertAction(hs.removeFromHome, destructive = true) { removeTarget = null; viewModel.removeFolderFromHome(target.folderId) },
+                AlertAction(hs.cancel, cancel = true) { removeTarget = null }
+            ))
+            is HomeGridItem.WidgetItem -> Triple(hs.removeWidgetTitle.format(hs.widgetName(target.kind)), hs.removeWidgetMessage, listOf(
+                AlertAction(hs.cancel, cancel = true) { removeTarget = null },
+                AlertAction(hs.remove, destructive = true) { removeTarget = null; viewModel.removeWidget(target.widgetId) }
+            ))
+            null -> Triple("", "", emptyList())
+        }
+        IosAlert(visible = target != null, title = alertTitle, message = alertMessage, actions = alertActions, onDismiss = { removeTarget = null })
+
+        // The real system status bar stays visible (clock, network, notifications).
+        // Only in edit mode it steps aside so the Edit/Done pills can take its place,
+        // as on iOS. Icon colour follows the wallpaper behind it.
+        val hideStatusBar = state.isJiggleMode && !isAppLibrary
+        val lightStatusContent = if (settings.useSystemWallpaper && !anyOverlay && !isToday && !isAppLibrary) statusBarLightContent else true
+        LaunchedEffect(hideStatusBar, lightStatusContent) {
+            val window = (view.context as? android.app.Activity)?.window ?: return@LaunchedEffect
+            androidx.core.view.WindowInsetsControllerCompat(window, view).apply {
+                if (hideStatusBar) hide(androidx.core.view.WindowInsetsCompat.Type.statusBars())
+                else show(androidx.core.view.WindowInsetsCompat.Type.statusBars())
+                isAppearanceLightStatusBars = !lightStatusContent
+            }
+        }
+        IosEditTopBar(
+            visible = state.isJiggleMode && !isAppLibrary && !showGallery,
+            strings = hs,
+            onAddWidget = { showGallery = true },
+            onCustomize = { showCustomizeSheet = true },
+            onDone = { viewModel.setJiggleMode(false) },
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = 12.dp)
+        )
+    }
+}
+
+private suspend fun animateFloat(from: Float, to: Float, onValue: (Float) -> Unit) {
+    val a = Animatable(from)
+    a.animateTo(to, tween(220)) { onValue(value) }
+}
+
+/** One grid cell: app icon, folder or widget, wired for tap, menu and drag. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun GridItem(
+    p: PlacedCell<HomeGridItem>,
+    w: Dp,
+    h: Dp,
+    appMap: Map<String, AppInfo>,
+    iconSize: Dp,
+    labelSize: Float,
+    showLabels: Boolean,
+    showBadges: Boolean,
+    jiggle: Boolean,
+    folderTarget: Boolean,
+    env: WidgetEnv,
+    widgetLabel: String?,
+    dragEnabled: Boolean,
+    actions: HomeActions
+) {
+    val item0 = p.item
+    // [dragEnabled] is passed in, not used to add/remove the modifier: a folder that
+    // springs open mid-drag must not tear down the gesture that is running.
+    val dragModifier = if (actions === InertActions) Modifier else Modifier.homeDragGesture(
+        key = item0.id,
+        jiggle = jiggle,
+        enabled = dragEnabled,
+        onStart = { downAt, at -> actions.startDrag(item0, downAt, at) },
+        onMove = actions.moveDrag,
+        onEnd = actions.endDrag
+    )
+    val onAppClick = actions.openApp
+    val onAppLongClick = actions.appMenu
+    val onFolderClick = actions.folder
+    val onWidgetTap = actions.widgetTap
+    val onEnterJiggle = actions.enterJiggle
+    val onRemove = { actions.remove(item0) }
+    val onStackBounds = actions.stackBounds
+    when (val item = p.item) {
+        is HomeGridItem.AppItem -> appMap[item.packageName]?.let { app ->
+            Box(Modifier.size(w, h).then(dragModifier), contentAlignment = Alignment.TopCenter) {
+                IosAppIcon(
+                    app = app,
+                    iconSize = iconSize,
+                    labelFontSizeSp = labelSize,
+                    showLabel = showLabels,
+                    showBadges = showBadges,
+                    isJiggleMode = jiggle,
+                    isHighlightedTarget = folderTarget,
+                    onClick = { onAppClick(app, Rect.Zero) },
+                    onClickWithBounds = { b -> onAppClick(app, b) },
+                    onLongClick = { onAppLongClick(app, Rect.Zero) },
+                    onLongClickWithBounds = { b -> if (!jiggle) onAppLongClick(app, b) },
+                    onDeleteOrMenuClick = onRemove
                 )
             }
         }
-
-        // 3. Spotlight Search Overlay (Swipe Down or Page Pill Tap)
-        AnimatedVisibility(
-            visible = state.isSpotlightOpen,
-            enter = fadeIn() + slideInVertically(
-                initialOffsetY = { if (settings.searchBarAtBottomInSpotlight) it / 6 else -it / 5 }
-            ),
-            exit = fadeOut() + slideOutVertically(
-                targetOffsetY = { if (settings.searchBarAtBottomInSpotlight) it / 6 else -it / 5 }
-            )
-        ) {
-            SpotlightSearchOverlay(
-                query = state.spotlightQuery,
-                results = state.spotlightResults,
-                shortcuts = state.spotlightShortcuts,
-                contacts = state.spotlightContacts,
-                mathResult = state.spotlightMathResult,
-                autoOpenKeyboard = settings.autoOpenKeyboardInSpotlight,
-                showWebSearch = settings.showWebSearchInSpotlight,
-                searchBarAtBottom = settings.searchBarAtBottomInSpotlight,
-                onQueryChange = { viewModel.updateSpotlightQuery(it) },
-                onAppClick = { viewModel.launchApp(it.packageName) },
-                onAppLongClick = { viewModel.selectAppForContextMenu(it) },
-                onContactClick = { contact -> viewModel.dialContact(contact.phoneNumber) },
-                onWebSearchClick = { q, engine -> viewModel.searchWeb(q, engine) },
-                onClose = { viewModel.closeSpotlight() }
+        is HomeGridItem.FolderItem -> Box(Modifier.size(w, h).then(dragModifier), contentAlignment = Alignment.TopCenter) {
+            IosFolderIcon(
+                folder = item,
+                appMap = appMap,
+                iconSize = iconSize,
+                labelFontSizeSp = labelSize,
+                showLabel = showLabels,
+                showBadges = showBadges,
+                isJiggleMode = jiggle,
+                isHighlightedTarget = folderTarget,
+                onClickWithBounds = { b -> onFolderClick(item, b) },
+                onLongClick = onEnterJiggle,
+                onRemove = onRemove
             )
         }
-
-        // 4. Haptic Touch App Context Menu Overlay
-        AnimatedVisibility(
-            visible = state.selectedAppForMenu != null,
-            enter = fadeIn() + scaleIn(initialScale = 0.90f),
-            exit = fadeOut() + scaleOut(targetScale = 0.90f)
-        ) {
-            state.selectedAppForMenu?.let { app ->
-                val existingFolders = remember(state.homeGridItems) {
-                    state.homeGridItems.filterIsInstance<HomeGridItem.FolderItem>()
+        is HomeGridItem.WidgetItem -> {
+            // iOS widgets keep Apple's aspect ratio and hang from the top of their
+            // cells; the name sits 6 pt under the widget, like an icon label.
+            val wh = minOf(h, w * (item.size.canonicalHeight() / item.size.canonicalWidth()))
+            var current by remember(item.widgetId) { mutableStateOf(item.kinds.first()) }
+            val hoverScale by animateFloatAsState(if (folderTarget) 1.05f else 1f, spring(0.7f, 500f), label = "stackHover")
+            DisposableEffect(item.widgetId) { onDispose { onStackBounds(item.widgetId, null) } }
+            Box(Modifier.size(w, h).then(dragModifier)) {
+                Box(Modifier.size(w, wh).jiggle(jiggle, item.widgetId.hashCode(), 0.7f).graphicsLayer { scaleX = hoverScale; scaleY = hoverScale }) {
+                    val surface = Modifier
+                        .fillMaxSize()
+                        .shadow(6.dp, RoundedCornerShape(22.dp), clip = false, ambientColor = Color.Black.copy(alpha = 0.12f), spotColor = Color.Black.copy(alpha = 0.18f))
+                        .combinedClickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = { if (!jiggle) onWidgetTap(current) },
+                            onLongClick = { if (!jiggle) onEnterJiggle() }
+                        )
+                    if (item.isStack) IosSmartStack(
+                        item.kinds, item.size, env,
+                        surface.onGloballyPositioned { onStackBounds(item.widgetId, it.boundsInRoot()) },
+                        onCurrent = { current = it }
+                    ) else IosWidget(item.kind, item.size, env, surface)
+                    RemoveBadge(jiggle, Modifier.offset((-8).dp, (-8).dp), onClick = onRemove)
                 }
-                IosHapticTouchContextMenu(
-                    app = app,
-                    isPinnedInDock = state.dockPackages.contains(app.packageName),
-                    isPinnedOnPageOne = app.isPinnedOnPageOne,
-                    existingFolders = existingFolders,
-                    onLaunchApp = { viewModel.launchApp(app.packageName) },
-                    onToggleDockPin = {
-                        viewModel.togglePinToDock(app.packageName)
-                        viewModel.selectAppForContextMenu(null)
-                    },
-                    onTogglePinPageOne = {
-                        viewModel.togglePinOnPageOne(app.packageName)
-                    },
-                    onMovePositionLeft = { viewModel.moveGridItemPosition("app:${app.packageName}", -1) },
-                    onMovePositionRight = { viewModel.moveGridItemPosition("app:${app.packageName}", +1) },
-                    onEnterJiggleMode = { viewModel.setJiggleMode(true) },
-                    onChangeCategory = { newCat -> viewModel.changeAppCategory(app.packageName, newCat) },
-                    onMoveToFolder = { folderId -> viewModel.moveAppIntoFolder(app.packageName, folderId) },
-                    onCreateNewFolder = { title -> viewModel.createNewFolderWithApp(app.packageName, title) },
-                    onRenameApp = { newName -> viewModel.renameApp(app.packageName, newName) },
-                    onHideApp = {
-                        viewModel.hideOrUnhideApp(app.packageName, true)
-                        viewModel.selectAppForContextMenu(null)
-                    },
-                    onOpenAppInfo = { viewModel.openAppInfo(app.packageName) },
-                    onUninstallApp = { viewModel.uninstallApp(app.packageName) },
-                    onDismiss = { viewModel.selectAppForContextMenu(null) }
-                )
+                if (widgetLabel != null && showLabels) {
+                    Text(
+                        if (item.isStack) env.strings.widgetName(current) else widgetLabel,
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = IosText.iconLabel.copy(fontSize = labelSize.sp, shadow = androidx.compose.ui.graphics.Shadow(Color.Black.copy(alpha = 0.32f), Offset(0f, 1f), 2.5f)),
+                        modifier = Modifier.align(Alignment.TopCenter).offset(y = wh + 6.dp)
+                    )
+                }
             }
         }
     }
 }
 
-/**
- * Top-aligned, fixed-rhythm iOS Grid matching Screenshot 3 & 4 (1794491112605_643096.jpg & 1794491112481_643094.jpg)!
- * Never stretches rows with weight(1f) so icons sit at their exact iOS coordinates from the top down.
- */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun HomeGridPageContent(
-    pageItems: List<HomeGridItem>,
-    showWidgets: Boolean,
-    columns: Int,
-    slotRows: Int,
-    iconSize: Dp,
-    labelFontSizeSp: Float,
-    glassOpacity: Float,
-    showLabels: Boolean,
+private fun HomeChrome(
+    modifier: Modifier,
+    dockModifier: Modifier,
+    onDockIconBounds: (String, Rect) -> Unit,
+    hiddenPkg: String?,
+    bottomGap: Dp,
+    dockMargin: Dp,
+    slotWidth: Dp,
+    pageCount: Int,
+    currentPage: () -> Int,
+    isPaging: () -> Boolean,
+    strings: com.tms.os.launcher.ui.theme.IosStrings,
+    showSearch: Boolean,
+    dockApps: List<AppInfo>,
+    recentApps: List<AppInfo>,
+    isUnfolded: Boolean,
+    showRecent: Boolean,
     showBadges: Boolean,
+    iconSize: Dp,
+    dockHeight: Dp,
+    glassOpacity: Float,
     isJiggleMode: Boolean,
-    leftWidgetType: LeftWidgetType,
-    rightWidgetType: RightWidgetType,
-    batteryPercent: Int,
-    storageRamInfo: SystemStorageRamInfo,
-    quickNoteText: String,
-    suggestedApps: List<AppInfo>,
-    weatherCity: String,
-    weatherTemp: Int,
-    weatherHigh: Int,
-    weatherLow: Int,
-    weatherCondition: String,
-    useFahrenheit: Boolean,
-    isWeatherRefreshing: Boolean,
-    appMap: Map<String, AppInfo>,
-    onAppClick: (AppInfo) -> Unit,
-    onAppLongClick: (AppInfo) -> Unit,
-    onFolderClickWithOrigin: (HomeGridItem.FolderItem, Offset) -> Unit,
-    onFolderLongClickWithOrigin: (HomeGridItem.FolderItem, Offset) -> Unit,
-    onDragDropItem: (String, String, Boolean) -> Unit,
-    onEmptySpaceClick: () -> Unit,
-    onEmptySpaceLongClick: () -> Unit,
-    onCycleLeftWidget: (Int) -> Unit,
-    onCycleRightWidget: (Int) -> Unit,
-    onQuickNoteChange: (String) -> Unit,
-    onMediaPlayPause: () -> Unit,
-    onMediaNext: () -> Unit,
-    onMediaPrev: () -> Unit,
-    onWeatherClick: () -> Unit,
-    onRefreshWeatherClick: () -> Unit
+    fade: () -> Float,
+    onSearch: () -> Unit,
+    onAppClick: (AppInfo, Rect) -> Unit,
+    onAppLongClick: (AppInfo, Rect) -> Unit
 ) {
-    val haptic = LocalHapticFeedback.current
-    val slotBounds = remember { mutableStateMapOf<Int, Rect>() }
-    var draggedSlotIndex by remember { mutableStateOf<Int?>(null) }
-    var dragTranslation by remember { mutableStateOf(Offset.Zero) }
-    var hoveredTargetSlot by remember { mutableStateOf<Int?>(null) }
-    var isMergeHover by remember { mutableStateOf(false) }
-
     Column(
-        verticalArrangement = Arrangement.Top,
-        modifier = Modifier
-            .fillMaxSize()
-            .combinedClickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onEmptySpaceClick,
-                onLongClick = onEmptySpaceLongClick
-            )
-            .padding(top = 10.dp, bottom = 4.dp)
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier
+            .fillMaxWidth()
+            .graphicsLayer {
+                // Dock and search pill slide away on Today View and App Library.
+                val f = fade()
+                alpha = 1f - f
+                translationY = f * 60.dp.toPx()
+            }
+            .padding(bottom = bottomGap)
     ) {
-        if (showWidgets) {
-            IosTopWidgetsHeader(
-                leftWidgetType = leftWidgetType,
-                rightWidgetType = rightWidgetType,
-                batteryPercent = batteryPercent,
-                storageRamInfo = storageRamInfo,
-                quickNoteText = quickNoteText,
-                suggestedApps = suggestedApps,
-                weatherCity = weatherCity,
-                weatherTempCelsius = weatherTemp,
-                weatherHighCelsius = weatherHigh,
-                weatherLowCelsius = weatherLow,
-                weatherCondition = weatherCondition,
-                useFahrenheit = useFahrenheit,
-                isWeatherRefreshing = isWeatherRefreshing,
-                onCycleLeftWidget = onCycleLeftWidget,
-                onCycleRightWidget = onCycleRightWidget,
-                onQuickNoteChange = onQuickNoteChange,
-                onSuggestedAppClick = onAppClick,
-                onMediaPlayPause = onMediaPlayPause,
-                onMediaNext = onMediaNext,
-                onMediaPrev = onMediaPrev,
-                onWeatherClick = onWeatherClick,
-                onRefreshWeatherClick = onRefreshWeatherClick
-            )
-            Spacer(modifier = Modifier.height(14.dp))
+        Box(Modifier.height(PillAreaHeight).padding(top = 10.dp, bottom = 16.dp), contentAlignment = Alignment.Center) {
+            // Pager state is read here, in this small scope, not in the whole screen.
+            androidx.compose.animation.Crossfade(targetState = showSearch && !isPaging(), animationSpec = tween(200), label = "pageControl") { search ->
+                if (search) IosSearchButton(text = strings.search, onClick = onSearch)
+                else IosPageDots(count = pageCount, selected = currentPage())
+            }
         }
 
-        // Top-aligned rows with crisp 14.dp vertical spacing (exact match to Screenshot 3 & 4!)
-        Column(
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp)
-        ) {
-            for (rowIdx in 0 until slotRows) {
-                Row(
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.Top,
-                    modifier = Modifier.fillMaxWidth()
+        BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = dockMargin), contentAlignment = Alignment.Center) {
+            val dockWidth = if (isUnfolded) maxWidth * 0.84f else maxWidth
+            val slot = if (slotWidth != Dp.Unspecified) minOf(slotWidth, dockWidth / dockApps.size.coerceAtLeast(1)) else Dp.Unspecified
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+                modifier = Modifier
+                    .width(dockWidth)
+                    .height(dockHeight)
+                    .wallpaperGlass(RoundedCornerShape(28.dp), tint = IosMaterial.dock.copy(alpha = 0.45f + glassOpacity.coerceIn(0f, 1f) * 0.26f))
+                    .then(dockModifier)
+            ) {
+                // LazyRow only for animateItem(): dock icons slide aside when an app is dragged in.
+                androidx.compose.foundation.lazy.LazyRow(
+                    userScrollEnabled = false,
+                    horizontalArrangement = if (slot != Dp.Unspecified) Arrangement.Center else Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
                 ) {
-                    for (colIdx in 0 until columns) {
-                        val itemIndex = rowIdx * columns + colIdx
-                        val item = pageItems.getOrNull(itemIndex)
-                        val isBeingDragged = draggedSlotIndex == itemIndex
-                        val isTargetHighlighted = hoveredTargetSlot == itemIndex && !isBeingDragged
-
+                    items(dockApps.size, key = { dockApps[it].packageName }) { i ->
+                        val app = dockApps[i]
                         Box(
-                            contentAlignment = Alignment.TopCenter,
+                            contentAlignment = Alignment.Center,
                             modifier = Modifier
-                                .weight(1f)
-                                .zIndex(if (isBeingDragged) 20f else 0f)
-                                .onGloballyPositioned { coords ->
-                                    slotBounds[itemIndex] = coords.boundsInRoot()
-                                }
-                                .graphicsLayer {
-                                    if (isBeingDragged) {
-                                        translationX = dragTranslation.x
-                                        translationY = dragTranslation.y
-                                        scaleX = 1.15f
-                                        scaleY = 1.15f
-                                        alpha = 0.92f
-                                    }
-                                }
-                                .pointerInput(isJiggleMode, item?.id) {
-                                    if (!isJiggleMode || item == null) return@pointerInput
-                                    detectDragGestures(
-                                        onDragStart = {
-                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            draggedSlotIndex = itemIndex
-                                            dragTranslation = Offset.Zero
-                                            hoveredTargetSlot = null
-                                            isMergeHover = false
-                                        },
-                                        onDrag = { change, dragAmount ->
-                                            change.consume()
-                                            dragTranslation += dragAmount
-                                            val startRect = slotBounds[itemIndex]
-                                            if (startRect != null) {
-                                                val currentCenter = startRect.center + dragTranslation
-                                                var foundSlot: Int? = null
-                                                var merge = false
-                                                for ((idx, rect) in slotBounds) {
-                                                    if (idx != itemIndex && rect.contains(currentCenter)) {
-                                                        foundSlot = idx
-                                                        val dist = hypot(
-                                                            currentCenter.x - rect.center.x,
-                                                            currentCenter.y - rect.center.y
-                                                        )
-                                                        val mergeRadius = rect.width * 0.28f
-                                                        merge = dist <= mergeRadius
-                                                        break
-                                                    }
-                                                }
-                                                hoveredTargetSlot = foundSlot
-                                                isMergeHover = merge
-                                            }
-                                        },
-                                        onDragEnd = {
-                                            val targetIdx = hoveredTargetSlot
-                                            val targetItem = if (targetIdx != null) pageItems.getOrNull(targetIdx) else null
-                                            if (targetItem != null && targetItem.id != item.id) {
-                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                onDragDropItem(item.id, targetItem.id, isMergeHover)
-                                            }
-                                            draggedSlotIndex = null
-                                            dragTranslation = Offset.Zero
-                                            hoveredTargetSlot = null
-                                            isMergeHover = false
-                                        },
-                                        onDragCancel = {
-                                            draggedSlotIndex = null
-                                            dragTranslation = Offset.Zero
-                                            hoveredTargetSlot = null
-                                            isMergeHover = false
-                                        }
-                                    )
-                                }
+                                .animateItem(fadeInSpec = tween(150), placementSpec = spring(dampingRatio = 0.8f, stiffness = 380f), fadeOutSpec = tween(120))
+                                .then(if (slot != Dp.Unspecified) Modifier.width(slot) else Modifier)
                         ) {
-                            when (item) {
-                                is HomeGridItem.AppItem -> {
-                                    val app = appMap[item.packageName]
-                                    if (app != null) {
-                                        IosAppIconView(
-                                            app = app,
-                                            iconSize = iconSize,
-                                            labelFontSizeSp = labelFontSizeSp,
-                                            showLabel = showLabels,
-                                            showBadges = showBadges,
-                                            isJiggleMode = isJiggleMode,
-                                            isHighlightedTarget = isTargetHighlighted && isMergeHover,
-                                            onClick = { onAppClick(app) },
-                                            onLongClick = { onAppLongClick(app) },
-                                            onDeleteOrMenuClick = { onAppLongClick(app) }
-                                        )
-                                    }
-                                }
-                                is HomeGridItem.FolderItem -> {
-                                    IosFolderGridIconView(
-                                        folder = item,
-                                        appMap = appMap,
-                                        iconSize = iconSize,
-                                        labelFontSizeSp = labelFontSizeSp,
-                                        glassOpacity = glassOpacity,
-                                        showLabel = showLabels,
-                                        showBadges = showBadges,
-                                        isJiggleMode = isJiggleMode,
-                                        isHighlightedTarget = isTargetHighlighted,
-                                        onClickWithOrigin = { origin -> onFolderClickWithOrigin(item, origin) },
-                                        onLongClickWithOrigin = { origin -> onFolderLongClickWithOrigin(item, origin) }
-                                    )
-                                }
-                                null -> {
-                                    Spacer(modifier = Modifier.size(iconSize))
-                                }
+                            Box(
+                                Modifier
+                                    .onGloballyPositioned { onDockIconBounds(app.packageName, it.boundsInRoot()) }
+                                    .graphicsLayer { alpha = if (app.packageName == hiddenPkg) 0f else 1f }
+                            ) {
+                                IosAppIcon(
+                                    app = app,
+                                    iconSize = iconSize,
+                                    showLabel = false,
+                                    showBadges = showBadges,
+                                    isJiggleMode = isJiggleMode,
+                                    onClick = { onAppClick(app, Rect.Zero) },
+                                    onClickWithBounds = { bounds -> onAppClick(app, bounds) },
+                                    onLongClick = { onAppLongClick(app, Rect.Zero) },
+                                    onLongClickWithBounds = { if (!isJiggleMode) onAppLongClick(app, it) }
+                                )
                             }
                         }
+                    }
+                }
+                if (isUnfolded && showRecent && recentApps.isNotEmpty()) {
+                    Box(Modifier.width(1.dp).height(iconSize * 0.55f).background(Color.White.copy(alpha = 0.18f)))
+                    recentApps.filter { recent -> dockApps.none { it.packageName == recent.packageName } }.take(2).forEach { app ->
+                        IosAppIcon(
+                            app = app,
+                            iconSize = iconSize,
+                            showLabel = false,
+                            showBadges = showBadges,
+                            isJiggleMode = false,
+                            onClick = { onAppClick(app, Rect.Zero) },
+                            onClickWithBounds = { bounds -> onAppClick(app, bounds) },
+                            onLongClick = { onAppLongClick(app, Rect.Zero) },
+                            onLongClickWithBounds = { onAppLongClick(app, it) }
+                        )
                     }
                 }
             }
         }
     }
 }
+
+
+/** What pages, dock and overlays can ask the home screen to do. */
+private interface HomeOps {
+    fun openApp(app: AppInfo, bounds: Rect)
+    fun appMenu(app: AppInfo, bounds: Rect)
+    fun folder(folder: HomeGridItem.FolderItem, bounds: Rect)
+    fun widgetTap(kind: WidgetKind)
+    fun enterJiggle()
+    fun exitJiggle()
+    fun remove(item: HomeGridItem)
+    fun stackBounds(id: String, r: Rect?)
+    fun startDrag(item: HomeGridItem, downAt: Offset, at: Offset)
+    fun startExternalDrag(pkg: String, iconTopLeft: Offset, downAt: Offset, at: Offset)
+    fun moveDrag(at: Offset)
+    fun endDrag()
+    fun springFolder(itemId: String)
+    fun leaveFolder()
+    fun spotlight()
+    fun pod(title: String, apps: List<AppInfo>, origin: Rect)
+    fun dockIconBounds(pkg: String, r: Rect)
+    fun edge(): Float
+    fun pageForDots(): Int
+    fun isPaging(): Boolean
+}
+
+/**
+ * Stable handle on [HomeOps]: the lambdas never change identity, so composables
+ * that take them are skipped during unrelated updates, yet every call reaches
+ * the newest state.
+ */
+@androidx.compose.runtime.Stable
+private class HomeActions(ops: androidx.compose.runtime.State<HomeOps>?) {
+    val openApp: (AppInfo, Rect) -> Unit = { a, r -> ops?.value?.openApp(a, r) }
+    val appMenu: (AppInfo, Rect) -> Unit = { a, r -> ops?.value?.appMenu(a, r) }
+    val folder: (HomeGridItem.FolderItem, Rect) -> Unit = { f, r -> ops?.value?.folder(f, r) }
+    val widgetTap: (WidgetKind) -> Unit = { k -> ops?.value?.widgetTap(k) }
+    val todayWidgetTap: (HomeGridItem.WidgetItem) -> Unit = { w -> ops?.value?.widgetTap(w.kind) }
+    val enterJiggle: () -> Unit = { ops?.value?.enterJiggle() }
+    val exitJiggle: () -> Unit = { ops?.value?.exitJiggle() }
+    val remove: (HomeGridItem) -> Unit = { i -> ops?.value?.remove(i) }
+    val stackBounds: (String, Rect?) -> Unit = { id, r -> ops?.value?.stackBounds(id, r) }
+    val startDrag: (HomeGridItem, Offset, Offset) -> Unit = { i, d, a -> ops?.value?.startDrag(i, d, a) }
+    val startExternalDrag: (String, Offset, Offset, Offset) -> Unit = { p, t, d, a -> ops?.value?.startExternalDrag(p, t, d, a) }
+    val moveDrag: (Offset) -> Unit = { a -> ops?.value?.moveDrag(a) }
+    val endDrag: () -> Unit = { ops?.value?.endDrag() }
+    val spotlight: () -> Unit = { ops?.value?.spotlight() }
+    val pod: (String, List<AppInfo>, Rect) -> Unit = { t, a, o -> ops?.value?.pod(t, a, o) }
+    val dockIconBounds: (String, Rect) -> Unit = { p, r -> ops?.value?.dockIconBounds(p, r) }
+    val edgeFraction: () -> Float = { ops?.value?.edge() ?: 0f }
+    val pageForDots: () -> Int = { ops?.value?.pageForDots() ?: 0 }
+    val isPaging: () -> Boolean = { ops?.value?.isPaging() ?: false }
+}
+
+/** For the carried copy of an item while dragging: looks the same, does nothing. */
+private val InertActions = HomeActions(null)
+
+/** A category opened from the App Library and the pod it grows out of. */
+private data class OpenPod(val title: String, val apps: List<AppInfo>, val origin: Rect)
+
+/** iOS' standard ease curve for fades. */
+private val IosEase = CubicBezierEasing(0.25f, 0.1f, 0.25f, 1f)
+
+/** The frosted backdrop is rendered at 1/8 of the screen size. */
+private const val FrostDownscale = 8f

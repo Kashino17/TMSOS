@@ -15,8 +15,8 @@ enum class AppLanguage(val code: String, val displayName: String) {
 
 enum class IconThemeMode(val id: String, val titleDe: String, val descDe: String) {
     STANDARD("standard", "Standard (Farbig)", "Originale App-Farben im randlosen Apple-Squircle"),
-    IOS_DARK("ios_dark", "iOS 18 Dunkel (Dark Mode)", "Dunkelt helle Icon-Hintergründe automatisch auf edles iOS-Anthrazit ab"),
-    IOS_TINTED("ios_tinted", "iOS 18 Getönt (Tinted)", "Edler monochromer Apple-Farbverlauf mit deiner Wunsch-Akzentfarbe");
+    IOS_DARK("ios_dark", "iOS Dunkel (Dark Mode)", "Dunkelt helle Icon-Hintergründe automatisch auf edles iOS-Anthrazit ab"),
+    IOS_TINTED("ios_tinted", "iOS Getönt (Tinted)", "Edler monochromer Apple-Farbverlauf mit deiner Wunsch-Akzentfarbe");
 
     companion object {
         fun fromId(id: String): IconThemeMode = entries.find { it.id == id } ?: STANDARD
@@ -177,6 +177,14 @@ data class AppInfo(
         get() = (launchCount * 20) + usageDurationMinutes30d
 }
 
+/** A real app shortcut published through LauncherApps (manifest or dynamic). */
+data class AppQuickAction(
+    val packageName: String,
+    val id: String,
+    val label: String,
+    val icon: androidx.compose.ui.graphics.ImageBitmap?
+)
+
 data class AppShortcutItem(
     val packageName: String,
     val shortcutId: String,
@@ -207,6 +215,43 @@ sealed class HomeGridItem(val id: String) {
         val position: Int = 0,
         val categoryColorHex: Long = 0xFF0A84FF
     ) : HomeGridItem("folder:$folderId")
+
+    /** A WidgetKit-style widget that occupies [size] grid cells, like on iOS. */
+    data class WidgetItem(
+        val widgetId: String,
+        val kind: WidgetKind,
+        val size: WidgetSize,
+        override val page: Int = 0,
+        /** Non-empty = Smart Stack: several widgets of the same size, swiped vertically. */
+        val stack: List<WidgetKind> = emptyList()
+    ) : HomeGridItem("widget:$widgetId") {
+        val kinds: List<WidgetKind> get() = stack.ifEmpty { listOf(kind) }
+        val isStack: Boolean get() = stack.size > 1
+    }
+}
+
+/** iPhone widget families, measured in home-screen icon cells. */
+enum class WidgetSize(val id: String, val cols: Int, val rows: Int) {
+    SMALL("small", 2, 2),
+    MEDIUM("medium", 4, 2),
+    LARGE("large", 4, 4);
+
+    companion object {
+        fun fromId(id: String): WidgetSize = entries.find { it.id == id } ?: SMALL
+    }
+}
+
+enum class WidgetKind(val id: String, val sizes: List<WidgetSize>) {
+    WEATHER("weather", listOf(WidgetSize.SMALL, WidgetSize.MEDIUM, WidgetSize.LARGE)),
+    CALENDAR("calendar", listOf(WidgetSize.SMALL, WidgetSize.MEDIUM, WidgetSize.LARGE)),
+    CLOCK("clock", listOf(WidgetSize.SMALL, WidgetSize.MEDIUM)),
+    BATTERY("battery", listOf(WidgetSize.SMALL, WidgetSize.MEDIUM)),
+    SUGGESTIONS("suggestions", listOf(WidgetSize.MEDIUM, WidgetSize.LARGE)),
+    NOTES("notes", listOf(WidgetSize.SMALL, WidgetSize.MEDIUM));
+
+    companion object {
+        fun fromId(id: String): WidgetKind? = entries.find { it.id == id }
+    }
 }
 
 enum class FoldPostureMode(val id: String, val titleDe: String, val descDe: String) {
@@ -232,7 +277,7 @@ enum class FoldPostureMode(val id: String, val titleDe: String, val descDe: Stri
 }
 
 enum class PageTransitionEffect(val id: String, val titleDe: String, val descDe: String) {
-    IOS_SLIDE("ios_slide", "iOS 18 Spring Slide", "Authentischer, butterweicher Apple-Seitenübergang"),
+    IOS_SLIDE("ios_slide", "iOS Spring Slide", "Authentischer, butterweicher Apple-Seitenübergang"),
     CUBE_3D("cube_3d", "3D Perspektiv-Würfel", "Dreht die Seiten räumlich wie einen 3D-Würfel"),
     DEPTH_STACK("depth_stack", "Tiefen-Stapel (Depth)", "Hintere Seite gleitet mit Tiefen-Skalierung hervor"),
     ZOOM_FADE("zoom_fade", "Sanfter Zoom & Blend", "Sanftes Ein- und Ausblenden mit Skalierung"),
@@ -273,7 +318,7 @@ data class LauncherSettings(
     val foldMode: FoldPostureMode = FoldPostureMode.IPAD_GRID,
     val pageTransition: PageTransitionEffect = PageTransitionEffect.IOS_SLIDE,
     val iconSizeScale: Float = 1.0f,
-    val labelFontSizeSp: Float = 11.5f,
+    val labelFontSizeSp: Float = 12f,
     val iconThemeMode: IconThemeMode = IconThemeMode.STANDARD,
     val tintAccentColor: TintAccentColor = TintAccentColor.IOS_BLUE,
     val useIosSystemIcons: Boolean = true,
@@ -282,6 +327,7 @@ data class LauncherSettings(
     val showDockLabels: Boolean = false,
     val showRecentInUnfoldedDock: Boolean = true,
     val showTopWidgetsOnFirstPage: Boolean = false,
+    val useSystemWallpaper: Boolean = false,
     val leftWidgetType: LeftWidgetType = LeftWidgetType.CALENDAR_CLOCK,
     val rightWidgetType: RightWidgetType = RightWidgetType.LIVE_WEATHER,
     val quickNoteText: String = "Tippen für Schnell-Notiz…",

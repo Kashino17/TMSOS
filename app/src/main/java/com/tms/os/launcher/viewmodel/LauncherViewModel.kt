@@ -31,6 +31,7 @@ import java.util.UUID
 
 data class LauncherUiState(
     val isLoading: Boolean = true,
+    val homePressGeneration: Int = 0,
     val allApps: List<AppInfo> = emptyList(),
     val appMap: Map<String, AppInfo> = emptyMap(),
     val allContacts: List<ContactItem> = emptyList(),
@@ -50,6 +51,13 @@ data class LauncherUiState(
     val folderOriginNormalized: Offset = Offset(0.5f, 0.5f),
     val activeCategoryModal: AppCategory? = null,
     val selectedAppForMenu: AppInfo? = null,
+    val todayWidgets: List<HomeGridItem.WidgetItem> = emptyList(),
+    val menuQuickActions: List<com.tms.os.launcher.model.AppQuickAction> = emptyList(),
+    /** Real shortcuts of Spotlight's top hit ("New Tab" for Chrome, …). */
+    val spotlightTopActions: List<com.tms.os.launcher.model.AppQuickAction> = emptyList(),
+    /** Packages recently opened from Spotlight, newest first ("Verlauf"). */
+    val spotlightHistory: List<String> = emptyList(),
+    val weatherForecast: com.tms.os.launcher.domain.WeatherForecast? = null,
     val isDefaultLauncher: Boolean = false,
     val isBadgeServiceEnabled: Boolean = false,
     val isUsageStatsGranted: Boolean = false,
@@ -143,7 +151,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun refreshLiveWeatherIfNeeded(force: Boolean = false) {
         val s = _uiState.value.settings
         val elapsed = System.currentTimeMillis() - s.weatherLastUpdated
-        if (!force && elapsed < 20 * 60 * 1000L && s.weatherLastUpdated > 0L) return
+        val hasForecast = _uiState.value.weatherForecast != null
+        if (!force && hasForecast && elapsed < 20 * 60 * 1000L && s.weatherLastUpdated > 0L) return
         refreshLiveWeatherForCity(s.weatherCity)
     }
 
@@ -152,6 +161,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             _uiState.update { it.copy(isWeatherRefreshing = true) }
             val data = WeatherService.fetchLiveWeatherForCity(cityQuery)
             if (data != null) {
+                _uiState.update { it.copy(weatherForecast = data.forecast ?: it.weatherForecast) }
                 updateSettings { current ->
                     current.copy(
                         weatherCity = data.resolvedCity,
@@ -191,6 +201,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                     appMap = appMap,
                     allContacts = contacts,
                     homeGridItems = grid,
+                    todayWidgets = repository.loadTodayWidgets(),
+                    spotlightHistory = repository.loadSpotlightHistory(),
                     dockPackages = dock,
                     recentPackages = recents,
                     categorizedApps = categorized,
@@ -267,8 +279,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         return map
     }
 
-    fun launchApp(packageName: String) {
-        val ok = repository.launchApp(packageName)
+    fun launchApp(packageName: String, options: android.os.Bundle? = null) {
+        val ok = repository.launchApp(packageName, options)
         if (ok) {
             _uiState.update { state ->
                 val updatedApps = state.allApps.map { app ->
@@ -287,6 +299,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                     categorizedApps = buildCategoryMap(updatedApps),
                     isSpotlightOpen = false,
                     spotlightQuery = "",
+                    activeFolder = null,
+                    activeCategoryModal = null,
                     selectedAppForMenu = null
                 )
             }
@@ -295,6 +309,11 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     fun dialContact(phone: String) {
         repository.dialPhoneNumber(phone)
+        closeSpotlight()
+    }
+
+    fun messageContact(phone: String) {
+        repository.messagePhoneNumber(phone)
         closeSpotlight()
     }
 
@@ -362,6 +381,19 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         _uiState.update { it.copy(isJiggleMode = enabled, selectedAppForMenu = null) }
     }
 
+    /** Opens an app from Spotlight and remembers it in the search history. */
+    fun launchFromSpotlight(packageName: String) {
+        val history = (listOf(packageName) + _uiState.value.spotlightHistory).distinct().take(8)
+        repository.saveSpotlightHistory(history)
+        _uiState.update { it.copy(spotlightHistory = history) }
+        launchApp(packageName)
+    }
+
+    fun clearSpotlightHistory() {
+        repository.saveSpotlightHistory(emptyList())
+        _uiState.update { it.copy(spotlightHistory = emptyList()) }
+    }
+
     fun openSpotlight() {
         val apps = _uiState.value.allApps
         _uiState.update {
@@ -402,8 +434,14 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 spotlightResults = results,
                 spotlightShortcuts = shortcuts,
                 spotlightContacts = contacts,
-                spotlightMathResult = mathResult
+                spotlightMathResult = mathResult,
+                spotlightTopActions = if (results.firstOrNull()?.packageName == it.spotlightResults.firstOrNull()?.packageName && query.isNotBlank()) it.spotlightTopActions else emptyList()
             )
+        }
+        val top = results.firstOrNull()
+        if (top != null && query.isNotBlank()) viewModelScope.launch {
+            val actions = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { repository.quickActions(top.packageName, limit = 3) }
+            _uiState.update { s -> if (s.spotlightResults.firstOrNull()?.packageName == top.packageName) s.copy(spotlightTopActions = actions) else s }
         }
 
         if (state.settings.instantLaunchSingleSearchResult &&
@@ -433,7 +471,16 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun selectAppForContextMenu(app: AppInfo?) {
-        _uiState.update { it.copy(selectedAppForMenu = app) }
+        _uiState.update { it.copy(selectedAppForMenu = app, menuQuickActions = emptyList()) }
+        if (app != null) viewModelScope.launch {
+            val actions = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { repository.quickActions(app.packageName) }
+            _uiState.update { if (it.selectedAppForMenu?.packageName == app.packageName) it.copy(menuQuickActions = actions) else it }
+        }
+    }
+
+    fun runQuickAction(action: com.tms.os.launcher.model.AppQuickAction) {
+        repository.startQuickAction(action)
+        _uiState.update { it.copy(selectedAppForMenu = null) }
     }
 
     fun autoOrganizeHomeWithSmartFolders() {
@@ -468,73 +515,96 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
      * - If [mergeAsFolder] is true: merges dragged AppItem into target FolderItem (or creates a new Folder from 2 AppItems).
      * - If [mergeAsFolder] is false: swaps/reorders the dragged item to the target position & page (and pins it if on Page 0!).
      */
-    fun onDragDropGridItem(
-        draggedItemId: String,
-        targetItemId: String,
-        mergeAsFolder: Boolean
-    ) {
-        if (draggedItemId == targetItemId) return
+    /** Persist the order the user produced by dragging (icons, folders, widgets). */
+    fun commitHomeOrder(items: List<HomeGridItem>) {
+        repository.saveHomeGridItems(items)
+        _uiState.update { it.copy(homeGridItems = items) }
+    }
+
+    /**
+     * iOS folder gesture: hold an app over another app (new folder) or over a
+     * folder (add to it). Returns the folder that now contains the app.
+     */
+    fun mergeIntoFolder(draggedItemId: String, targetItemId: String) {
         val current = _uiState.value.homeGridItems.toMutableList()
-        val fromIdx = current.indexOfFirst { it.id == draggedItemId }
+        // The app may come from the dock or a folder and not be in the grid yet.
+        val dragged = current.firstOrNull { it.id == draggedItemId } as? HomeGridItem.AppItem
+            ?: if (draggedItemId.startsWith("app:")) HomeGridItem.AppItem(draggedItemId.removePrefix("app:")) else return
         val toIdx = current.indexOfFirst { it.id == targetItemId }
-        if (fromIdx < 0 || toIdx < 0) return
-
-        val dragged = current[fromIdx]
-        val target = current[toIdx]
-
-        if (mergeAsFolder && dragged is HomeGridItem.AppItem) {
-            when (target) {
-                is HomeGridItem.FolderItem -> {
-                    current.removeAt(fromIdx)
-                    val newToIdx = current.indexOfFirst { it.id == targetItemId }
-                    if (newToIdx >= 0 && !target.appPackages.contains(dragged.packageName)) {
-                        current[newToIdx] = target.copy(appPackages = target.appPackages + dragged.packageName)
-                    }
-                    repository.saveHomeGridItems(current)
-                    _uiState.update { it.copy(homeGridItems = current) }
-                    return
-                }
-                is HomeGridItem.AppItem -> {
-                    val targetApp = _uiState.value.appMap[target.packageName]
-                    val folderTitle = targetApp?.category?.titleDe ?: "Neuer Ordner"
-                    val newFolder = HomeGridItem.FolderItem(
-                        folderId = "folder_${UUID.randomUUID()}",
-                        title = folderTitle,
-                        appPackages = listOf(target.packageName, dragged.packageName).distinct(),
-                        page = target.page,
-                        position = toIdx
-                    )
-                    current[toIdx] = newFolder
-                    current.removeAt(fromIdx)
-                    repository.saveHomeGridItems(current)
-                    _uiState.update { it.copy(homeGridItems = current) }
-                    return
+        if (toIdx < 0 || draggedItemId == targetItemId) return
+        when (val target = current[toIdx]) {
+            is HomeGridItem.FolderItem -> {
+                if (!target.appPackages.contains(dragged.packageName)) {
+                    current[toIdx] = target.copy(appPackages = target.appPackages + dragged.packageName)
                 }
             }
-        }
-
-        // Standard Reorder / Swap between slots
-        val targetPage = when (target) {
-            is HomeGridItem.AppItem -> target.page
-            is HomeGridItem.FolderItem -> target.page
-        }
-        val movedItem = when (dragged) {
             is HomeGridItem.AppItem -> {
-                if (targetPage == 0) {
-                    repository.setAppPinnedOnPageOne(dragged.packageName, true)
-                }
-                dragged.copy(page = targetPage)
+                val targetApp = _uiState.value.appMap[target.packageName]
+                current[toIdx] = HomeGridItem.FolderItem(
+                    folderId = "folder_${UUID.randomUUID()}",
+                    title = targetApp?.category?.titleDe ?: "Ordner",
+                    appPackages = listOf(target.packageName, dragged.packageName).distinct(),
+                    page = target.page,
+                    position = toIdx
+                )
             }
-            is HomeGridItem.FolderItem -> dragged.copy(page = targetPage)
+            is HomeGridItem.WidgetItem -> return
         }
-
-        current.removeAt(fromIdx)
-        current.add(toIdx.coerceIn(0, current.size), movedItem)
+        current.removeAll { it.id == draggedItemId }
         repository.saveHomeGridItems(current)
         _uiState.update { it.copy(homeGridItems = current) }
     }
 
+    /** iOS: drop a widget onto another one of the same size to build a Smart Stack. */
+    fun mergeWidgets(draggedId: String, targetId: String) {
+        val list = _uiState.value.homeGridItems.toMutableList()
+        val dragged = list.firstOrNull { it.id == draggedId } as? HomeGridItem.WidgetItem ?: return
+        val idx = list.indexOfFirst { it.id == targetId }
+        val target = list.getOrNull(idx) as? HomeGridItem.WidgetItem ?: return
+        if (dragged.size != target.size || dragged.id == target.id) return
+        list[idx] = target.copy(stack = (target.kinds + dragged.kinds).distinct())
+        list.removeAll { it.id == draggedId }
+        commitHomeOrder(list)
+    }
+
+    /** Adds a widget like the iOS gallery does: at [index] of the home order, or to Today. */
+    fun addWidget(
+        kind: com.tms.os.launcher.model.WidgetKind,
+        size: com.tms.os.launcher.model.WidgetSize,
+        toToday: Boolean,
+        index: Int,
+        stack: List<com.tms.os.launcher.model.WidgetKind> = emptyList()
+    ) {
+        val widget = HomeGridItem.WidgetItem("w_${UUID.randomUUID()}", kind, size, stack = stack)
+        if (toToday) {
+            val list = listOf(widget) + _uiState.value.todayWidgets
+            repository.saveTodayWidgets(list)
+            _uiState.update { it.copy(todayWidgets = list) }
+        } else {
+            val list = _uiState.value.homeGridItems.toMutableList()
+            list.add(index.coerceIn(0, list.size), widget)
+            commitHomeOrder(list)
+        }
+    }
+
+    fun removeWidget(widgetId: String) {
+        val today = _uiState.value.todayWidgets
+        if (today.any { it.widgetId == widgetId }) {
+            val list = today.filterNot { it.widgetId == widgetId }
+            repository.saveTodayWidgets(list)
+            _uiState.update { it.copy(todayWidgets = list) }
+        } else {
+            commitHomeOrder(_uiState.value.homeGridItems.filterNot { it is HomeGridItem.WidgetItem && it.widgetId == widgetId })
+        }
+    }
+
+    fun commitTodayOrder(list: List<HomeGridItem.WidgetItem>) {
+        repository.saveTodayWidgets(list)
+        _uiState.update { it.copy(todayWidgets = list) }
+    }
+
     fun togglePinOnPageOne(packageName: String) {
+        repository.setAppRemovedFromHome(packageName, false)
         val app = _uiState.value.appMap[packageName] ?: return
         val newPinned = !app.isPinnedOnPageOne
         repository.setAppPinnedOnPageOne(packageName, newPinned)
@@ -592,6 +662,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun moveAppIntoFolder(packageName: String, targetFolderId: String) {
+        repository.setAppRemovedFromHome(packageName, false)
         val current = _uiState.value.homeGridItems.toMutableList()
         current.removeAll { it is HomeGridItem.AppItem && it.packageName == packageName }
         for (i in current.indices) {
@@ -615,6 +686,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun createNewFolderWithApp(packageName: String, folderName: String) {
+        repository.setAppRemovedFromHome(packageName, false)
         val current = _uiState.value.homeGridItems.toMutableList()
         val existingIdx = current.indexOfFirst { it is HomeGridItem.AppItem && it.packageName == packageName }
         current.removeAll { it is HomeGridItem.AppItem && it.packageName == packageName }
@@ -628,6 +700,14 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         current.add(newFolder)
         repository.saveHomeGridItems(current)
         _uiState.update { it.copy(homeGridItems = current, selectedAppForMenu = null) }
+    }
+
+    /** Dock order produced by dragging (an app dragged into the dock leaves the grid). */
+    fun setDockOrder(packages: List<String>) {
+        val max = _uiState.value.settings.dockIconCount.coerceIn(3, 6)
+        val dock = packages.distinct().take(max)
+        repository.saveDockPackages(dock)
+        _uiState.update { it.copy(dockPackages = dock) }
     }
 
     fun togglePinToDock(packageName: String) {
@@ -667,6 +747,13 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         return ok
     }
 
+    fun removeAppFromHome(packageName: String) {
+        repository.setAppRemovedFromHome(packageName, true)
+        val dock = _uiState.value.dockPackages - packageName
+        repository.saveDockPackages(dock)
+        refreshApps()
+    }
+
     fun hideOrUnhideApp(packageName: String, hidden: Boolean) {
         repository.setAppHidden(packageName, hidden)
         refreshApps()
@@ -675,6 +762,13 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun openAppInfo(packageName: String) {
         repository.openAppSystemSettings(packageName)
         _uiState.update { it.copy(selectedAppForMenu = null) }
+    }
+
+    /** iOS "Remove Folder": its apps leave the home screen but stay in the App Library. */
+    fun removeFolderFromHome(folderId: String) {
+        val folder = _uiState.value.homeGridItems.firstOrNull { it is HomeGridItem.FolderItem && it.folderId == folderId } as? HomeGridItem.FolderItem ?: return
+        folder.appPackages.forEach { repository.setAppRemovedFromHome(it, true) }
+        commitHomeOrder(_uiState.value.homeGridItems.filterNot { it.id == folder.id })
     }
 
     fun uninstallApp(packageName: String) {
@@ -706,6 +800,14 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 true
             }
             else -> false
+        }
+    }
+
+    fun returnHome() {
+        _uiState.update {
+            it.copy(homePressGeneration = it.homePressGeneration + 1,
+                isSpotlightOpen = false, spotlightQuery = "", activeFolder = null,
+                activeCategoryModal = null, selectedAppForMenu = null, isJiggleMode = false)
         }
     }
 }

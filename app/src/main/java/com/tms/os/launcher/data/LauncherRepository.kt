@@ -72,7 +72,7 @@ class LauncherRepository(private val context: Context) {
             foldMode = FoldPostureMode.fromId(prefs.getString("foldMode_v4", FoldPostureMode.IPAD_GRID.id) ?: ""),
             pageTransition = PageTransitionEffect.fromId(prefs.getString("pageTransition", PageTransitionEffect.IOS_SLIDE.id) ?: ""),
             iconSizeScale = prefs.getFloat("iconSizeScale", 1.0f),
-            labelFontSizeSp = prefs.getFloat("labelFontSizeSp", 11.5f),
+            labelFontSizeSp = prefs.getFloat("labelFontSizeSp", 12f),
             iconThemeMode = IconThemeMode.fromId(prefs.getString("iconThemeMode", IconThemeMode.STANDARD.id) ?: ""),
             tintAccentColor = TintAccentColor.fromId(prefs.getString("tintAccentColor", TintAccentColor.IOS_BLUE.id) ?: ""),
             useIosSystemIcons = prefs.getBoolean("useIosSystemIcons", true),
@@ -81,6 +81,7 @@ class LauncherRepository(private val context: Context) {
             showDockLabels = prefs.getBoolean("showDockLabels", false),
             showRecentInUnfoldedDock = prefs.getBoolean("showRecentInUnfoldedDock", true),
             showTopWidgetsOnFirstPage = prefs.getBoolean("showTopWidgetsOnFirstPage_v4", false),
+            useSystemWallpaper = prefs.getBoolean("useSystemWallpaper", false),
             leftWidgetType = LeftWidgetType.fromId(prefs.getString("leftWidgetType", LeftWidgetType.CALENDAR_CLOCK.id) ?: ""),
             rightWidgetType = RightWidgetType.fromId(prefs.getString("rightWidgetType", RightWidgetType.LIVE_WEATHER.id) ?: ""),
             quickNoteText = prefs.getString("quickNoteText", "Tippen für Schnell-Notiz…") ?: "Tippen für Schnell-Notiz…",
@@ -125,6 +126,7 @@ class LauncherRepository(private val context: Context) {
             putBoolean("showDockLabels", settings.showDockLabels)
             putBoolean("showRecentInUnfoldedDock", settings.showRecentInUnfoldedDock)
             putBoolean("showTopWidgetsOnFirstPage_v4", settings.showTopWidgetsOnFirstPage)
+            putBoolean("useSystemWallpaper", settings.useSystemWallpaper)
             putString("leftWidgetType", settings.leftWidgetType.id)
             putString("rightWidgetType", settings.rightWidgetType.id)
             putString("quickNoteText", settings.quickNoteText)
@@ -203,7 +205,7 @@ class LauncherRepository(private val context: Context) {
             val overrideCat = customCategories[pkg]
             val category = SmartCategorizer.categorizeApp(pkg, rawLabel, appInfo, overrideCat)
 
-            val cacheKey = "${pkg}_${settings.useIosSystemIcons}_${settings.fullBleedAdaptiveIcons}_${settings.iconThemeMode.id}_${settings.tintAccentColor.id}"
+            val cacheKey = "${pkg}_${settings.useIosSystemIcons}_${settings.fullBleedAdaptiveIcons}_${settings.iconThemeMode.id}_${settings.tintAccentColor.id}_${settings.appLanguage.code}_${java.time.LocalDate.now()}"
             val iconBitmap = iconCache.getOrPut(cacheKey) {
                 try {
                     val drawable = ri.loadIcon(pm)
@@ -215,7 +217,8 @@ class LauncherRepository(private val context: Context) {
                         useIosSystemIcons = settings.useIosSystemIcons,
                         fullBleedAdaptive = settings.fullBleedAdaptiveIcons,
                         themeMode = settings.iconThemeMode,
-                        tintAccent = settings.tintAccentColor
+                        tintAccent = settings.tintAccentColor,
+                        locale = Locale.forLanguageTag(settings.appLanguage.code)
                     )
                 } catch (_: Exception) {
                     createFallbackBitmap(192)
@@ -226,7 +229,9 @@ class LauncherRepository(private val context: Context) {
                 AppInfo(
                     packageName = pkg,
                     activityName = activityInfo.name ?: "",
-                    label = rawLabel,
+                    label = if (pkg == context.packageName) "TMS OS"
+                        else if (settings.useIosSystemIcons) com.tms.os.launcher.domain.IosSystemIcons.localizedLabel(pkg, rawLabel, settings.appLanguage)
+                        else rawLabel,
                     customLabel = customLabels[pkg],
                     category = category,
                     isSystemApp = isSystem,
@@ -253,6 +258,59 @@ class LauncherRepository(private val context: Context) {
     /**
      * Reads real 30-day Android foreground usage stats (in minutes) if PACKAGE_USAGE_STATS is granted.
      */
+    /**
+     * The app's own shortcuts (e.g. "New Message"), as iOS shows them on top of
+     * the Haptic Touch menu. Only the default launcher may read them.
+     */
+    fun quickActions(packageName: String, limit: Int = 4): List<com.tms.os.launcher.model.AppQuickAction> = runCatching {
+        val la = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as android.content.pm.LauncherApps
+        if (!la.hasShortcutHostPermission()) return@runCatching emptyList()
+        val q = android.content.pm.LauncherApps.ShortcutQuery()
+            .setPackage(packageName)
+            .setQueryFlags(
+                android.content.pm.LauncherApps.ShortcutQuery.FLAG_MATCH_MANIFEST or
+                    android.content.pm.LauncherApps.ShortcutQuery.FLAG_MATCH_DYNAMIC
+            )
+        val density = context.resources.displayMetrics.densityDpi
+        la.getShortcuts(q, Process.myUserHandle()).orEmpty()
+            .filter { it.isEnabled }
+            .sortedWith(compareBy({ !it.isDeclaredInManifest }, { it.rank }))
+            .take(limit)
+            .map { info ->
+                val icon = runCatching {
+                    la.getShortcutIconDrawable(info, density)?.let { d ->
+                        val px = (24 * context.resources.displayMetrics.density).toInt().coerceAtLeast(1) * 2
+                        val bmp = Bitmap.createBitmap(px, px, Bitmap.Config.ARGB_8888)
+                        d.setBounds(0, 0, px, px); d.draw(android.graphics.Canvas(bmp)); bmp.asImageBitmap()
+                    }
+                }.getOrNull()
+                com.tms.os.launcher.model.AppQuickAction(info.`package`, info.id, (info.shortLabel ?: info.longLabel ?: "").toString(), icon)
+            }
+            .filter { it.label.isNotBlank() }
+    }.getOrDefault(emptyList())
+
+    fun startQuickAction(action: com.tms.os.launcher.model.AppQuickAction) {
+        runCatching {
+            val la = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as android.content.pm.LauncherApps
+            la.startShortcut(action.packageName, action.id, null, null, Process.myUserHandle())
+        }
+    }
+
+    fun messagePhoneNumber(phone: String) {
+        runCatching {
+            context.startActivity(Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:${Uri.encode(phone)}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
+    }
+
+    /* ------------------------- Spotlight history -------------------------- */
+
+    fun loadSpotlightHistory(): List<String> =
+        prefs.getString("spotlight_history", "").orEmpty().split('|').filter { it.isNotBlank() }
+
+    fun saveSpotlightHistory(packages: List<String>) {
+        prefs.edit().putString("spotlight_history", packages.joinToString("|")).apply()
+    }
+
     fun getUsageStatsMinutesMap(): Map<String, Int> {
         if (!isUsageStatsPermissionGranted()) return emptyMap()
         return try {
@@ -556,9 +614,16 @@ class LauncherRepository(private val context: Context) {
         prefs.edit().putString("dock_packages_v4_json", arr.toString()).apply()
     }
 
+    fun setAppRemovedFromHome(packageName: String, removed: Boolean) {
+        val packages = prefs.getStringSet("removed_from_home", emptySet()).orEmpty().toMutableSet()
+        if (removed) packages.add(packageName) else packages.remove(packageName)
+        prefs.edit().putStringSet("removed_from_home", packages).apply()
+    }
+
     fun loadHomeGridItems(allApps: List<AppInfo>, dockPackages: List<String>): List<HomeGridItem> {
         val raw = prefs.getString("home_grid_items_v4_json", null)
-        val validPackages = allApps.filter { !it.isHidden }.map { it.packageName }.toSet()
+        val removed = prefs.getStringSet("removed_from_home", emptySet()).orEmpty()
+        val validPackages = allApps.filter { !it.isHidden && it.packageName !in removed }.map { it.packageName }.toSet()
 
         if (raw != null) {
             try {
@@ -582,6 +647,18 @@ class LauncherRepository(private val context: Context) {
                                     )
                                 )
                             }
+                        }
+                        "widget" -> {
+                            val kind = com.tms.os.launcher.model.WidgetKind.fromId(obj.optString("kind"))
+                            if (kind != null) items.add(
+                                HomeGridItem.WidgetItem(
+                                    widgetId = obj.optString("widgetId", UUID.randomUUID().toString()),
+                                    kind = kind,
+                                    size = com.tms.os.launcher.model.WidgetSize.fromId(obj.optString("size")),
+                                    page = obj.optInt("page", 0),
+                                    stack = obj.optString("stack").split(',').mapNotNull { com.tms.os.launcher.model.WidgetKind.fromId(it) }
+                                )
+                            )
                         }
                         "folder" -> {
                             val folderId = obj.optString("folderId", UUID.randomUUID().toString())
@@ -612,7 +689,7 @@ class LauncherRepository(private val context: Context) {
                 }
 
                 for (app in allApps) {
-                    if (!app.isHidden && !placedPackages.contains(app.packageName)) {
+                    if (app.packageName in validPackages && !placedPackages.contains(app.packageName)) {
                         items.add(
                             HomeGridItem.AppItem(
                                 packageName = app.packageName,
@@ -624,12 +701,58 @@ class LauncherRepository(private val context: Context) {
                     }
                 }
 
-                return items
+                return seedDefaultWidgets(items)
             } catch (_: Exception) {
             }
         }
 
-        return generateFlatSortedHomeGrid(allApps, dockPackages)
+        return seedDefaultWidgets(generateFlatSortedHomeGrid(allApps.filter { it.packageName !in removed }, dockPackages))
+    }
+
+    /** iOS ships the first home page with Calendar + Weather widgets on top. Done once. */
+    private fun seedDefaultWidgets(items: List<HomeGridItem>): List<HomeGridItem> {
+        if (prefs.getBoolean("widgets_seeded_v1", false)) return items
+        prefs.edit().putBoolean("widgets_seeded_v1", true).apply()
+        if (items.any { it is HomeGridItem.WidgetItem }) return items
+        val seeded = listOf<HomeGridItem>(
+            HomeGridItem.WidgetItem("w_" + UUID.randomUUID(), com.tms.os.launcher.model.WidgetKind.CALENDAR, com.tms.os.launcher.model.WidgetSize.SMALL),
+            HomeGridItem.WidgetItem("w_" + UUID.randomUUID(), com.tms.os.launcher.model.WidgetKind.WEATHER, com.tms.os.launcher.model.WidgetSize.SMALL)
+        ) + items
+        saveHomeGridItems(seeded)
+        return seeded
+    }
+
+    /* ----------------------------- Today View ----------------------------- */
+
+    fun loadTodayWidgets(): List<HomeGridItem.WidgetItem> {
+        val raw = prefs.getString("today_widgets_v2", null)
+        if (raw == null) {
+            val defaults = listOf(
+                com.tms.os.launcher.model.WidgetKind.CALENDAR to com.tms.os.launcher.model.WidgetSize.MEDIUM,
+                com.tms.os.launcher.model.WidgetKind.WEATHER to com.tms.os.launcher.model.WidgetSize.LARGE
+            ).map { (k, sz) -> HomeGridItem.WidgetItem("t_" + UUID.randomUUID(), k, sz) }
+            saveTodayWidgets(defaults)
+            return defaults
+        }
+        return runCatching {
+            val arr = JSONArray(raw)
+            (0 until arr.length()).mapNotNull { i ->
+                val o = arr.getJSONObject(i)
+                val kind = com.tms.os.launcher.model.WidgetKind.fromId(o.optString("kind")) ?: return@mapNotNull null
+                HomeGridItem.WidgetItem(
+                    o.optString("widgetId"), kind, com.tms.os.launcher.model.WidgetSize.fromId(o.optString("size")),
+                    stack = o.optString("stack").split(',').mapNotNull { com.tms.os.launcher.model.WidgetKind.fromId(it) }
+                )
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    fun saveTodayWidgets(widgets: List<HomeGridItem.WidgetItem>) {
+        val arr = JSONArray()
+        widgets.forEach { w ->
+            arr.put(JSONObject().put("widgetId", w.widgetId).put("kind", w.kind.id).put("size", w.size.id).put("stack", w.stack.joinToString(",") { it.id }))
+        }
+        prefs.edit().putString("today_widgets_v2", arr.toString()).apply()
     }
 
     /**
@@ -775,6 +898,15 @@ class LauncherRepository(private val context: Context) {
                     obj.put("page", item.page)
                     obj.put("position", index)
                 }
+                is HomeGridItem.WidgetItem -> {
+                    obj.put("type", "widget")
+                    obj.put("widgetId", item.widgetId)
+                    obj.put("kind", item.kind.id)
+                    obj.put("size", item.size.id)
+                    obj.put("stack", item.stack.joinToString(",") { it.id })
+                    obj.put("page", item.page)
+                    obj.put("position", index)
+                }
                 is HomeGridItem.FolderItem -> {
                     obj.put("type", "folder")
                     obj.put("folderId", item.folderId)
@@ -835,20 +967,20 @@ class LauncherRepository(private val context: Context) {
         return null
     }
 
-    fun launchApp(packageName: String): Boolean {
+    fun launchApp(packageName: String, options: android.os.Bundle? = null): Boolean {
         return try {
             if (packageName == context.packageName) {
                 val intent = Intent(context, Class.forName("com.tms.os.launcher.SettingsActivity")).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
-                context.startActivity(intent)
+                context.startActivity(intent, options)
                 recordAppLaunch(packageName)
                 return true
             }
             val intent = context.packageManager.getLaunchIntentForPackage(packageName)
             if (intent != null) {
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
-                context.startActivity(intent)
+                context.startActivity(intent, options)
                 recordAppLaunch(packageName)
                 true
             } else {
@@ -875,6 +1007,7 @@ class LauncherRepository(private val context: Context) {
             val url = when (engine) {
                 "youtube" -> "https://www.youtube.com/results?search_query=$encoded"
                 "play" -> "https://play.google.com/store/search?q=$encoded&c=apps"
+                "maps" -> "geo:0,0?q=$encoded"
                 else -> "https://www.google.com/search?q=$encoded"
             }
             val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {

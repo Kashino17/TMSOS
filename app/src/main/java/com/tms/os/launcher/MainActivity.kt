@@ -48,7 +48,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         // Pressing the Home button while already in the launcher resets open overlays
-        viewModel.handleBackOrHomePress()
+        viewModel.returnHome()
         viewModel.refreshSystemStatus()
     }
 
