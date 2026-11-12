@@ -8,6 +8,13 @@ Ein maßgeschneiderter, werbefreier und kostenloser **iOS-Style Homescreen-Launc
 
 ---
 
+## Neu in v5.1.0 – ruhiges, neutrales Design
+- **Neutrales dunkles Material** statt buntem Glas: Dock, Such-Pille, Mediathek-Kacheln, Menüs und Karten in einem einheitlichen Grau mit Haarlinie.
+- **Kompaktes Raster**: quadratische Zellen, oben ausgerichtet; Dock über dem Navigationsbalken, Dock-Icons exakt in den Rasterspalten.
+- **App-Mediathek** neu: zentrierte Such-Pille, Kategorie-Kacheln in Homescreen-Icon-Größe, Kategorien öffnen im Vollbild (Titel + Raster), alphabetische Suche mit A–Z-Leiste.
+- **Spotlight** neu: Vorschläge-Karte, Verlauf-Chips, große Trefferzeilen, Kontakte mit Nachricht/Anruf, „In Apps suchen“ (Web, Store, Karten), Suchfeld unten.
+- **Heute-Ansicht**: Kalender (mittel) + Wetter (groß), ohne Suchfeld.
+
 ## Neu in v5.0.0 – iOS 26 Edition
 - **Echte Widgets** wie bei iOS (klein 2×2, mittel 4×2, groß 4×4): Wetter mit Stunden- und Tagesvorhersage, Kalender, Uhr/Weltzeit, Batterien, Siri-Vorschläge, Notizen – Icons fließen um Widgets herum.
 - **Smart Stack:** mehrere Widgets übereinander, vertikal durchwischen; entsteht aus der Galerie oder durch Ziehen eines Widgets auf ein gleich großes.

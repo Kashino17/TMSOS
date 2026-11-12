@@ -73,6 +73,7 @@ import com.tms.os.launcher.model.HomeGridItem
 import com.tms.os.launcher.ui.theme.wallpaperGlass
 import com.tms.os.launcher.ui.theme.IosSquircle
 import com.tms.os.launcher.ui.theme.IosText
+import com.tms.os.launcher.ui.theme.IosMaterial
 import com.tms.os.launcher.ui.home.RemoveBadge
 import com.tms.os.launcher.ui.home.jiggle
 import kotlin.math.abs
@@ -180,19 +181,17 @@ fun IosAppIcon(
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
                         .size(iconSize)
-                        .shadow(1.5.dp, IosSquircle, ambientColor = Color.Black.copy(alpha = 0.15f), spotColor = Color.Black.copy(alpha = 0.12f))
                         .clip(IosSquircle)
                 )
             } else {
                 LetterIcon(app.displayLabel, iconSize)
             }
 
-            // Liquid-glass edge. Barely there, but it unifies third-party icons.
+            // Touch-down shade (icons themselves are flat: no rim, no shadow).
             Box(
                 modifier = Modifier
                     .size(iconSize)
                     .clip(IosSquircle)
-                    .border(0.6.dp, Color.White.copy(alpha = 0.13f), IosSquircle)
                     .drawWithContent {
                         drawContent()
                         if (pressShade > 0f) drawRect(Color.Black.copy(alpha = pressShade))
@@ -225,7 +224,7 @@ fun IosAppIcon(
         }
 
         if (showLabel) {
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(5.dp))
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center,
@@ -340,7 +339,7 @@ fun IosFolderIcon(
             Box(
                 modifier = Modifier
                     .size(iconSize)
-                    .wallpaperGlass(IosSquircle, tint = Color.White.copy(alpha = 0.30f), rim = 0.5f)
+                    .wallpaperGlass(IosSquircle, tint = Color(0x80707076), rim = 0.10f)
                     .padding(padding)
             ) {
                 Column(
@@ -400,7 +399,7 @@ fun IosFolderIcon(
         }
 
         if (showLabel) {
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(5.dp))
             Text(
                 text = folder.title,
                 color = Color.White,

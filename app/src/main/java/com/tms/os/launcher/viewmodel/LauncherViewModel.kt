@@ -56,6 +56,8 @@ data class LauncherUiState(
     val menuQuickActions: List<com.tms.os.launcher.model.AppQuickAction> = emptyList(),
     /** Real shortcuts of Spotlight's top hit ("New Tab" for Chrome, …). */
     val spotlightTopActions: List<com.tms.os.launcher.model.AppQuickAction> = emptyList(),
+    /** Packages recently opened from Spotlight, newest first ("Verlauf"). */
+    val spotlightHistory: List<String> = emptyList(),
     val switcherApps: List<AppInfo> = emptyList(),
     val weatherForecast: com.tms.os.launcher.domain.WeatherForecast? = null,
     val isDefaultLauncher: Boolean = false,
@@ -202,6 +204,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                     allContacts = contacts,
                     homeGridItems = grid,
                     todayWidgets = repository.loadTodayWidgets(),
+                    spotlightHistory = repository.loadSpotlightHistory(),
                     dockPackages = dock,
                     recentPackages = recents,
                     categorizedApps = categorized,
@@ -311,6 +314,11 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         closeSpotlight()
     }
 
+    fun messageContact(phone: String) {
+        repository.messagePhoneNumber(phone)
+        closeSpotlight()
+    }
+
     fun searchWeb(query: String, engine: String = "google") {
         repository.launchWebSearch(query, engine)
         closeSpotlight()
@@ -397,6 +405,19 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         repository.killBackgroundApp(packageName)
         val rest = _uiState.value.switcherApps.filterNot { it.packageName == packageName }
         _uiState.update { it.copy(switcherApps = rest, isSwitcherOpen = rest.isNotEmpty()) }
+    }
+
+    /** Opens an app from Spotlight and remembers it in the search history. */
+    fun launchFromSpotlight(packageName: String) {
+        val history = (listOf(packageName) + _uiState.value.spotlightHistory).distinct().take(8)
+        repository.saveSpotlightHistory(history)
+        _uiState.update { it.copy(spotlightHistory = history) }
+        launchApp(packageName)
+    }
+
+    fun clearSpotlightHistory() {
+        repository.saveSpotlightHistory(emptyList())
+        _uiState.update { it.copy(spotlightHistory = emptyList()) }
     }
 
     fun openSpotlight() {

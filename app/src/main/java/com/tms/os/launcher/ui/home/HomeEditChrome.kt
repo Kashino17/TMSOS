@@ -75,6 +75,7 @@ import com.tms.os.launcher.model.WidgetKind
 import com.tms.os.launcher.model.WidgetSize
 import com.tms.os.launcher.ui.theme.HomeStrings
 import com.tms.os.launcher.ui.theme.IosText
+import com.tms.os.launcher.ui.theme.IosMaterial
 import com.tms.os.launcher.ui.theme.wallpaperGlass
 import com.tms.os.launcher.ui.widgets.IosWidget
 import com.tms.os.launcher.ui.widgets.IosSmartStack
@@ -138,8 +139,8 @@ fun IosEditTopBar(
             Column(
                 Modifier
                     .width(250.dp)
-                    .shadow(24.dp, RoundedCornerShape(26.dp), ambientColor = Color.Black.copy(alpha = 0.2f))
-                    .wallpaperGlass(RoundedCornerShape(26.dp), tint = Color(0xB01E1E22), rim = 0.4f)
+                    .shadow(24.dp, RoundedCornerShape(22.dp), ambientColor = Color.Black.copy(alpha = 0.2f))
+                    .wallpaperGlass(RoundedCornerShape(22.dp), tint = IosMaterial.menu)
                     .padding(vertical = 6.dp)
             ) {
                 MenuRow(strings.addWidget, Icons.Rounded.Widgets) { menuOpen = false; onAddWidget() }
@@ -168,7 +169,7 @@ fun GlassPill(text: String, bold: Boolean = false, onClick: () -> Unit) {
         contentAlignment = Alignment.Center,
         modifier = Modifier
             .height(34.dp)
-            .wallpaperGlass(CircleShape, tint = Color.White.copy(alpha = 0.12f), rim = 0.5f)
+            .wallpaperGlass(CircleShape, tint = IosMaterial.pill)
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp)
     ) {
@@ -221,8 +222,8 @@ fun IosAlert(visible: Boolean, title: String, message: String, actions: List<Ale
                     .animateEnterExit(enter = scaleIn(spring(0.75f, 420f), initialScale = 1.15f), exit = scaleOut(targetScale = 0.95f))
                     .widthIn(max = 300.dp)
                     .fillMaxWidth(0.78f)
-                    .shadow(30.dp, RoundedCornerShape(34.dp), ambientColor = Color.Black.copy(alpha = 0.3f))
-                    .wallpaperGlass(RoundedCornerShape(34.dp), tint = Color(0xD0262629), rim = 0.35f)
+                    .shadow(30.dp, RoundedCornerShape(30.dp), ambientColor = Color.Black.copy(alpha = 0.3f))
+                    .wallpaperGlass(RoundedCornerShape(30.dp), tint = IosMaterial.menu)
                     .padding(start = 20.dp, end = 20.dp, top = 22.dp, bottom = 16.dp)
             ) {
                 Text(title, style = IosText.headline.copy(color = Color.White, textAlign = TextAlign.Center))

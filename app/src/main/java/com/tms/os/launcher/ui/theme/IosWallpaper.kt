@@ -23,8 +23,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.ColorFilter
-import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Shape
@@ -128,14 +126,30 @@ private fun frostedCopy(source: Bitmap): Bitmap {
 }
 
 /**
- * Liquid Glass: samples the blurred wallpaper underneath this surface, lifts its
- * saturation and brightness (glass concentrates light, it does not grey it out),
- * then adds a specular rim brightest at the top-left. Children stay sharp.
+ * The neutral dark materials used across the launcher (dock, App Library pods,
+ * Spotlight cards, pills …). One blurred wallpaper sample underneath, one of
+ * these flat grey tints on top and a hairline border: quiet, never colourful.
+ */
+object IosMaterial {
+    val dock = Color(0xA6262628)
+    val pod = Color(0xA82E2E30)
+    val card = Color(0xBF3A3A3C)
+    val field = Color(0xE0484849)
+    val pill = Color(0xD1242426)
+    val menu = Color(0xE0262628)
+    val widget = Color(0xD61C1C1E)
+    val folder = Color(0xB3303032)
+    const val hairline = 0.14f
+}
+
+/**
+ * Frosted dark material: the blurred wallpaper under this surface, a flat grey
+ * [tint] and a hairline border of [rim] alpha. Children stay sharp.
  */
 fun Modifier.wallpaperGlass(
     shape: Shape,
-    tint: Color = Color.White.copy(alpha = 0.17f),
-    rim: Float = 0.35f
+    tint: Color = IosMaterial.card,
+    rim: Float = IosMaterial.hairline
 ): Modifier = composed {
     val backdrop = LocalWallpaperBackdrop.current
     var origin by remember { mutableStateOf(Offset.Zero) }
@@ -143,43 +157,18 @@ fun Modifier.wallpaperGlass(
         .onGloballyPositioned { origin = it.boundsInRoot().topLeft }
         .clip(shape)
         .drawWithCache {
-            val sheen = Brush.verticalGradient(
-                0f to Color.White.copy(alpha = 0.10f),
-                0.35f to Color.Transparent,
-                1f to Color.White.copy(alpha = 0.03f)
-            )
             onDrawBehind {
                 backdrop.glass?.let { bitmap ->
                     if (backdrop.viewport.width > 0 && backdrop.viewport.height > 0) {
                         drawImage(
                             bitmap,
                             dstOffset = IntOffset(-origin.x.roundToInt(), -origin.y.roundToInt()),
-                            dstSize = backdrop.viewport,
-                            colorFilter = GlassLift
+                            dstSize = backdrop.viewport
                         )
                     }
                 }
                 drawRect(tint)
-                drawRect(sheen)
             }
         }
-        .border(0.8.dp, Brush.linearGradient(
-            0f to Color.White.copy(alpha = rim),
-            0.3f to Color.White.copy(alpha = rim * 0.2f),
-            0.7f to Color.White.copy(alpha = rim * 0.08f),
-            1f to Color.White.copy(alpha = rim * 0.55f)
-        ), shape)
-}
-
-/** Saturation x1.45 and a gentle brightness lift, like light through a lens. */
-private val GlassLift: ColorFilter = run {
-    val m = ColorMatrix().apply { setToSaturation(1.45f) }
-    val lift = ColorMatrix(floatArrayOf(
-        1.08f, 0f, 0f, 0f, 14f,
-        0f, 1.08f, 0f, 0f, 14f,
-        0f, 0f, 1.08f, 0f, 16f,
-        0f, 0f, 0f, 1f, 0f
-    ))
-    m.timesAssign(lift)
-    ColorFilter.colorMatrix(m)
+        .then(if (rim > 0f) Modifier.border(0.7.dp, Color.White.copy(alpha = rim), shape) else Modifier)
 }

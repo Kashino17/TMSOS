@@ -271,19 +271,21 @@ private fun dominantColor(bitmap: ImageBitmap?): Color {
     return runCatching {
         val small = android.graphics.Bitmap.createScaledBitmap(bitmap.asAndroidBitmap().copy(android.graphics.Bitmap.Config.ARGB_8888, false), 12, 12, true)
         var r = 0L; var g = 0L; var b = 0L; var n = 0L
+        var white = 0; var opaque = 0
         for (y in 0 until 12) for (x in 0 until 12) {
             val c = small.getPixel(x, y)
             if ((c ushr 24) < 128) continue
+            opaque++
             val cr = c shr 16 and 255; val cg = c shr 8 and 255; val cb = c and 255
-            // Ignore near-white plates so white icons get their brand colour.
-            if (cr > 235 && cg > 235 && cb > 235) continue
+            if (cr > 232 && cg > 232 && cb > 232) { white++; continue }
             r += cr; g += cg; b += cb; n++
         }
-        if (n == 0L) return Color(0xFFF2F2F7)
+        // A logo on a white plate (Chrome, Gmail, Google …) opens on a light canvas;
+        // averaging a multicolour logo would only give mud.
+        if (n == 0L || (opaque > 0 && white.toFloat() / opaque > 0.28f)) return Color(0xFFF2F2F7)
         val avg = Color((r / n).toInt(), (g / n).toInt(), (b / n).toInt())
         val hsv = FloatArray(3)
         android.graphics.Color.colorToHSV(android.graphics.Color.rgb((r / n).toInt(), (g / n).toInt(), (b / n).toInt()), hsv)
-        // Multicolour logos average to mud; such apps open on a light canvas.
         if (hsv[1] < 0.32f) Color(0xFFF2F2F7) else avg
     }.getOrDefault(Color(0xFF2C2C2E))
 }

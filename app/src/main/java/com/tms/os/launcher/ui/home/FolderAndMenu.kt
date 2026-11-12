@@ -103,6 +103,7 @@ import com.tms.os.launcher.ui.theme.HomeStrings
 import com.tms.os.launcher.ui.theme.IosSquircle
 import com.tms.os.launcher.ui.theme.IosStrings
 import com.tms.os.launcher.ui.theme.IosText
+import com.tms.os.launcher.ui.theme.IosMaterial
 import com.tms.os.launcher.ui.theme.wallpaperGlass
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -204,7 +205,7 @@ fun IosFolderView(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(52.dp)
-                            .wallpaperGlass(RoundedCornerShape(16.dp), tint = Color.White.copy(alpha = 0.16f), rim = 0.35f)
+                            .wallpaperGlass(RoundedCornerShape(16.dp), tint = IosMaterial.card)
                             .padding(horizontal = 14.dp)
                     ) {
                         BasicTextField(
@@ -255,8 +256,8 @@ fun IosFolderView(
                         transformOrigin = TransformOrigin.Center
                     }
                     .size(panelW, panelH)
-                    .shadow(30.dp, RoundedCornerShape(40.dp), ambientColor = Color.Black.copy(alpha = 0.15f), spotColor = Color.Black.copy(alpha = 0.25f))
-                    .wallpaperGlass(RoundedCornerShape(40.dp), tint = Color.White.copy(alpha = 0.20f), rim = 0.5f)
+                    .shadow(30.dp, RoundedCornerShape(36.dp), ambientColor = Color.Black.copy(alpha = 0.15f), spotColor = Color.Black.copy(alpha = 0.25f))
+                    .wallpaperGlass(RoundedCornerShape(36.dp), tint = IosMaterial.folder)
                     .clickable(remember { MutableInteractionSource() }, null) {}
                     .combinedClickable(remember { MutableInteractionSource() }, null, onClick = {}, onLongClick = onEnterJiggle)
                     // iOS: long-press an app and drag it out of the folder onto the home screen.
@@ -430,8 +431,8 @@ fun IosAppMenu(
                     Modifier
                         .width(292.dp)
                         .heightIn(max = 460.dp)
-                        .shadow(28.dp, RoundedCornerShape(28.dp), ambientColor = Color.Black.copy(alpha = 0.18f), spotColor = Color.Black.copy(alpha = 0.3f))
-                        .wallpaperGlass(RoundedCornerShape(28.dp), tint = Color(0xB8202024), rim = 0.4f)
+                        .shadow(28.dp, RoundedCornerShape(24.dp), ambientColor = Color.Black.copy(alpha = 0.18f), spotColor = Color.Black.copy(alpha = 0.3f))
+                        .wallpaperGlass(RoundedCornerShape(24.dp), tint = IosMaterial.menu)
                         .clickable(remember { MutableInteractionSource() }, null) {}
                 ) {
                     AnimatedContent(

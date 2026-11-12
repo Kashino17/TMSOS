@@ -3,6 +3,7 @@ package com.tms.os.launcher.ui.widgets
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -63,6 +64,7 @@ import com.tms.os.launcher.model.WidgetKind
 import com.tms.os.launcher.model.WidgetSize
 import com.tms.os.launcher.ui.theme.HomeStrings
 import com.tms.os.launcher.ui.theme.IosSquircle
+import com.tms.os.launcher.ui.theme.IosMaterial
 import com.tms.os.launcher.ui.theme.SfDisplayFamily
 import com.tms.os.launcher.ui.theme.SfFamily
 import com.tms.os.launcher.ui.theme.SfLightFamily
@@ -110,7 +112,7 @@ fun WidgetSize.canonicalHeight(): Dp = if (this == WidgetSize.LARGE) 354.dp else
 private val WidgetCorner = 22.dp
 private val WidgetPadding = 16.dp
 
-private fun bg(dark: Boolean) = if (dark) Color(0xFF1C1C1E) else Color.White
+private fun bg(dark: Boolean) = if (dark) Color(0xF01C1C1E) else Color.White
 private fun fg(dark: Boolean) = if (dark) Color.White else Color.Black
 private fun fg2(dark: Boolean) = if (dark) Color(0x99EBEBF5) else Color(0x993C3C43)
 
@@ -142,6 +144,7 @@ fun IosWidget(kind: WidgetKind, size: WidgetSize, env: WidgetEnv, modifier: Modi
                 Modifier
                     .requiredSize(size.canonicalWidth(), size.canonicalHeight())
                     .clip(RoundedCornerShape(WidgetCorner))
+                    .border(0.6.dp, if (env.dark) Color.White.copy(alpha = 0.14f) else Color.Black.copy(alpha = 0.06f), RoundedCornerShape(WidgetCorner))
             ) {
                 when (kind) {
                     WidgetKind.WEATHER -> WeatherWidget(size, env)
@@ -179,8 +182,9 @@ private fun isNight(millis: Long): Boolean {
 
 private fun skyGradient(code: Int, night: Boolean): Brush {
     val colors = when {
-        night && code <= 2 -> listOf(Color(0xFF0B1630), Color(0xFF283A61))
-        night -> listOf(Color(0xFF1D2433), Color(0xFF3A4458))
+        // Night: quiet slate instead of saturated navy.
+        night && code <= 2 -> listOf(Color(0xFF14171D), Color(0xFF2A3342))
+        night -> listOf(Color(0xFF1A1D23), Color(0xFF343C4A))
         code <= 1 -> listOf(Color(0xFF2B73D2), Color(0xFF5CA0EC))
         code == 2 -> listOf(Color(0xFF3B78C2), Color(0xFF7DA9DA))
         code == 3 || code == 45 || code == 48 -> listOf(Color(0xFF5B6F86), Color(0xFF8A9BAE))
@@ -389,33 +393,38 @@ private fun CalendarWidget(size: WidgetSize, env: WidgetEnv) {
     val weekday = SimpleDateFormat("EEEE", env.locale).format(Date(now)).uppercase(env.locale)
     val day = cal.get(Calendar.DAY_OF_MONTH).toString()
     val dark = env.dark
+    // Dark appearance keeps everything white and calm; light keeps Apple's red accent.
+    val accent = if (dark) Color.White else IosRed
+    val weekdayStyle = ts(12.sp, FontWeight.SemiBold, accent, 0.2.sp)
+    val dayStyle = TextStyle(fontFamily = SfLightFamily, fontWeight = FontWeight.Light, fontSize = 30.sp, lineHeight = 34.sp, color = fg(dark), letterSpacing = (-0.3).sp)
+    val noteStyle = ts(14.sp, FontWeight.Normal, fg(dark).copy(alpha = 0.92f)).copy(lineHeight = 18.sp)
     Box(Modifier.fillMaxSize().background(bg(dark)).padding(WidgetPadding)) {
         when (size) {
             WidgetSize.SMALL -> Column(Modifier.fillMaxSize()) {
-                Text(weekday, style = ts(12.sp, FontWeight.SemiBold, IosRed, 0.2.sp), maxLines = 1)
-                Text(day, style = TextStyle(fontFamily = SfDisplayFamily, fontWeight = FontWeight.Normal, fontSize = 40.sp, lineHeight = 44.sp, color = fg(dark), letterSpacing = (-0.5).sp))
+                Text(weekday, style = weekdayStyle, maxLines = 1)
+                Text(day, style = dayStyle)
                 Spacer(Modifier.weight(1f))
-                Text(env.strings.noMoreEvents, style = ts(13.sp, FontWeight.SemiBold, fg2(dark)), maxLines = 2)
+                Text(env.strings.noMoreEvents, style = noteStyle, maxLines = 2)
             }
             WidgetSize.MEDIUM -> Row(Modifier.fillMaxSize()) {
                 Column(Modifier.weight(1f).fillMaxSize()) {
-                    Text(weekday, style = ts(12.sp, FontWeight.SemiBold, IosRed, 0.2.sp), maxLines = 1)
-                    Text(day, style = TextStyle(fontFamily = SfDisplayFamily, fontSize = 40.sp, lineHeight = 44.sp, color = fg(dark), letterSpacing = (-0.5).sp))
+                    Text(weekday, style = weekdayStyle, maxLines = 1)
+                    Text(day, style = dayStyle)
                     Spacer(Modifier.weight(1f))
-                    Text(env.strings.noMoreEvents, style = ts(13.sp, FontWeight.SemiBold, fg2(dark)), maxLines = 2)
+                    Text(env.strings.noMoreEvents, style = noteStyle, maxLines = 2)
                 }
-                Spacer(Modifier.width(12.dp))
-                MonthGrid(now, env, Modifier.weight(1.1f), compact = true)
+                Spacer(Modifier.width(10.dp))
+                MonthGrid(now, env, Modifier.weight(1f), compact = true)
             }
             WidgetSize.LARGE -> Column(Modifier.fillMaxSize()) {
                 Row(verticalAlignment = Alignment.Bottom) {
-                    Text(day, style = TextStyle(fontFamily = SfDisplayFamily, fontSize = 34.sp, color = fg(dark)))
+                    Text(day, style = dayStyle)
                     Spacer(Modifier.width(8.dp))
-                    Text(weekday, style = ts(12.sp, FontWeight.SemiBold, IosRed, 0.2.sp), modifier = Modifier.padding(bottom = 7.dp))
+                    Text(weekday, style = weekdayStyle, modifier = Modifier.padding(bottom = 6.dp))
                 }
                 Spacer(Modifier.height(10.dp))
                 MonthGrid(now, env, Modifier.fillMaxWidth().weight(1f), compact = false)
-                Text(env.strings.noMoreEvents, style = ts(13.sp, FontWeight.SemiBold, fg2(dark)))
+                Text(env.strings.noMoreEvents, style = noteStyle)
             }
         }
     }
@@ -434,9 +443,9 @@ private fun MonthGrid(now: Long, env: WidgetEnv, modifier: Modifier, compact: Bo
         val c = Calendar.getInstance(env.locale).apply { set(Calendar.DAY_OF_WEEK, (cal.firstDayOfWeek - 1 + i) % 7 + 1) }
         SimpleDateFormat("EEEEE", env.locale).format(c.time).uppercase(env.locale)
     }
-    val fs = if (compact) 10.sp else 14.sp
+    val fs = if (compact) 10.5.sp else 14.sp
     Column(modifier) {
-        Text(month, style = ts(if (compact) 10.sp else 12.sp, FontWeight.SemiBold, IosRed, 0.2.sp), maxLines = 1)
+        Text(month, style = ts(if (compact) 11.sp else 12.sp, FontWeight.SemiBold, if (dark) Color.White else IosRed, 0.2.sp), maxLines = 1)
         Spacer(Modifier.height(if (compact) 3.dp else 8.dp))
         Row(Modifier.fillMaxWidth()) {
             initials.forEach { Text(it, style = ts(fs, FontWeight.SemiBold, fg2(dark)), textAlign = TextAlign.Center, modifier = Modifier.weight(1f)) }
@@ -612,7 +621,7 @@ private fun SuggestionsWidget(size: WidgetSize, env: WidgetEnv) {
     Box(
         Modifier
             .fillMaxSize()
-            .wallpaperGlass(RoundedCornerShape(WidgetCorner), tint = Color.White.copy(alpha = 0.08f), rim = 0.4f)
+            .wallpaperGlass(RoundedCornerShape(WidgetCorner), tint = IosMaterial.widget, rim = 0f)
             .padding(horizontal = 10.dp, vertical = 10.dp)
     ) {
         // 2 rows in 158 pt need breathing room between a label and the next icon.

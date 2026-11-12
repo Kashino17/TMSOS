@@ -89,6 +89,7 @@ import com.tms.os.launcher.model.HomeGridItem
 import com.tms.os.launcher.model.WidgetKind
 import com.tms.os.launcher.ui.components.IosAppIcon
 import com.tms.os.launcher.ui.components.IosAppLibraryPage
+import com.tms.os.launcher.ui.components.IosLibraryCategoryView
 import com.tms.os.launcher.ui.components.IosCustomizeSheet
 import com.tms.os.launcher.ui.components.IosFolderIcon
 import com.tms.os.launcher.ui.components.IosPageDots
@@ -113,6 +114,7 @@ import com.tms.os.launcher.ui.home.homeDragGesture
 import com.tms.os.launcher.ui.home.jiggle
 import com.tms.os.launcher.ui.home.reorderFor
 import com.tms.os.launcher.ui.home.span
+import com.tms.os.launcher.ui.theme.IosMaterial
 import com.tms.os.launcher.ui.theme.IosMetrics
 import com.tms.os.launcher.ui.theme.IosText
 import com.tms.os.launcher.ui.theme.LocalWallpaperBackdrop
@@ -139,6 +141,8 @@ import kotlin.math.roundToInt
 private const val IOS_ZOOM_OUT = 1.14f
 /** Fast start, long gentle settle: the curve SpringBoard uses for app launch. */
 private val IosLaunchEasing = CubicBezierEasing(0.2f, 0.9f, 0.25f, 1f)
+/** Search pill / page dots row above the dock: 10 dp + 24 dp pill + 16 dp gap. */
+private val PillAreaHeight = 50.dp
 /** Pull distance that fully reveals Spotlight. */
 private val SpotlightPullDistance = 170.dp
 
@@ -188,6 +192,8 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
     var removeTarget by remember { mutableStateOf<HomeGridItem?>(null) }
     var menuAnchor by remember { mutableStateOf<Pair<String, Rect>?>(null) }
     var folderBounds by remember { mutableStateOf<Rect?>(null) }
+    /** Category opened from the App Library: title and its apps. */
+    var openPod by remember { mutableStateOf<Pair<String, List<AppInfo>>?>(null) }
     var statusBarLightContent by remember { mutableStateOf(true) }
 
     val homeZoom = remember { Animatable(1f) }
@@ -281,10 +287,13 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
         val dockIconSize = minOf(iconSize, (maxWidth - 48.dp) / dockCount - 12.dp)
         val dockHeight = dockIconSize + 32.dp
         val navInset = with(density) { WindowInsets.navigationBars.getBottom(this).toDp() }
-        val dockBottomGap = if (navInset > 32.dp) navInset + 6.dp else 8.dp
+        // The dock floats above the gesture handle (28 dp from the screen edge);
+        // with 3-button navigation it clears the buttons.
+        val dockBottomGap = maxOf(navInset + 6.dp, 28.dp)
+        val dockMargin = 14.dp
         // Search pill row + dock + gap: home pages keep clear of it, Today View
         // and App Library run underneath it to the bottom edge like on iOS.
-        val chromeHeight = 44.dp + dockHeight + dockBottomGap
+        val chromeHeight = PillAreaHeight + dockHeight + dockBottomGap
 
         val displayOrder = drag.order ?: state.homeGridItems
         val pages = remember(displayOrder, columns, rows) {
@@ -300,7 +309,7 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
 
         LaunchedEffect(state.homePressGeneration) {
             if (state.homePressGeneration > 0) {
-                showCustomizeSheet = false; showGallery = false
+                showCustomizeSheet = false; showGallery = false; openPod = null
                 if (pagerState.currentPage != 1) pagerState.animateScrollToPage(1, animationSpec = spring(dampingRatio = 1f, stiffness = 300f))
             }
         }
@@ -313,7 +322,7 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
         }
 
         val anyOverlay = state.isSpotlightOpen || state.activeFolder != null ||
-            state.activeCategoryModal != null || state.selectedAppForMenu != null || showCustomizeSheet || showGallery
+            state.activeCategoryModal != null || state.selectedAppForMenu != null || showCustomizeSheet || showGallery || openPod != null
         val overlayBlur = animateDpAsState(
             if (state.activeFolder != null || state.activeCategoryModal != null || state.selectedAppForMenu != null || showGallery) 18.dp else 0.dp,
             tween(220), label = "overlayBlur"
@@ -385,13 +394,15 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                 })
         }
         // Today View and App Library also dim the wallpaper a little, like iOS.
-        Box(Modifier.fillMaxSize().graphicsLayer { alpha = edgeFraction() * 0.22f + spotlight.value.coerceIn(0f, 1f) * 0.12f }.background(Color.Black))
+        Box(Modifier.fillMaxSize().graphicsLayer {
+            alpha = maxOf(edgeFraction() * 0.62f, spotlight.value.coerceIn(0f, 1f) * 0.72f, overlayGlass.value * 0.45f, switcher.value.coerceIn(0f, 1f) * 0.3f)
+        }.background(Color.Black))
 
         // ------------------------------------------------------ grid geometry
         var gridOrigin by remember { mutableStateOf(Offset.Zero) }
         var pageSizePx by remember { mutableStateOf(IntSize.Zero) }
-        val topPad = 18.dp
-        val bottomPad = 8.dp
+        val topPad = 9.dp
+        val bottomPad = 4.dp
         val geometry = remember(pageSizePx, columns, rows, iconSize, sidePadding, perScreen, chromeHeight) {
             with(density) {
                 val w = pageSizePx.width.toFloat() / perScreen
@@ -399,7 +410,8 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                 GridGeometry(
                     sidePx = sidePadding.toPx(),
                     cellW = (w - 2 * sidePadding.toPx()).coerceAtLeast(1f) / columns,
-                    cellH = h / rows,
+                    // Square cells, top-aligned: rows never stretch to fill a tall screen.
+                    cellH = minOf(h / rows, (w - 2 * sidePadding.toPx()).coerceAtLeast(1f) / columns),
                     iconPx = iconSize.toPx(),
                     columns = columns,
                     rows = rows
@@ -694,8 +706,8 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                             val sp = spotlight.value.coerceIn(0f, 1f)
                             val r = max(overlayBlur.value.toPx(), sp * 22.dp.toPx())
                             renderEffect = if (r > 0.5f && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) BlurEffect(r, r, TileMode.Decal) else null
-                            alpha = 1f - sp * 0.55f
-                            val s = 1f - sp * 0.04f
+                            alpha = 1f - sp
+                            val s = 1f - sp * 0.03f
                             scaleX = s; scaleY = s
                         }
                 ) {
@@ -719,7 +731,6 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                                     env = widgetEnv,
                                     strings = hs,
                                     jiggle = state.isJiggleMode,
-                                    onSearch = { viewModel.openSpotlight() },
                                     onWidgetTap = { w -> appForWidget(w.kind)?.let { viewModel.launchApp(it.packageName) } },
                                     onRemove = { removeTarget = it },
                                     onEnterJiggle = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); viewModel.setJiggleMode(true) },
@@ -731,11 +742,10 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                                     settings = settings,
                                     strings = strings,
                                     isUnfolded = isUnfolded,
-                                    onAppClick = { app -> viewModel.launchApp(app.packageName) },
-                                    onAppLongClick = { app -> viewModel.selectAppForContextMenu(app) },
-                                    onCategoryClick = { category -> viewModel.openCategoryModal(category) },
-                                    onOpenSpotlight = { viewModel.openSpotlight() },
-                                    onOpenSettings = onOpenSettingsActivity
+                                    hidden = openPod != null,
+                                    onAppClick = { app, bounds -> openAppWithAnimation(app, bounds) },
+                                    onAppLongClick = { app, bounds -> menuAnchor = app.packageName to bounds; viewModel.selectAppForContextMenu(app) },
+                                    onOpenPod = { title, apps -> openPod = title to apps }
                                 )
                                 else -> Row(
                                     Modifier
@@ -815,6 +825,9 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                         onDockIconBounds = { pkg, r -> dockIconRects[pkg] = r },
                         hiddenPkg = (drag.item as? HomeGridItem.AppItem)?.packageName?.takeIf { drag.active && !drag.dropping },
                         bottomGap = dockBottomGap,
+                        dockMargin = dockMargin,
+                        // Dock icons stand in the grid columns when the counts match.
+                        slotWidth = if (!isUnfolded && dockCount == columns) with(density) { geometry.cellW.toDp() } else Dp.Unspecified,
                         pageCount = homePageCount,
                         currentPage = homePageIndex,
                         strings = strings,
@@ -893,15 +906,16 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
             results = state.spotlightResults,
             contacts = state.spotlightContacts,
             mathResult = state.spotlightMathResult,
-            topActions = state.spotlightTopActions,
+            history = remember(state.spotlightHistory, state.appMap) { state.spotlightHistory.mapNotNull { state.appMap[it] } },
             settings = settings,
             strings = strings,
             hs = hs,
             onQueryChange = viewModel::updateSpotlightQuery,
-            onAppClick = { app -> leftToApp = true; viewModel.launchApp(app.packageName) },
+            onAppClick = { app -> leftToApp = true; viewModel.launchFromSpotlight(app.packageName) },
             onAppLongClick = { app -> viewModel.selectAppForContextMenu(app) },
-            onQuickAction = { a -> leftToApp = true; viewModel.closeSpotlight(); viewModel.runQuickAction(a) },
-            onContactClick = { contact -> viewModel.dialContact(contact.phoneNumber) },
+            onClearHistory = { viewModel.clearSpotlightHistory() },
+            onContactCall = { contact -> viewModel.dialContact(contact.phoneNumber) },
+            onContactMessage = { contact -> viewModel.messageContact(contact.phoneNumber) },
             onWebSearch = { query, engine -> viewModel.searchWeb(query, engine) },
             onClose = { viewModel.closeSpotlight() }
         )
@@ -930,23 +944,18 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
             )
         }
 
-        // App Library category: opens exactly like a folder on iOS.
-        state.activeCategoryModal?.let { category ->
-            val apps = state.categorizedApps[category].orEmpty()
-            IosFolderView(
-                folder = remember(category, apps) {
-                    HomeGridItem.FolderItem("category_${category.name}", category.localizedTitle(settings.appLanguage), apps.map { it.packageName })
-                },
-                appMap = state.appMap,
-                iconBounds = null,
-                iconSize = if (isUnfolded) 64.dp else minOf(iconSize, 62.dp),
+        // App Library category: full screen, title + grid, like iOS.
+        openPod?.let { (title, apps) ->
+            IosLibraryCategoryView(
+                title = title,
+                apps = apps,
+                columns = columns,
+                sidePadding = sidePadding,
+                iconSize = iconSize,
                 labelFontSizeSp = settings.labelFontSizeSp,
-                jiggle = false,
                 onAppClick = { app, bounds -> openAppWithAnimation(app, bounds) },
                 onAppLongClick = { app, bounds -> menuAnchor = app.packageName to bounds; viewModel.selectAppForContextMenu(app) },
-                onRename = {},
-                onEnterJiggle = {},
-                onDismiss = { viewModel.openCategoryModal(null) }
+                onDismiss = { openPod = null }
             )
         }
 
@@ -1171,6 +1180,8 @@ private fun HomeChrome(
     onDockIconBounds: (String, Rect) -> Unit,
     hiddenPkg: String?,
     bottomGap: Dp,
+    dockMargin: Dp,
+    slotWidth: Dp,
     pageCount: Int,
     currentPage: Int,
     strings: com.tms.os.launcher.ui.theme.IosStrings,
@@ -1189,9 +1200,6 @@ private fun HomeChrome(
     onAppClick: (AppInfo, Rect) -> Unit,
     onAppLongClick: (AppInfo, Rect) -> Unit
 ) {
-    // Gesture navigation (thin inset): the dock sits 8 dp above the screen edge
-    // and the home indicator floats over it, exactly like iOS. With 3-button
-    // navigation the buttons must stay clear, so respect the inset.
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = modifier
@@ -1204,51 +1212,57 @@ private fun HomeChrome(
             }
             .padding(bottom = bottomGap)
     ) {
-        Box(Modifier.height(44.dp), contentAlignment = Alignment.Center) {
+        Box(Modifier.height(PillAreaHeight).padding(top = 10.dp, bottom = 16.dp), contentAlignment = Alignment.Center) {
             androidx.compose.animation.Crossfade(targetState = showSearch, animationSpec = tween(160), label = "pageControl") { search ->
                 if (search) IosSearchButton(text = strings.search, onClick = onSearch)
                 else IosPageDots(count = pageCount, selected = currentPage)
             }
         }
 
-        Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp), contentAlignment = Alignment.Center) {
+        BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = dockMargin), contentAlignment = Alignment.Center) {
+            val dockWidth = if (isUnfolded) maxWidth * 0.84f else maxWidth
+            val slot = if (slotWidth != Dp.Unspecified) minOf(slotWidth, dockWidth / dockApps.size.coerceAtLeast(1)) else Dp.Unspecified
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceEvenly,
+                horizontalArrangement = Arrangement.Center,
                 modifier = Modifier
-                    .then(if (isUnfolded) Modifier.fillMaxWidth(0.84f) else Modifier.fillMaxWidth())
+                    .width(dockWidth)
                     .height(dockHeight)
-                    .shadow(16.dp, RoundedCornerShape(38.dp), ambientColor = Color.Black.copy(alpha = 0.10f), spotColor = Color.Black.copy(alpha = 0.18f))
-                    .wallpaperGlass(RoundedCornerShape(38.dp), tint = Color.White.copy(alpha = 0.04f + glassOpacity.coerceIn(0f, 1f) * 0.10f), rim = 0.55f)
+                    .wallpaperGlass(RoundedCornerShape(28.dp), tint = IosMaterial.dock.copy(alpha = 0.45f + glassOpacity.coerceIn(0f, 1f) * 0.26f))
                     .then(dockModifier)
-                    .padding(horizontal = 6.dp)
             ) {
                 // LazyRow only for animateItem(): dock icons slide aside when an app is dragged in.
                 androidx.compose.foundation.lazy.LazyRow(
                     userScrollEnabled = false,
-                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    horizontalArrangement = if (slot != Dp.Unspecified) Arrangement.Center else Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.weight(1f)
                 ) {
                     items(dockApps.size, key = { dockApps[it].packageName }) { i ->
                         val app = dockApps[i]
                         Box(
-                            Modifier
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
                                 .animateItem(fadeInSpec = tween(150), placementSpec = spring(dampingRatio = 0.8f, stiffness = 380f), fadeOutSpec = tween(120))
-                                .onGloballyPositioned { onDockIconBounds(app.packageName, it.boundsInRoot()) }
-                                .graphicsLayer { alpha = if (app.packageName == hiddenPkg) 0f else 1f }
+                                .then(if (slot != Dp.Unspecified) Modifier.width(slot) else Modifier)
                         ) {
-                    IosAppIcon(
-                        app = app,
-                        iconSize = iconSize,
-                        showLabel = false,
-                        showBadges = showBadges,
-                        isJiggleMode = isJiggleMode,
-                        onClick = { onAppClick(app, Rect.Zero) },
-                        onClickWithBounds = { bounds -> onAppClick(app, bounds) },
-                        onLongClick = { onAppLongClick(app, Rect.Zero) },
-                        onLongClickWithBounds = { if (!isJiggleMode) onAppLongClick(app, it) }
-                    )
+                            Box(
+                                Modifier
+                                    .onGloballyPositioned { onDockIconBounds(app.packageName, it.boundsInRoot()) }
+                                    .graphicsLayer { alpha = if (app.packageName == hiddenPkg) 0f else 1f }
+                            ) {
+                                IosAppIcon(
+                                    app = app,
+                                    iconSize = iconSize,
+                                    showLabel = false,
+                                    showBadges = showBadges,
+                                    isJiggleMode = isJiggleMode,
+                                    onClick = { onAppClick(app, Rect.Zero) },
+                                    onClickWithBounds = { bounds -> onAppClick(app, bounds) },
+                                    onLongClick = { onAppLongClick(app, Rect.Zero) },
+                                    onLongClickWithBounds = { if (!isJiggleMode) onAppLongClick(app, it) }
+                                )
+                            }
                         }
                     }
                 }

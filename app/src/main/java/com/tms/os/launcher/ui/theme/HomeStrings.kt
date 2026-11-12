@@ -34,6 +34,13 @@ data class HomeStrings(
     val searchInApp: String,
     val searchWith: String,
     val shortcuts: String,
+    val showMore: String,
+    val showLess: String,
+    val history: String,
+    val clear: String,
+    val searchInApps: String,
+    val searchWeb: String,
+    val searchMaps: String,
     val widgetName: (WidgetKind) -> String,
     val widgetDescription: (WidgetKind) -> String
 )
@@ -68,6 +75,13 @@ private val DE = HomeStrings(
     searchInApp = "In App suchen",
     searchWith = "Mit %s suchen",
     shortcuts = "Kurzbefehle",
+    showMore = "Mehr anzeigen",
+    showLess = "Weniger anzeigen",
+    history = "Verlauf",
+    clear = "Löschen",
+    searchInApps = "In Apps suchen",
+    searchWeb = "Im Web suchen",
+    searchMaps = "Auf Karten suchen",
     widgetName = {
         when (it) {
             WidgetKind.WEATHER -> "Wetter"
@@ -120,6 +134,13 @@ private val EN = DE.copy(
     searchInApp = "Search in App",
     searchWith = "Search %s",
     shortcuts = "Shortcuts",
+    showMore = "Show More",
+    showLess = "Show Less",
+    history = "Recent",
+    clear = "Clear",
+    searchInApps = "Search in Apps",
+    searchWeb = "Search Web",
+    searchMaps = "Search Maps",
     widgetName = {
         when (it) {
             WidgetKind.WEATHER -> "Weather"
@@ -172,6 +193,13 @@ private val TR = DE.copy(
     searchInApp = "Uygulamada Ara",
     searchWith = "%s ile Ara",
     shortcuts = "Kestirmeler",
+    showMore = "Daha Fazla Göster",
+    showLess = "Daha Az Göster",
+    history = "Geçmiş",
+    clear = "Sil",
+    searchInApps = "Uygulamalarda Ara",
+    searchWeb = "Web’de Ara",
+    searchMaps = "Harita’da Ara",
     widgetName = {
         when (it) {
             WidgetKind.WEATHER -> "Hava Durumu"

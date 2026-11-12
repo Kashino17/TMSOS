@@ -315,6 +315,21 @@ class LauncherRepository(private val context: Context) {
         }
     }
 
+    fun messagePhoneNumber(phone: String) {
+        runCatching {
+            context.startActivity(Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:${Uri.encode(phone)}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
+    }
+
+    /* ------------------------- Spotlight history -------------------------- */
+
+    fun loadSpotlightHistory(): List<String> =
+        prefs.getString("spotlight_history", "").orEmpty().split('|').filter { it.isNotBlank() }
+
+    fun saveSpotlightHistory(packages: List<String>) {
+        prefs.edit().putString("spotlight_history", packages.joinToString("|")).apply()
+    }
+
     /** Ends a background app like swiping its card away; foreground apps are untouched by Android. */
     fun killBackgroundApp(packageName: String) {
         runCatching {
@@ -736,15 +751,11 @@ class LauncherRepository(private val context: Context) {
     /* ----------------------------- Today View ----------------------------- */
 
     fun loadTodayWidgets(): List<HomeGridItem.WidgetItem> {
-        val raw = prefs.getString("today_widgets_v1", null)
+        val raw = prefs.getString("today_widgets_v2", null)
         if (raw == null) {
             val defaults = listOf(
-                com.tms.os.launcher.model.WidgetKind.WEATHER to com.tms.os.launcher.model.WidgetSize.MEDIUM,
-                com.tms.os.launcher.model.WidgetKind.CALENDAR to com.tms.os.launcher.model.WidgetSize.SMALL,
-                com.tms.os.launcher.model.WidgetKind.BATTERY to com.tms.os.launcher.model.WidgetSize.SMALL,
-                com.tms.os.launcher.model.WidgetKind.SUGGESTIONS to com.tms.os.launcher.model.WidgetSize.MEDIUM,
-                com.tms.os.launcher.model.WidgetKind.CLOCK to com.tms.os.launcher.model.WidgetSize.SMALL,
-                com.tms.os.launcher.model.WidgetKind.NOTES to com.tms.os.launcher.model.WidgetSize.SMALL
+                com.tms.os.launcher.model.WidgetKind.CALENDAR to com.tms.os.launcher.model.WidgetSize.MEDIUM,
+                com.tms.os.launcher.model.WidgetKind.WEATHER to com.tms.os.launcher.model.WidgetSize.LARGE
             ).map { (k, sz) -> HomeGridItem.WidgetItem("t_" + UUID.randomUUID(), k, sz) }
             saveTodayWidgets(defaults)
             return defaults
@@ -767,7 +778,7 @@ class LauncherRepository(private val context: Context) {
         widgets.forEach { w ->
             arr.put(JSONObject().put("widgetId", w.widgetId).put("kind", w.kind.id).put("size", w.size.id).put("stack", w.stack.joinToString(",") { it.id }))
         }
-        prefs.edit().putString("today_widgets_v1", arr.toString()).apply()
+        prefs.edit().putString("today_widgets_v2", arr.toString()).apply()
     }
 
     /**
@@ -1022,6 +1033,7 @@ class LauncherRepository(private val context: Context) {
             val url = when (engine) {
                 "youtube" -> "https://www.youtube.com/results?search_query=$encoded"
                 "play" -> "https://play.google.com/store/search?q=$encoded&c=apps"
+                "maps" -> "geo:0,0?q=$encoded"
                 else -> "https://www.google.com/search?q=$encoded"
             }
             val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {

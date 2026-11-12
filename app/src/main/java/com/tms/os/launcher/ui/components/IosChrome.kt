@@ -10,6 +10,7 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import com.tms.os.launcher.model.AppLanguage
 import com.tms.os.launcher.ui.theme.wallpaperGlass
+import com.tms.os.launcher.ui.theme.IosMaterial
 import android.text.format.DateFormat
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -26,6 +27,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -287,23 +289,23 @@ fun IosPageDots(
     if (count <= 1) return
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(5.5.dp),
+        horizontalArrangement = Arrangement.spacedBy(7.dp, Alignment.CenterHorizontally),
         modifier = modifier
             .height(24.dp)
-            .clip(CircleShape)
-            .wallpaperGlass(CircleShape, tint = Color.White.copy(alpha = 0.05f), rim = 0.45f)
-            .padding(horizontal = 10.dp)
+            .widthIn(min = 72.dp)
+            .wallpaperGlass(CircleShape, tint = IosMaterial.pill)
+            .padding(horizontal = 14.dp)
             .semantics { contentDescription = "Seite ${selected + 1} von $count" }
     ) {
         repeat(count) { i ->
             val active = i == selected
             val size by animateDpAsState(
-                targetValue = if (active) 6.5.dp else 6.dp,
+                targetValue = if (active) 5.5.dp else 5.dp,
                 animationSpec = spring(stiffness = 700f),
                 label = "dotSize"
             )
             val alpha by animateFloatAsState(
-                targetValue = if (active) 1f else 0.34f,
+                targetValue = if (active) 1f else 0.42f,
                 animationSpec = spring(stiffness = 700f),
                 label = "dotAlpha"
             )
@@ -325,24 +327,25 @@ fun IosSearchButton(
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        horizontalArrangement = Arrangement.spacedBy(3.dp, Alignment.CenterHorizontally),
         modifier = modifier
-            .height(30.dp)
-            .wallpaperGlass(CircleShape, tint = Color.White.copy(alpha = 0.06f), rim = 0.5f)
+            .height(24.dp)
+            .widthIn(min = 72.dp)
+            .wallpaperGlass(CircleShape, tint = IosMaterial.pill)
             .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp)
+            .padding(horizontal = 10.dp)
             .semantics { contentDescription = text }
     ) {
         Icon(
             imageVector = Icons.Rounded.Search,
             contentDescription = null,
-            tint = Color.White.copy(alpha = 0.92f),
+            tint = Color.White,
             modifier = Modifier.size(13.dp)
         )
         Text(
             text = text,
-            color = Color.White.copy(alpha = 0.92f),
-            style = IosText.caption.copy(fontSize = 13.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.1).sp)
+            color = Color.White,
+            style = IosText.caption.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.1).sp, lineHeight = 14.sp)
         )
     }
 }
@@ -372,7 +375,7 @@ private fun GlassPill(text: String, onClick: () -> Unit) {
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
-            .wallpaperGlass(CircleShape, tint = Color.Black.copy(alpha = 0.16f))
+            .wallpaperGlass(CircleShape, tint = IosMaterial.pill)
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
