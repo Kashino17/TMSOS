@@ -40,11 +40,12 @@ object IconEngine {
         useIosSystemIcons: Boolean = true,
         fullBleedAdaptive: Boolean = true,
         themeMode: IconThemeMode = IconThemeMode.STANDARD,
-        tintAccent: TintAccentColor = TintAccentColor.IOS_BLUE
+        tintAccent: TintAccentColor = TintAccentColor.IOS_BLUE,
+        locale: java.util.Locale = java.util.Locale.getDefault()
     ): ImageBitmap {
         val isDark = themeMode == IconThemeMode.IOS_DARK
         val nativeIos = if (useIosSystemIcons) {
-            IosSystemIcons.render(sizePx, packageName, label, isDark)
+            IosSystemIcons.render(sizePx, packageName, label, isDark, locale)
         } else {
             null
         }

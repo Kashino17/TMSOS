@@ -147,7 +147,7 @@ fun WeatherWidget(
                 overflow = TextOverflow.Ellipsis
             )
             Text(
-                text = strings.highLow.format(high, low),
+                text = strings.highLow.format(Locale.US, high, low),
                 color = Color.White.copy(alpha = 0.72f),
                 style = IosText.footnote.copy(fontSize = 12.sp)
             )
@@ -336,10 +336,13 @@ fun ClockWidget(
 @Composable
 fun CalendarWidget(
     modifier: Modifier = Modifier,
+    language: com.tms.os.launcher.model.AppLanguage = com.tms.os.launcher.model.AppLanguage.DE,
     onClick: () -> Unit = {}
 ) {
-    val now = remember { Calendar.getInstance() }
-    val weekday = remember { SimpleDateFormat("EEEE", Locale.getDefault()).format(Date()).uppercase(Locale.getDefault()) }
+    var now by remember { mutableStateOf(Calendar.getInstance()) }
+    LaunchedEffect(Unit) { while (true) { now = Calendar.getInstance(); delay(60_000) } }
+    val locale = Locale.forLanguageTag(language.code)
+    val weekday = SimpleDateFormat("EEEE", locale).format(now.time).uppercase(locale)
     val day = now.get(Calendar.DAY_OF_MONTH).toString()
 
     Box(
@@ -362,14 +365,14 @@ fun CalendarWidget(
                 color = Color(0xFF1C1C1E),
                 style = IosText.largeTitle.copy(
                     fontFamily = SfDisplayFamily,
-                    fontSize = 46.sp,
-                    lineHeight = 50.sp,
+                    fontSize = 58.sp,
+                    lineHeight = 64.sp,
                     fontWeight = FontWeight.Normal
                 )
             )
             Spacer(Modifier.weight(1f))
             Text(
-                text = "Keine Termine heute",
+                text = SimpleDateFormat("MMMM yyyy", locale).format(now.time),
                 color = Color(0xFF8A8A8E),
                 style = IosText.caption,
                 maxLines = 1,
@@ -712,6 +715,7 @@ private fun SystemMetric(label: String, used: Float, total: Float) {
 @Composable
 fun IosHomeWidget(
     leftType: LeftWidgetType,
+    language: com.tms.os.launcher.model.AppLanguage = com.tms.os.launcher.model.AppLanguage.DE,
     rightType: RightWidgetType,
     isLeft: Boolean,
     strings: com.tms.os.launcher.ui.theme.IosStrings,
@@ -737,7 +741,7 @@ fun IosHomeWidget(
 ) {
     if (isLeft) {
         when (leftType) {
-            LeftWidgetType.CALENDAR_CLOCK -> ClockWidget(modifier = modifier.aspectRatio(1f), onClick = onClick)
+            LeftWidgetType.CALENDAR_CLOCK -> CalendarWidget(modifier = modifier.aspectRatio(1f), language = language, onClick = onClick)
             LeftWidgetType.BATTERY_STATUS -> BatteryWidget(percent = batteryPercent, strings = strings, modifier = modifier.aspectRatio(1f), onClick = onClick)
             LeftWidgetType.SIRI_SUGGESTIONS -> SuggestionsWidget(apps = suggestedApps.take(4), strings = strings, modifier = modifier.aspectRatio(1f), onClickApp = onClickApp)
             LeftWidgetType.QUICK_NOTE -> NoteWidget(text = quickNoteText, modifier = modifier.aspectRatio(1f), onClick = onClick)

@@ -3,7 +3,7 @@ package com.tms.os.launcher.ui.theme
 import com.tms.os.launcher.model.AppLanguage
 
 /**
- * Small, focused string catalogue for the 1:1 iOS surface.
+ * Small, focused string catalogue for the iOS-style surface.
  * (App categories themselves are localised by [com.tms.os.launcher.model.AppCategory].)
  */
 data class IosStrings(

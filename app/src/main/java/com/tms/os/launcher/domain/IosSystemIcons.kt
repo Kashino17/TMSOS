@@ -18,7 +18,7 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /**
- * Hand-drawn iOS 18 system icons.
+ * Resolution-independent system icon artwork.
  *
  * Everything is painted in a normalised 1 x 1 coordinate space and then scaled
  * to the target bitmap, so the same artwork stays razor sharp at 62 dp on the
@@ -34,7 +34,7 @@ internal object IosSystemIcons {
 
     private const val WHITE = 0xFFFFFFFF.toInt()
 
-    fun render(sizePx: Int, packageName: String, label: String, dark: Boolean): Bitmap? {
+    fun render(sizePx: Int, packageName: String, label: String, dark: Boolean, locale: Locale = Locale.getDefault()): Bitmap? {
         val kind = kindFor(packageName, label) ?: return null
         val bitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
@@ -45,7 +45,7 @@ internal object IosSystemIcons {
             Kind.MESSAGES -> drawMessages(canvas, dark)
             Kind.CAMERA -> drawCamera(canvas, dark)
             Kind.CLOCK -> drawClock(canvas, dark)
-            Kind.CALENDAR -> drawCalendar(canvas, dark)
+            Kind.CALENDAR -> drawCalendar(canvas, dark, locale)
             Kind.SETTINGS -> drawSettings(canvas, dark)
             Kind.FILES -> drawFiles(canvas, dark)
             Kind.CONTACTS -> drawContacts(canvas, dark)
@@ -57,6 +57,16 @@ internal object IosSystemIcons {
             Kind.WEATHER -> drawWeather(canvas, dark)
         }
         return bitmap
+    }
+
+    fun localizedLabel(packageName: String, label: String, language: com.tms.os.launcher.model.AppLanguage): String {
+        val kind = kindFor(packageName, label) ?: return label
+        val names = when (language) {
+            com.tms.os.launcher.model.AppLanguage.DE -> listOf("Telefon", "Nachrichten", "Kamera", "Uhr", "Kalender", "Einstellungen", "Dateien", "Kontakte", "Rechner", "Fotos", "Notizen", "Mail", "Musik", "Wetter")
+            com.tms.os.launcher.model.AppLanguage.EN -> listOf("Phone", "Messages", "Camera", "Clock", "Calendar", "Settings", "Files", "Contacts", "Calculator", "Photos", "Notes", "Mail", "Music", "Weather")
+            com.tms.os.launcher.model.AppLanguage.TR -> listOf("Telefon", "Mesajlar", "Kamera", "Saat", "Takvim", "Ayarlar", "Dosyalar", "Kişiler", "Hesap Makinesi", "Fotoğraflar", "Notlar", "Mail", "Müzik", "Hava Durumu")
+        }
+        return names[kind.ordinal]
     }
 
     /* ------------------------------------------------------------------ */
@@ -196,6 +206,19 @@ internal object IosSystemIcons {
             this.style = style
         }
 
+    // Font shaping uses real pixel sizes. Subpixel text sizes in a normalized
+    // canvas otherwise round glyph advances to zero (e.g. "13" becomes a stack).
+    private fun Canvas.normalizedText(text: String, x: Float, y: Float, source: Paint) {
+        val textPaint = Paint(source).apply { textSize = source.textSize * 256f; isSubpixelText = true }
+        save()
+        scale(1f / 256f, 1f / 256f)
+        drawText(text, x * 256f, y * 256f, textPaint)
+        restore()
+    }
+
+    private fun Paint.normalizedTextWidth(text: String): Float =
+        Paint(this).apply { textSize *= 256f }.measureText(text) / 256f
+
     private fun Canvas.background(top: Int, bottom: Int) {
         val p = Paint(Paint.ANTI_ALIAS_FLAG)
         p.shader = LinearGradient(
@@ -278,28 +301,21 @@ internal object IosSystemIcons {
             if (dark) 0xFF0B4218.toInt() else 0xFF0BB52B.toInt()
         )
 
-        val glyph = paint(WHITE)
-        val body = paint(WHITE, Paint.Style.STROKE).apply {
-            strokeWidth = 0.100f
-            strokeCap = Paint.Cap.ROUND
+        val receiver = Path().apply {
+            moveTo(0.283f, 0.175f)
+            cubicTo(0.258f, 0.157f, 0.228f, 0.171f, 0.196f, 0.206f)
+            cubicTo(0.108f, 0.293f, 0.194f, 0.481f, 0.356f, 0.644f)
+            cubicTo(0.519f, 0.806f, 0.707f, 0.892f, 0.794f, 0.804f)
+            cubicTo(0.829f, 0.772f, 0.843f, 0.742f, 0.825f, 0.717f)
+            lineTo(0.689f, 0.594f)
+            cubicTo(0.670f, 0.577f, 0.646f, 0.579f, 0.623f, 0.598f)
+            lineTo(0.573f, 0.642f)
+            cubicTo(0.510f, 0.618f, 0.382f, 0.490f, 0.358f, 0.427f)
+            lineTo(0.402f, 0.377f)
+            cubicTo(0.421f, 0.354f, 0.423f, 0.330f, 0.406f, 0.311f)
+            close()
         }
-        val curve = Path().apply {
-            moveTo(0.352f, 0.362f)
-            cubicTo(0.398f, 0.512f, 0.488f, 0.602f, 0.642f, 0.660f)
-        }
-        c.drawPath(curve, body)
-
-        // Receiver cups sit perpendicular to the diagonal axis.
-        c.rotated(-45f, 0.325f, 0.312f) {
-            c.drawRoundRect(
-                RectF(0.200f, 0.250f, 0.450f, 0.375f), 0.062f, 0.062f, glyph
-            )
-        }
-        c.rotated(-45f, 0.672f, 0.676f) {
-            c.drawRoundRect(
-                RectF(0.547f, 0.614f, 0.797f, 0.739f), 0.062f, 0.062f, glyph
-            )
-        }
+        c.drawPath(receiver, paint(WHITE))
     }
 
     /* ------------------------------------------------------------------ */
@@ -331,37 +347,25 @@ internal object IosSystemIcons {
     /* ------------------------------------------------------------------ */
 
     private fun drawCamera(c: Canvas, dark: Boolean) {
-        c.background(
-            if (dark) 0xFF3A3A3C.toInt() else 0xFFF1F2F4.toInt(),
-            if (dark) 0xFF121214.toInt() else 0xFFC2C6CE.toInt()
-        )
-
-        val bodyColor = if (dark) 0xFF6F7278.toInt() else 0xFF3B3B3D.toInt()
-        val humpColor = if (dark) 0xFF5D6066.toInt() else 0xFF2F2F31.toInt()
-
-        c.rr(0.118f, 0.288f, 0.882f, 0.782f, 0.096f, bodyColor)
-        c.rr(0.330f, 0.202f, 0.670f, 0.336f, 0.048f, humpColor)
-
-        // Lens barrel, glass and a single specular highlight.
-        c.drawCircle(0.500f, 0.548f, 0.196f, paint(if (dark) 0xFF979AA1.toInt() else 0xFFC8CBD2.toInt()))
-        c.drawCircle(0.500f, 0.548f, 0.166f, paint(0xFF171A20.toInt()))
-
-        val glass = Paint(Paint.ANTI_ALIAS_FLAG)
-        glass.shader = RadialGradient(
-            0.470f, 0.512f, 0.140f,
-            intArrayOf(0xFF5C97E8.toInt(), 0xFF25375A.toInt(), 0xFF0A0F18.toInt()),
-            floatArrayOf(0f, 0.62f, 1f),
-            Shader.TileMode.CLAMP
-        )
-        c.drawCircle(0.500f, 0.548f, 0.144f, glass)
-        c.drawCircle(0.456f, 0.502f, 0.034f, paint(0xE6FFFFFF.toInt()))
-
-        // Flash and microphone.
-        c.drawCircle(0.736f, 0.366f, 0.030f, paint(0xFFFFF6D8.toInt()))
-        c.drawCircle(0.736f, 0.366f, 0.030f, paint(0x33000000, Paint.Style.STROKE).apply {
-            strokeWidth = 0.006f
-        })
-        c.drawCircle(0.272f, 0.366f, 0.014f, paint(0xFF242427.toInt()))
+        c.background(if (dark) 0xFF3D3D42.toInt() else 0xFFE9E9EE.toInt(), if (dark) 0xFF121215.toInt() else 0xFFB9BAC2.toInt())
+        val metal = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = LinearGradient(0.2f, 0.15f, 0.8f, 0.9f,
+                intArrayOf(0xFF9C9FA6.toInt(), 0xFF22242A.toInt(), 0xFF575B67.toInt()), null, Shader.TileMode.CLAMP)
+        }
+        c.drawCircle(0.5f, 0.5f, 0.385f, metal)
+        c.drawCircle(0.5f, 0.5f, 0.355f, paint(0xFF080A0F.toInt()))
+        c.drawCircle(0.5f, 0.5f, 0.306f, paint(0xFF3E424F.toInt()))
+        c.drawCircle(0.5f, 0.5f, 0.290f, paint(0xFF080B14.toInt()))
+        val glass = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = RadialGradient(0.43f, 0.37f, 0.36f,
+                intArrayOf(0xFF4D6095.toInt(), 0xFF142754.toInt(), 0xFF0B101E.toInt(), 0xFF382C69.toInt()),
+                floatArrayOf(0f, 0.4f, 0.76f, 1f), Shader.TileMode.CLAMP)
+        }
+        c.drawCircle(0.5f, 0.5f, 0.266f, glass)
+        c.drawCircle(0.5f, 0.5f, 0.137f, paint(0xFF090C14.toInt()))
+        c.drawOval(RectF(0.365f, 0.294f, 0.49f, 0.36f), paint(0x668EB6FF))
+        c.drawOval(RectF(0.52f, 0.64f, 0.66f, 0.71f), paint(0x445F78F6))
+        c.drawCircle(0.5f, 0.5f, 0.354f, paint(0x448C919F, Paint.Style.STROKE).apply { strokeWidth = 0.008f })
     }
 
     /* ------------------------------------------------------------------ */
@@ -369,59 +373,38 @@ internal object IosSystemIcons {
     /* ------------------------------------------------------------------ */
 
     private fun drawClock(c: Canvas, dark: Boolean) {
-        c.background(
-            if (dark) 0xFF000000.toInt() else 0xFFFFFFFF.toInt(),
-            if (dark) 0xFF000000.toInt() else 0xFFF4F4F6.toInt()
-        )
-
-        val face = if (dark) 0xFF1C1C1E.toInt() else 0xFFFFFFFF.toInt()
-        val ink = if (dark) 0xFFFFFFFF.toInt() else 0xFF1C1C1E.toInt()
-        val rim = if (dark) 0xFF3A3A3C.toInt() else 0xFFE4E4E8.toInt()
-
-        c.drawCircle(0.5f, 0.5f, 0.408f, paint(face))
-        c.drawCircle(0.5f, 0.5f, 0.408f, paint(rim, Paint.Style.STROKE).apply {
-            strokeWidth = 0.006f
-        })
-
-        for (i in 0 until 12) {
-            val major = i % 3 == 0
-            val length = if (major) 0.056f else 0.030f
-            val width = if (major) 0.022f else 0.012f
-            val p = paint(ink, Paint.Style.STROKE).apply {
-                strokeWidth = width
-                strokeCap = Paint.Cap.ROUND
-            }
-            val a = Math.toRadians((i * 30.0) - 90.0)
-            val ux = cos(a).toFloat()
-            val uy = sin(a).toFloat()
-            val outer = 0.374f
-            val inner = outer - length
-            c.drawLine(
-                0.5f + ux * inner, 0.5f + uy * inner,
-                0.5f + ux * outer, 0.5f + uy * outer,
-                p
-            )
+        c.background(0xFF161619.toInt(), 0xFF030304.toInt())
+        c.drawCircle(0.5f, 0.5f, 0.441f, paint(WHITE))
+        val ink = 0xFF151518.toInt()
+        val numeral = paint(ink).apply {
+            textAlign = Paint.Align.CENTER
+            typeface = Typeface.create("sans-serif", Typeface.NORMAL)
+            textSize = 0.142f
         }
-
-        c.hand(0.5f, 0.5f, -60f, 0.198f, 0.034f, ink)
-        c.hand(0.5f, 0.5f, 62f, 0.284f, 0.026f, ink)
-        c.hand(0.5f, 0.5f, 152f, 0.300f, 0.014f, 0xFFFF9500.toInt())
-        c.drawCircle(0.5f, 0.5f, 0.026f, paint(ink))
-        c.drawCircle(0.5f, 0.5f, 0.013f, paint(0xFFFF9500.toInt()))
+        for (i in 1..12) {
+            val a = Math.toRadians(i * 30.0 - 90.0)
+            c.normalizedText(i.toString(), 0.5f + cos(a).toFloat() * 0.332f,
+                0.5f + sin(a).toFloat() * 0.332f + 0.050f, numeral)
+        }
+        val now = java.util.Calendar.getInstance()
+        c.hand(0.5f, 0.5f, now.get(java.util.Calendar.HOUR) * 30f + now.get(java.util.Calendar.MINUTE) * 0.5f, 0.205f, 0.033f, ink)
+        c.hand(0.5f, 0.5f, now.get(java.util.Calendar.MINUTE) * 6f, 0.286f, 0.024f, ink)
+        c.hand(0.5f, 0.5f, now.get(java.util.Calendar.SECOND) * 6f, 0.325f, 0.012f, 0xFFFF9500.toInt())
+        c.drawCircle(0.5f, 0.5f, 0.025f, paint(0xFFFF9500.toInt()))
     }
 
     /* ------------------------------------------------------------------ */
     /*                              Calendar                              */
     /* ------------------------------------------------------------------ */
 
-    private fun drawCalendar(c: Canvas, dark: Boolean) {
+    private fun drawCalendar(c: Canvas, dark: Boolean, locale: Locale) {
         c.background(
             if (dark) 0xFF1C1C1E.toInt() else 0xFFFFFFFF.toInt(),
             if (dark) 0xFF1C1C1E.toInt() else 0xFFFFFFFF.toInt()
         )
 
         val now = Date()
-        val rawWeekday = SimpleDateFormat("EEE", Locale.getDefault())
+        val rawWeekday = SimpleDateFormat("EEE", locale)
             .format(now)
             .trimEnd('.')
 
@@ -431,7 +414,7 @@ internal object IosSystemIcons {
         val weekday = if (isRtlScript) {
             rawWeekday
         } else {
-            rawWeekday.uppercase(Locale.getDefault()).take(3)
+            rawWeekday.uppercase(locale).take(3)
         }
 
         val red = paint(if (dark) 0xFFFF453A.toInt() else 0xFFFF3B30.toInt()).apply {
@@ -441,19 +424,19 @@ internal object IosSystemIcons {
         }
         var weekdaySize = 0.160f
         red.textSize = weekdaySize
-        while (weekdaySize > 0.055f && red.measureText(weekday) > 0.80f) {
+        while (weekdaySize > 0.055f && red.normalizedTextWidth(weekday) > 0.80f) {
             weekdaySize *= 0.94f
             red.textSize = weekdaySize
         }
-        c.drawText(weekday, 0.5f, 0.330f, red)
+        c.normalizedText(weekday, 0.5f, 0.330f, red)
 
-        val number = SimpleDateFormat("d", Locale.getDefault()).format(now)
+        val number = SimpleDateFormat("d", locale).format(now)
         val numeral = paint(if (dark) 0xFFFFFFFF.toInt() else 0xFF1C1C1E.toInt()).apply {
             textAlign = Paint.Align.CENTER
             typeface = Typeface.create("sans-serif-light", Typeface.NORMAL)
             textSize = if (number.length >= 2) 0.470f else 0.545f
         }
-        c.drawText(number, 0.5f, 0.808f, numeral)
+        c.normalizedText(number, 0.5f, 0.808f, numeral)
     }
 
     /* ------------------------------------------------------------------ */
@@ -461,58 +444,29 @@ internal object IosSystemIcons {
     /* ------------------------------------------------------------------ */
 
     private fun drawSettings(c: Canvas, dark: Boolean) {
-        c.background(
-            if (dark) 0xFF4A4C50.toInt() else 0xFFD6D9DE.toInt(),
-            if (dark) 0xFF1B1C1F.toInt() else 0xFF9AA0A8.toInt()
-        )
-
-        val gear = Path()
-        gear.addCircle(0.5f, 0.5f, 0.336f, Path.Direction.CW)
-
-        val toothMatrix = Matrix()
-        for (i in 0 until 12) {
-            toothMatrix.reset()
-            toothMatrix.setRotate(i * 30f, 0.5f, 0.5f)
-            val tooth = Path().apply {
-                addRoundRect(
-                    RectF(0.424f, 0.104f, 0.576f, 0.308f),
-                    0.062f, 0.062f, Path.Direction.CW
-                )
-                transform(toothMatrix)
+        c.background(if (dark) 0xFF565961.toInt() else 0xFFD9DCE2.toInt(), if (dark) 0xFF191B22.toInt() else 0xFF949AA5.toInt())
+        c.drawCircle(0.5f, 0.5f, 0.427f, paint(0xFF343842.toInt()))
+        val metal = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = LinearGradient(0.2f, 0.1f, 0.7f, 0.9f,
+                intArrayOf(0xFFF0F1F4.toInt(), 0xFF89909C.toInt(), 0xFFC6CAD1.toInt()), null, Shader.TileMode.CLAMP)
+            style = Paint.Style.STROKE
+            strokeWidth = 0.028f
+        }
+        c.drawCircle(0.5f, 0.5f, 0.406f, metal)
+        for (i in 0 until 28) {
+            c.rotated(i * 360f / 28, 0.5f, 0.5f) {
+                c.drawLine(0.5f, 0.117f, 0.5f, 0.167f, paint(0xFFC4C8CE.toInt(), Paint.Style.STROKE).apply { strokeWidth = 0.019f })
             }
-            gear.op(tooth, Path.Op.UNION)
         }
-
-        val hole = Path().apply {
-            addCircle(0.5f, 0.5f, 0.100f, Path.Direction.CW)
+        metal.strokeWidth = 0.035f
+        c.drawCircle(0.5f, 0.5f, 0.312f, metal)
+        metal.strokeWidth = 0.016f
+        c.drawCircle(0.5f, 0.5f, 0.264f, metal)
+        for (i in 0..2) c.rotated(i * 120f, 0.5f, 0.5f) {
+            c.drawLine(0.5f, 0.25f, 0.5f, 0.5f, paint(0xFFB5BBC5.toInt(), Paint.Style.STROKE).apply { strokeWidth = 0.065f })
         }
-        gear.op(hole, Path.Op.DIFFERENCE)
-
-        val metal = Paint(Paint.ANTI_ALIAS_FLAG)
-        metal.shader = RadialGradient(
-            0.395f, 0.365f, 0.60f,
-            if (dark) {
-                intArrayOf(0xFFA3A8B0.toInt(), 0xFF60646B.toInt(), 0xFF2A2D32.toInt())
-            } else {
-                intArrayOf(0xFF92979F.toInt(), 0xFF585C63.toInt(), 0xFF2E3136.toInt())
-            },
-            floatArrayOf(0f, 0.56f, 1f),
-            Shader.TileMode.CLAMP
-        )
-        c.drawPath(gear, metal)
-
-        c.drawPath(gear, paint(0x45FFFFFF, Paint.Style.STROKE).apply {
-            strokeWidth = 0.007f
-        })
-        c.drawCircle(0.5f, 0.5f, 0.214f, paint(0x33000000, Paint.Style.STROKE).apply {
-            strokeWidth = 0.012f
-        })
-        c.drawCircle(0.5f, 0.5f, 0.214f, paint(0x1AFFFFFF, Paint.Style.STROKE).apply {
-            strokeWidth = 0.004f
-        })
-        c.drawCircle(0.5f, 0.5f, 0.108f, paint(0x4DFFFFFF, Paint.Style.STROKE).apply {
-            strokeWidth = 0.007f
-        })
+        c.drawCircle(0.5f, 0.5f, 0.115f, paint(0xFFCFD3DA.toInt()))
+        c.drawCircle(0.5f, 0.5f, 0.075f, paint(0xFF525865.toInt()))
     }
 
     /* ------------------------------------------------------------------ */
@@ -586,7 +540,7 @@ internal object IosSystemIcons {
             typeface = Typeface.create("sans-serif-light", Typeface.NORMAL)
             textSize = 0.128f
         }
-        c.drawText("0", 0.828f, 0.272f, zero)
+        c.normalizedText("0", 0.828f, 0.272f, zero)
 
         for (row in 0 until 4) {
             for (col in 0 until 4) {
@@ -624,7 +578,7 @@ internal object IosSystemIcons {
             c.save()
             c.rotate(i * 45f, 0.5f, 0.5f)
             c.drawOval(
-                RectF(0.432f, 0.118f, 0.568f, 0.446f),
+                RectF(0.358f, 0.115f, 0.642f, 0.553f),
                 paint(petals[i])
             )
             c.restore()

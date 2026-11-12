@@ -31,6 +31,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
+import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import com.tms.os.launcher.domain.IconEngine
+import com.tms.os.launcher.ui.theme.LocalLauncherSettings
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -64,22 +70,25 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tms.os.launcher.model.AppInfo
 import com.tms.os.launcher.model.HomeGridItem
+import com.tms.os.launcher.ui.theme.wallpaperGlass
 import com.tms.os.launcher.ui.theme.IosSquircle
 import com.tms.os.launcher.ui.theme.IosText
+import com.tms.os.launcher.ui.home.RemoveBadge
+import com.tms.os.launcher.ui.home.jiggle
 import kotlin.math.abs
 import java.util.Locale
 
 private val LabelShadow = Shadow(
-    color = Color.Black.copy(alpha = 0.62f),
+    color = Color.Black.copy(alpha = 0.32f),
     offset = Offset(0f, 1f),
-    blurRadius = 4.5f
+    blurRadius = 2.5f
 )
 
 @Composable
 fun IosAppIcon(
     app: AppInfo,
     iconSize: Dp,
-    labelFontSizeSp: Float = 11.5f,
+    labelFontSizeSp: Float = 12f,
     showLabel: Boolean = true,
     showBadges: Boolean = true,
     isJiggleMode: Boolean = false,
@@ -87,47 +96,48 @@ fun IosAppIcon(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onClickWithBounds: ((Rect) -> Unit)? = null,
+    onLongClickWithBounds: ((Rect) -> Unit)? = null,
     onDeleteOrMenuClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    val settings = LocalLauncherSettings.current
+    val isClock = settings.useIosSystemIcons && (app.packageName.contains("deskclock") || app.packageName.contains("clockpackage") || app.packageName.endsWith(".clock"))
+    val isCalendar = settings.useIosSystemIcons && app.packageName.contains("calendar")
+    var displayedIcon by remember(app.iconBitmap) { mutableStateOf(app.iconBitmap) }
+    LaunchedEffect(app.packageName, isClock, isCalendar, settings.iconThemeMode, settings.tintAccentColor, settings.appLanguage) {
+        if (isClock || isCalendar) while (true) {
+            displayedIcon = withContext(Dispatchers.Default) {
+                IconEngine.renderIosIconBitmap(app.packageName, app.label, null, sizePx = 192,
+                    themeMode = settings.iconThemeMode, tintAccent = settings.tintAccentColor,
+                    locale = Locale.forLanguageTag(settings.appLanguage.code))
+            }
+            delay(if (isClock) 1_000L else 60_000L)
+        }
+    }
     val haptic = LocalHapticFeedback.current
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     var iconBounds by remember { mutableStateOf(Rect.Zero) }
 
     val scale by animateFloatAsState(
-        targetValue = when {
-            isHighlightedTarget -> 1.10f
-            isPressed -> 0.88f
-            else -> 1f
-        },
-        animationSpec = spring(dampingRatio = 0.72f, stiffness = 900f),
+        targetValue = if (isHighlightedTarget) 1.10f else 1f,
+        animationSpec = spring(dampingRatio = 0.8f, stiffness = 600f),
         label = "iconScale"
     )
-
-    val jigglePhase = remember(app.packageName) { abs(app.packageName.hashCode()) % 37 }
-    val transition = rememberInfiniteTransition(label = "jiggle")
-    val rotation = if (isJiggleMode) {
-        val angle by transition.animateFloat(
-            initialValue = -1.15f,
-            targetValue = 1.15f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(160 + jigglePhase, easing = FastOutSlowInEasing),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "jiggleAngle"
-        )
-        angle
-    } else 0f
+    // SpringBoard: touch-down darkens the icon instantly, release fades it back.
+    val pressShade by animateFloatAsState(
+        targetValue = if (isPressed && !isJiggleMode) 0.38f else 0f,
+        animationSpec = if (isPressed) tween(40) else tween(260),
+        label = "iconPress"
+    )
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = modifier
+            .jiggle(isJiggleMode, app.packageName.hashCode())
             .graphicsLayer {
-                rotationZ = rotation
                 scaleX = scale
                 scaleY = scale
-                alpha = if (isPressed) 0.82f else 1f
             }
             .semantics {
                 contentDescription = app.displayLabel
@@ -137,13 +147,14 @@ fun IosAppIcon(
                 interactionSource = interactionSource,
                 indication = null,
                 onClick = {
-                    if (isJiggleMode) onLongClick()
+                    // iOS: tapping a jiggling icon does nothing.
+                    if (isJiggleMode) Unit
                     else if (onClickWithBounds != null && iconBounds != Rect.Zero) onClickWithBounds(iconBounds)
                     else onClick()
                 },
                 onLongClick = {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onLongClick()
+                    onLongClickWithBounds?.invoke(iconBounds) ?: onLongClick()
                 }
             )
     ) {
@@ -162,13 +173,14 @@ fun IosAppIcon(
                 )
             }
 
-            if (app.iconBitmap != null) {
+            if (displayedIcon != null) {
                 Image(
-                    bitmap = app.iconBitmap,
+                    bitmap = displayedIcon!!,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
                         .size(iconSize)
+                        .shadow(1.5.dp, IosSquircle, ambientColor = Color.Black.copy(alpha = 0.15f), spotColor = Color.Black.copy(alpha = 0.12f))
                         .clip(IosSquircle)
                 )
             } else {
@@ -181,6 +193,10 @@ fun IosAppIcon(
                     .size(iconSize)
                     .clip(IosSquircle)
                     .border(0.6.dp, Color.White.copy(alpha = 0.13f), IosSquircle)
+                    .drawWithContent {
+                        drawContent()
+                        if (pressShade > 0f) drawRect(Color.Black.copy(alpha = pressShade))
+                    }
             )
 
             if (showBadges && app.badgeCount > 0 && !isJiggleMode) {
@@ -205,36 +221,11 @@ fun IosAppIcon(
                 }
             }
 
-            if (isJiggleMode) {
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .offset(x = (-7).dp, y = (-7).dp)
-                        .size(23.dp)
-                        .shadow(3.dp, CircleShape)
-                        .clip(CircleShape)
-                        .background(Color(0xFFF2F2F7))
-                        .combinedClickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = { onDeleteOrMenuClick?.invoke() ?: onLongClick() },
-                            onLongClick = { onDeleteOrMenuClick?.invoke() ?: onLongClick() }
-                        )
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .width(10.dp)
-                            .height(1.8.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFF1C1C1E))
-                    )
-                }
-            }
+            RemoveBadge(isJiggleMode, Modifier.align(Alignment.TopStart).offset(x = (-8).dp, y = (-8).dp)) { onDeleteOrMenuClick?.invoke() ?: onLongClick() }
         }
 
         if (showLabel) {
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(6.dp))
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center,
@@ -289,13 +280,14 @@ fun IosFolderIcon(
     folder: HomeGridItem.FolderItem,
     appMap: Map<String, AppInfo>,
     iconSize: Dp,
-    labelFontSizeSp: Float = 11.5f,
+    labelFontSizeSp: Float = 12f,
     showLabel: Boolean = true,
     showBadges: Boolean = true,
     isJiggleMode: Boolean = false,
     isHighlightedTarget: Boolean = false,
     onClickWithBounds: (Rect) -> Unit,
     onLongClick: () -> Unit,
+    onRemove: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val haptic = LocalHapticFeedback.current
@@ -308,35 +300,20 @@ fun IosFolderIcon(
     var bounds by remember { mutableStateOf(Rect.Zero) }
 
     val scale by animateFloatAsState(
-        targetValue = if (isHighlightedTarget) 1.10f else if (isPressed) 0.88f else 1f,
-        animationSpec = spring(dampingRatio = 0.72f, stiffness = 900f),
+        targetValue = if (isHighlightedTarget) 1.10f else if (isPressed) 0.96f else 1f,
+        animationSpec = spring(dampingRatio = 1f, stiffness = 1200f),
         label = "folderScale"
     )
 
-    val jigglePhase = remember(folder.folderId) { abs(folder.folderId.hashCode()) % 37 }
-    val transition = rememberInfiniteTransition(label = "folderJiggle")
-    val rotation = if (isJiggleMode) {
-        val a by transition.animateFloat(
-            initialValue = -1.15f,
-            targetValue = 1.15f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(160 + jigglePhase, easing = FastOutSlowInEasing),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "folderAngle"
-        )
-        a
-    } else 0f
-
-    val padding = iconSize * 0.085f
-    val gap = iconSize * 0.028f
+    val padding = iconSize * 0.12f
+    val gap = iconSize * 0.055f
     val mini = (iconSize - padding * 2 - gap * 2) / 3f
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = modifier
+            .jiggle(isJiggleMode, folder.folderId.hashCode())
             .graphicsLayer {
-                rotationZ = rotation
                 scaleX = scale
                 scaleY = scale
             }
@@ -363,16 +340,7 @@ fun IosFolderIcon(
             Box(
                 modifier = Modifier
                     .size(iconSize)
-                    .clip(IosSquircle)
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(
-                                Color.White.copy(alpha = 0.26f),
-                                Color.White.copy(alpha = 0.13f)
-                            )
-                        )
-                    )
-                    .border(0.6.dp, Color.White.copy(alpha = 0.16f), IosSquircle)
+                    .wallpaperGlass(IosSquircle, tint = Color.White.copy(alpha = 0.30f), rim = 0.5f)
                     .padding(padding)
             ) {
                 Column(
@@ -390,7 +358,7 @@ fun IosFolderIcon(
                                     modifier = Modifier
                                         .size(mini)
                                         .clip(IosSquircle)
-                                        .background(Color.White.copy(alpha = 0.10f))
+                                        .background(Color.Transparent)
                                 ) {
                                     if (app?.iconBitmap != null) {
                                         Image(
@@ -428,36 +396,11 @@ fun IosFolderIcon(
                 }
             }
 
-            if (isJiggleMode) {
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .offset(x = (-7).dp, y = (-7).dp)
-                        .size(23.dp)
-                        .shadow(3.dp, CircleShape)
-                        .clip(CircleShape)
-                        .background(Color(0xFFF2F2F7))
-                        .combinedClickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = onLongClick,
-                            onLongClick = onLongClick
-                        )
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .width(10.dp)
-                            .height(1.8.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFF1C1C1E))
-                    )
-                }
-            }
+            RemoveBadge(isJiggleMode, Modifier.align(Alignment.TopStart).offset(x = (-8).dp, y = (-8).dp)) { onRemove?.invoke() ?: onLongClick() }
         }
 
         if (showLabel) {
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(6.dp))
             Text(
                 text = folder.title,
                 color = Color.White,

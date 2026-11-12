@@ -38,6 +38,8 @@ import kotlin.math.sin
  * Inter is the spiritually closest freely licensed relative of SF Pro.
  * Inter Display is used for the large optical sizes (large titles, widgets).
  */
+val LocalLauncherSettings = staticCompositionLocalOf { com.tms.os.launcher.model.LauncherSettings() }
+
 val SfFamily = FontFamily(
     Font(R.font.inter_regular, FontWeight.Normal),
     Font(R.font.inter_medium, FontWeight.Medium),
@@ -133,9 +135,9 @@ object IosText {
     val captionMedium = caption.copy(fontWeight = FontWeight.Medium)
     val iconLabel = TextStyle(
         fontFamily = SfFamily,
-        fontWeight = FontWeight.Medium,
-        fontSize = 11.5.sp,
-        letterSpacing = 0.05.sp,
+        fontWeight = FontWeight.Normal,
+        fontSize = 12.sp,
+        letterSpacing = (-0.18).sp,
         lineHeight = 14.sp,
         textAlign = TextAlign.Center
     )
@@ -312,12 +314,12 @@ object IosMotion {
 /* -------------------------------------------------------------------------- */
 
 /**
- * The actual iOS icon silhouette. iOS uses a superellipse (n ≈ 5), not a
- * rounded rectangle. This difference is small on paper and huge in practice.
+ * Continuous superelliptic icon silhouette. The exponent is tuned for the
+ * optical radius at launcher icon sizes; this is not an Apple asset.
  */
 class IosSquircleShape(
-    private val n: Float = 5f,
-    private val steps: Int = 224
+    private val n: Float = 4.2f,
+    private val steps: Int = 160
 ) : Shape {
 
     override fun createOutline(
@@ -351,9 +353,7 @@ class IosSquircleShape(
         return path
     }
 
-    companion object {
-        private val pathCache = ConcurrentHashMap<Long, Path>(32)
-    }
+    private val pathCache = ConcurrentHashMap<Long, Path>(32)
 }
 
 val IosSquircle = IosSquircleShape()

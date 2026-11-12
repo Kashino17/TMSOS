@@ -2,6 +2,13 @@
 
 package com.tms.os.launcher.ui.components
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -64,6 +71,7 @@ import androidx.compose.ui.unit.sp
 import com.tms.os.launcher.model.AppCategory
 import com.tms.os.launcher.model.AppInfo
 import com.tms.os.launcher.model.LauncherSettings
+import com.tms.os.launcher.ui.theme.wallpaperGlass
 import com.tms.os.launcher.ui.theme.IosSquircle
 import com.tms.os.launcher.ui.theme.IosText
 import com.tms.os.launcher.ui.theme.IosStrings
@@ -95,15 +103,24 @@ fun IosAppLibraryPage(
     onOpenSettings: () -> Unit
 ) {
     var showAlphabeticalList by remember { mutableStateOf(false) }
-    var showMoreMenu by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
+    val focus = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val closeSearch: () -> Unit = {
+        query = ""
+        showAlphabeticalList = false
+        focus.clearFocus()
+        keyboard?.hide()
+    }
+    BackHandler(enabled = showAlphabeticalList) { closeSearch() }
     val language = settings.appLanguage
 
     val pods = remember(categorizedApps, allApps, language) {
         buildLibraryPods(categorizedApps, allApps, strings, language)
     }
 
-    val visibleApps = remember(allApps) {
-        allApps.filter { !it.isHidden }.sortedBy { it.displayLabel.lowercase(Locale.getDefault()) }
+    val visibleApps = remember(allApps, query) {
+        allApps.filter { !it.isHidden && it.displayLabel.contains(query.trim(), ignoreCase = true) }.sortedBy { it.displayLabel.lowercase(Locale.getDefault()) }
     }
 
     Box(
@@ -114,36 +131,37 @@ fun IosAppLibraryPage(
                 // the wallpaper. Android can't blur the window wallpaper from here,
                 // so the same effect is approximated with a deep vertical scrim.
                 Brush.verticalGradient(
-                    0f to Color(0x73000000),
-                    0.55f to Color(0x59000000),
-                    1f to Color(0x3D000000)
+                    0f to Color(0x20132649),
+                    0.55f to Color(0x30132649),
+                    1f to Color(0x18132649)
                 )
             )
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 2.dp)
+                .padding(start = 22.dp, end = 22.dp, top = 16.dp, bottom = 2.dp)
         ) {
-            LibraryHeaderPill(
-                title = strings.appLibrary,
-                searchHint = strings.search,
-                showAlphabeticalList = showAlphabeticalList,
-                showMenu = showMoreMenu,
-                onOpenSpotlight = onOpenSpotlight,
-                onMenuClick = { showMoreMenu = true },
-                onDismissMenu = { showMoreMenu = false },
-                onToggleList = {
-                    showMoreMenu = false
-                    showAlphabeticalList = !showAlphabeticalList
-                },
-                listLabel = if (showAlphabeticalList) strings.appLibraryCategories else "A–Z",
-                settingsLabel = strings.settings,
-                onOpenSettings = {
-                    showMoreMenu = false
-                    onOpenSettings()
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Row(verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f).height(48.dp)
+                        .wallpaperGlass(CircleShape, tint = Color.White.copy(alpha = 0.15f))
+                        .padding(horizontal = 16.dp)
+                ) {
+                    Icon(Icons.Rounded.Search, contentDescription = null, tint = Color.White.copy(alpha = 0.75f), modifier = Modifier.size(19.dp))
+                    Spacer(Modifier.width(8.dp))
+                    BasicTextField(
+                        value = query, onValueChange = { query = it }, singleLine = true,
+                        textStyle = IosText.body.copy(color = Color.White), cursorBrush = SolidColor(Color.White),
+                        decorationBox = { input ->
+                            Box { if (query.isEmpty()) Text(strings.appLibrary, color = Color.White.copy(alpha = 0.75f), style = IosText.body); input() }
+                        },
+                        modifier = Modifier.weight(1f).onFocusChanged { if (it.isFocused) showAlphabeticalList = true }
+                    )
                 }
-            )
+                if (showAlphabeticalList) Text(strings.cancel, color = Color.White, style = IosText.subheadline,
+                    modifier = Modifier.clickable(onClick = closeSearch).padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
+            }
 
             Spacer(Modifier.height(14.dp))
 
@@ -153,7 +171,7 @@ fun IosAppLibraryPage(
                     language = language,
                     onAppClick = onAppClick,
                     onAppLongClick = onAppLongClick,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f).imePadding()
                 )
             } else {
                 LazyVerticalGrid(
@@ -235,118 +253,6 @@ private fun buildLibraryPods(
 /*                                Header pill                                 */
 /* -------------------------------------------------------------------------- */
 
-@Composable
-private fun LibraryHeaderPill(
-    title: String,
-    searchHint: String,
-    showAlphabeticalList: Boolean,
-    showMenu: Boolean,
-    onOpenSpotlight: () -> Unit,
-    onMenuClick: () -> Unit,
-    onDismissMenu: () -> Unit,
-    onToggleList: () -> Unit,
-    listLabel: String,
-    settingsLabel: String,
-    onOpenSettings: () -> Unit
-) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(48.dp)
-            .clip(CircleShape)
-            .background(Color(0xB31C1C1E))
-            .border(0.55.dp, Color.White.copy(alpha = 0.12f), CircleShape)
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onOpenSpotlight
-            )
-            .padding(start = 15.dp, end = 4.dp)
-    ) {
-        Icon(
-            imageVector = Icons.Rounded.Search,
-            contentDescription = searchHint,
-            tint = Color.White.copy(alpha = 0.82f),
-            modifier = Modifier.size(18.dp)
-        )
-        Spacer(Modifier.width(7.dp))
-        Text(
-            text = title,
-            color = Color.White.copy(alpha = 0.92f),
-            style = IosText.body.copy(fontSize = 16.5.sp),
-            textAlign = TextAlign.Center,
-            maxLines = 1,
-            modifier = Modifier.weight(1f)
-        )
-
-        Box {
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .size(42.dp)
-                    .clip(CircleShape)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = onMenuClick
-                    )
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.MoreHoriz,
-                    contentDescription = "…",
-                    tint = Color.White.copy(alpha = 0.9f),
-                    modifier = Modifier.size(21.dp)
-                )
-            }
-
-            DropdownMenu(
-                expanded = showMenu,
-                onDismissRequest = onDismissMenu,
-                modifier = Modifier.background(Color(0xF22C2C2E))
-            ) {
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            text = if (showAlphabeticalList) listLabel else "A–Z",
-                            color = Color.White,
-                            style = IosText.body.copy(fontSize = 16.sp)
-                        )
-                    },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Rounded.Sort,
-                            contentDescription = null,
-                            tint = Color.White.copy(alpha = 0.8f),
-                            modifier = Modifier.size(19.dp)
-                        )
-                    },
-                    onClick = onToggleList
-                )
-                HorizontalDivider(thickness = 0.5.dp, color = Color.White.copy(alpha = 0.12f))
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            text = settingsLabel,
-                            color = Color.White,
-                            style = IosText.body.copy(fontSize = 16.sp)
-                        )
-                    },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Rounded.Settings,
-                            contentDescription = null,
-                            tint = Color.White.copy(alpha = 0.8f),
-                            modifier = Modifier.size(19.dp)
-                        )
-                    },
-                    onClick = onOpenSettings
-                )
-            }
-        }
-    }
-}
-
 /* -------------------------------------------------------------------------- */
 /*                               Category pod                                 */
 /* -------------------------------------------------------------------------- */
@@ -367,13 +273,7 @@ private fun LibraryCategoryPod(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(1f)
-                .clip(androidx.compose.foundation.shape.RoundedCornerShape(28.dp))
-                .background(Color(0xCC1C1C1E))
-                .border(
-                    0.55.dp,
-                    Color.White.copy(alpha = 0.10f),
-                    androidx.compose.foundation.shape.RoundedCornerShape(28.dp)
-                )
+                .wallpaperGlass(androidx.compose.foundation.shape.RoundedCornerShape(30.dp), tint = Color.White.copy(alpha = 0.12f))
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
@@ -384,7 +284,7 @@ private fun LibraryCategoryPod(
             BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                 val gap = 9.dp
                 val quadrant = (maxWidth - gap) / 2
-                val largeIcon = quadrant * 0.86f
+                val largeIcon = quadrant * 0.95f
                 val miniIcon = (quadrant - 5.dp) / 2 * 0.90f
 
                 Column(
@@ -586,13 +486,6 @@ private fun LibraryAlphabeticalList(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(androidx.compose.foundation.shape.RoundedCornerShape(26.dp))
-            .background(Color(0xCC1C1C1E))
-            .border(
-                0.55.dp,
-                Color.White.copy(alpha = 0.10f),
-                androidx.compose.foundation.shape.RoundedCornerShape(26.dp)
-            )
             .padding(start = 16.dp, top = 6.dp, bottom = 8.dp, end = 6.dp)
     ) {
         LazyColumn(
@@ -607,7 +500,7 @@ private fun LibraryAlphabeticalList(
                     Column {
                         Text(
                             text = group.letter,
-                            color = Color(0xFF0A84FF),
+                            color = Color.White.copy(alpha = 0.8f),
                             style = IosText.footnoteSemibold.copy(fontSize = 14.sp),
                             modifier = Modifier.padding(top = 12.dp, bottom = 5.dp)
                         )
@@ -666,7 +559,7 @@ private fun LibraryAlphabeticalList(
             groups.forEach { group ->
                 Text(
                     text = group.letter,
-                    color = Color(0xFF0A84FF),
+                    color = Color.White.copy(alpha = 0.8f),
                     style = IosText.caption.copy(
                         fontSize = 9.5.sp,
                         fontWeight = FontWeight.SemiBold

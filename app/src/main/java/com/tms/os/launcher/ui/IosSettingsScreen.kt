@@ -100,7 +100,7 @@ import com.tms.os.launcher.model.LeftWidgetType
 import com.tms.os.launcher.model.PageTransitionEffect
 import com.tms.os.launcher.model.RightWidgetType
 import com.tms.os.launcher.model.TintAccentColor
-import com.tms.os.launcher.ui.components.IosAppIconView
+import com.tms.os.launcher.ui.components.IosAppIcon
 import com.tms.os.launcher.ui.components.IosStatusBar
 import com.tms.os.launcher.ui.theme.IosStrings
 import com.tms.os.launcher.ui.theme.IosText
@@ -109,7 +109,7 @@ import com.tms.os.launcher.viewmodel.LauncherViewModel
 import kotlin.math.roundToInt
 
 /* ========================================================================== */
-/*                              iOS 18 Settings                               */
+/*                              iOS Settings                               */
 /* ========================================================================== */
 
 /**
@@ -1022,7 +1022,7 @@ private fun LazyListScope.languageItems(
 }
 
 /* ========================================================================== */
-/*                             iOS 18 components                              */
+/*                             iOS components                              */
 /* ========================================================================== */
 
 /** iOS navigation bar with a collapsing large title. */
@@ -1664,7 +1664,7 @@ private fun IosPreviewCard(
             verticalAlignment = Alignment.Top
         ) {
             apps.forEach { app ->
-                IosAppIconView(
+                IosAppIcon(
                     app = app,
                     iconSize = 58.dp * settings.iconSizeScale,
                     labelFontSizeSp = settings.labelFontSizeSp,

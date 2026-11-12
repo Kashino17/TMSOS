@@ -5,6 +5,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.BatteryManager
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import com.tms.os.launcher.model.AppLanguage
+import com.tms.os.launcher.ui.theme.wallpaperGlass
 import android.text.format.DateFormat
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -70,6 +75,7 @@ private data class BatteryState(val level: Int, val charging: Boolean)
 @Composable
 fun IosStatusBar(
     lightContent: Boolean = true,
+    language: AppLanguage = AppLanguage.DE,
     modifier: Modifier = Modifier,
     height: Dp = 54.dp
 ) {
@@ -95,13 +101,30 @@ fun IosStatusBar(
         onDispose { runCatching { context.unregisterReceiver(receiver) } }
     }
 
-    val formatter = remember(is24Hour) {
-        SimpleDateFormat(if (is24Hour) "H:mm" else "h:mm", Locale.getDefault())
+    val formatter = remember(is24Hour, language) {
+        SimpleDateFormat(if (is24Hour) "H:mm" else "h:mm", Locale.forLanguageTag(language.code))
+    }
+    val connectivity = remember { context.getSystemService(ConnectivityManager::class.java) }
+    var wifiConnected by remember { mutableStateOf(false) }
+    var cellularConnected by remember { mutableStateOf(false) }
+    DisposableEffect(connectivity) {
+        fun updateNetwork() {
+            val caps = connectivity.getNetworkCapabilities(connectivity.activeNetwork)
+            wifiConnected = caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+            cellularConnected = caps?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true
+        }
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) = updateNetwork()
+            override fun onLost(network: Network) = updateNetwork()
+        }
+        updateNetwork()
+        connectivity.registerDefaultNetworkCallback(callback)
+        onDispose { connectivity.unregisterNetworkCallback(callback) }
     }
     val timeText = formatter.format(now)
     val tint = if (lightContent) Color.White else Color(0xFF151515)
     val shadow = if (lightContent) {
-        Shadow(Color.Black.copy(alpha = 0.46f), Offset(0f, 1f), 5f)
+        Shadow(Color.Black.copy(alpha = 0.18f), Offset(0f, 1f), 2f)
     } else {
         Shadow(Color.White.copy(alpha = 0.25f), Offset(0f, 1f), 3f)
     }
@@ -111,7 +134,7 @@ fun IosStatusBar(
         modifier = modifier
             .fillMaxWidth()
             .height(height)
-            .padding(start = 28.dp, end = 25.dp, top = 10.dp)
+            .padding(start = 30.dp, end = 27.dp, top = 6.dp)
             .semantics { contentDescription = "Statusleiste" }
     ) {
         Text(
@@ -131,8 +154,8 @@ fun IosStatusBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            CellularBars(color = tint)
-            WifiGlyph(color = tint)
+            if (cellularConnected) Text(if (language == AppLanguage.DE) "Mobil" else "Cell", color = tint, style = IosText.caption)
+            if (wifiConnected) WifiGlyph(color = tint)
             BatteryGlyph(level = battery.level, charging = battery.charging, color = tint)
         }
     }
@@ -268,8 +291,7 @@ fun IosPageDots(
         modifier = modifier
             .height(24.dp)
             .clip(CircleShape)
-            .background(Color(0x59202022))
-            .border(0.5.dp, Color.White.copy(alpha = 0.12f), CircleShape)
+            .wallpaperGlass(CircleShape, tint = Color.White.copy(alpha = 0.05f), rim = 0.45f)
             .padding(horizontal = 10.dp)
             .semantics { contentDescription = "Seite ${selected + 1} von $count" }
     ) {
@@ -305,13 +327,10 @@ fun IosSearchButton(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(5.dp),
         modifier = modifier
-            .height(34.dp)
-            .shadow(10.dp, CircleShape, ambientColor = Color.Black.copy(alpha = 0.16f), spotColor = Color.Black.copy(alpha = 0.18f))
-            .clip(CircleShape)
-            .background(Color(0x59202022))
-            .border(0.5.dp, Color.White.copy(alpha = 0.14f), CircleShape)
+            .height(30.dp)
+            .wallpaperGlass(CircleShape, tint = Color.White.copy(alpha = 0.06f), rim = 0.5f)
             .clickable(onClick = onClick)
-            .padding(horizontal = 13.dp)
+            .padding(horizontal = 14.dp)
             .semantics { contentDescription = text }
     ) {
         Icon(
@@ -323,7 +342,7 @@ fun IosSearchButton(
         Text(
             text = text,
             color = Color.White.copy(alpha = 0.92f),
-            style = IosText.subheadline.copy(fontWeight = FontWeight.Medium)
+            style = IosText.caption.copy(fontSize = 13.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.1).sp)
         )
     }
 }
@@ -353,9 +372,7 @@ private fun GlassPill(text: String, onClick: () -> Unit) {
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
-            .clip(CircleShape)
-            .background(Color(0x8C2C2C2E))
-            .border(0.5.dp, Color.White.copy(alpha = 0.14f), CircleShape)
+            .wallpaperGlass(CircleShape, tint = Color.Black.copy(alpha = 0.16f))
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {

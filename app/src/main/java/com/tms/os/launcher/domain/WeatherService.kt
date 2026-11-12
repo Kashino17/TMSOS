@@ -8,13 +8,22 @@ import java.net.URL
 import java.net.URLEncoder
 import kotlin.math.roundToInt
 
+/** Next hours and days, as shown by the medium and large iOS Weather widgets. */
+data class WeatherForecast(
+    val hourly: List<HourForecast>,
+    val daily: List<DayForecast>
+)
+data class HourForecast(val epochMillis: Long, val tempCelsius: Int, val weatherCode: Int)
+data class DayForecast(val epochMillis: Long, val highCelsius: Int, val lowCelsius: Int, val weatherCode: Int)
+
 data class LiveWeatherData(
     val resolvedCity: String,
     val tempCelsius: Int,
     val highCelsius: Int,
     val lowCelsius: Int,
     val weatherCode: Int,
-    val conditionDe: String
+    val conditionDe: String,
+    val forecast: WeatherForecast? = null
 )
 
 object WeatherService {
@@ -40,8 +49,9 @@ object WeatherService {
             val weatherUrl =
                 "https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lon" +
                     "&current=temperature_2m,weather_code" +
-                    "&daily=temperature_2m_max,temperature_2m_min" +
-                    "&timezone=auto&forecast_days=1"
+                    "&hourly=temperature_2m,weather_code" +
+                    "&daily=temperature_2m_max,temperature_2m_min,weather_code" +
+                    "&timezone=auto&forecast_days=7&timeformat=unixtime"
 
             val weatherJsonStr = httpGet(weatherUrl) ?: return@withContext null
             val wRoot = JSONObject(weatherJsonStr)
@@ -56,7 +66,24 @@ object WeatherService {
             val high = if (maxArr != null && maxArr.length() > 0) maxArr.getDouble(0).roundToInt() else temp + 3
             val low = if (minArr != null && minArr.length() > 0) minArr.getDouble(0).roundToInt() else temp - 5
 
+            val forecast = runCatching {
+                val now = System.currentTimeMillis()
+                val h = wRoot.getJSONObject("hourly")
+                val ht = h.getJSONArray("time"); val htemp = h.getJSONArray("temperature_2m"); val hcode = h.getJSONArray("weather_code")
+                val hours = (0 until ht.length()).map { i ->
+                    HourForecast(ht.getLong(i) * 1000, htemp.getDouble(i).roundToInt(), hcode.getInt(i))
+                }.filter { it.epochMillis >= now - 3_600_000 }.take(6)
+                val d = wRoot.getJSONObject("daily")
+                val dt = d.getJSONArray("time"); val dmax = d.getJSONArray("temperature_2m_max")
+                val dmin = d.getJSONArray("temperature_2m_min"); val dcode = d.getJSONArray("weather_code")
+                val days = (0 until dt.length()).map { i ->
+                    DayForecast(dt.getLong(i) * 1000, dmax.getDouble(i).roundToInt(), dmin.getDouble(i).roundToInt(), dcode.getInt(i))
+                }
+                WeatherForecast(hours, days)
+            }.getOrNull()
+
             LiveWeatherData(
+                forecast = forecast,
                 resolvedCity = resolvedName,
                 tempCelsius = temp,
                 highCelsius = high,

@@ -12,8 +12,8 @@ android {
         applicationId = "com.tms.os.launcher"
         minSdk = 28
         targetSdk = 35
-        versionCode = 5
-        versionName = "4.1.0"
+        versionCode = 6
+        versionName = "5.0.0"
     }
 
     buildTypes {
@@ -47,6 +47,7 @@ android {
 }
 
 dependencies {
+    testImplementation("junit:junit:4.13.2")
     val composeBom = platform("androidx.compose:compose-bom:2024.10.01")
     implementation(composeBom)
     implementation("androidx.core:core-ktx:1.15.0")

@@ -85,6 +85,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -113,6 +115,9 @@ import com.tms.os.launcher.model.ContactItem
 import com.tms.os.launcher.model.HomeGridItem
 import com.tms.os.launcher.model.IconThemeMode
 import com.tms.os.launcher.model.LauncherSettings
+import com.tms.os.launcher.ui.theme.wallpaperGlass
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import com.tms.os.launcher.ui.theme.IosSquircle
 import com.tms.os.launcher.ui.theme.IosText
 import com.tms.os.launcher.ui.theme.IosStrings
@@ -129,6 +134,7 @@ import kotlin.math.ceil
 @Composable
 fun IosSpotlightOverlay(
     visible: Boolean,
+    progress: () -> Float,
     query: String,
     results: List<AppInfo>,
     shortcuts: List<AppShortcutItem>,
@@ -144,13 +150,17 @@ fun IosSpotlightOverlay(
     onWebSearch: (String, String) -> Unit,
     onClose: () -> Unit
 ) {
-    AnimatedVisibility(
-        visible = visible,
-        enter = fadeIn(tween(170)),
-        exit = fadeOut(tween(120)),
-        modifier = Modifier.fillMaxSize()
+    // Driven by the finger: [progress] goes 0..1 while the home screen is pulled
+    // down, so Spotlight fades and slides in under the finger like on iOS.
+    val shown by remember { androidx.compose.runtime.derivedStateOf { visible || progress() > 0.002f } }
+    if (shown) Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .graphicsLayer { alpha = progress().coerceIn(0f, 1f) }
     ) {
         SpotlightContent(
+            committed = visible,
+            progress = progress,
             query = query,
             results = results,
             shortcuts = shortcuts,
@@ -171,6 +181,8 @@ fun IosSpotlightOverlay(
 
 @Composable
 private fun SpotlightContent(
+    committed: Boolean,
+    progress: () -> Float,
     query: String,
     results: List<AppInfo>,
     shortcuts: List<AppShortcutItem>,
@@ -190,13 +202,16 @@ private fun SpotlightContent(
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
     val scrollState = rememberScrollState()
-    val bottomSearch = settings.searchBarAtBottomInSpotlight || settings.autoOpenKeyboardInSpotlight
+    val bottomSearch = settings.searchBarAtBottomInSpotlight
 
-    LaunchedEffect(Unit) {
-        if (settings.autoOpenKeyboardInSpotlight) {
-            delay(180)
+    LaunchedEffect(committed) {
+        if (committed && settings.autoOpenKeyboardInSpotlight) {
+            delay(60)
             runCatching { focusRequester.requestFocus() }
             keyboard?.show()
+        } else if (!committed) {
+            focusManager.clearFocus()
+            keyboard?.hide()
         }
     }
     DisposableEffect(Unit) {
@@ -209,21 +224,8 @@ private fun SpotlightContent(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xF2050507))
+            .background(Color(0x48101B36))
             .imePadding()
-            .pointerInput(Unit) {
-                var total = 0f
-                detectVerticalDragGestures(
-                    onDragStart = { total = 0f },
-                    onVerticalDrag = { _, dragAmount ->
-                        total += dragAmount
-                        if (abs(total) > 90f) {
-                            total = 0f
-                            onClose()
-                        }
-                    }
-                )
-            }
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -233,6 +235,10 @@ private fun SpotlightContent(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .graphicsLayer {
+                    val p = progress().coerceIn(0f, 1f)
+                    translationY = (1f - p) * -56.dp.toPx()
+                }
                 .padding(top = 54.dp)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
@@ -257,8 +263,8 @@ private fun SpotlightContent(
                     )
                     Text(
                         text = strings.cancel,
-                        color = Color(0xFF0A84FF),
-                        style = IosText.body.copy(fontSize = 16.5.sp),
+                        color = Color.White,
+                        style = IosText.body.copy(fontSize = 16.sp),
                         modifier = Modifier
                             .clickable(
                                 interactionSource = remember { MutableInteractionSource() },
@@ -296,20 +302,6 @@ private fun SpotlightContent(
                         )
                     }
                     Spacer(Modifier.height(12.dp))
-                    if (allApps.isNotEmpty()) {
-                        Text(
-                            text = strings.apps,
-                            color = Color.White.copy(alpha = 0.35f),
-                            style = IosText.footnote,
-                            modifier = Modifier.padding(top = 4.dp)
-                        )
-                        Spacer(Modifier.height(10.dp))
-                        SpotlightGrid(
-                            apps = allApps.take(8),
-                            onAppClick = onAppClick,
-                            onAppLongClick = onAppLongClick
-                        )
-                    }
                 } else {
                     if (mathResult != null) {
                         Spacer(Modifier.height(10.dp))
@@ -402,9 +394,7 @@ private fun SpotlightSearchField(
         verticalAlignment = Alignment.CenterVertically,
         modifier = modifier
             .height(50.dp)
-            .clip(CircleShape)
-            .background(Color(0xCC343437))
-            .border(0.55.dp, Color.White.copy(alpha = 0.16f), CircleShape)
+            .wallpaperGlass(CircleShape, tint = Color.White.copy(alpha = 0.15f))
             .padding(start = 14.dp, end = 8.dp)
     ) {
         Icon(
@@ -458,14 +448,7 @@ private fun SpotlightSearchField(
             }
             Spacer(Modifier.width(6.dp))
         }
-        Icon(
-            imageVector = Icons.Rounded.Mic,
-            contentDescription = null,
-            tint = Color.White.copy(alpha = 0.62f),
-            modifier = Modifier
-                .padding(horizontal = 6.dp)
-                .size(19.dp)
-        )
+
     }
 }
 
@@ -484,7 +467,7 @@ private fun SpotlightGrid(
     onAppClick: (AppInfo) -> Unit,
     onAppLongClick: (AppInfo) -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(18.dp), modifier = Modifier.wallpaperGlass(RoundedCornerShape(26.dp), tint = Color.White.copy(alpha = 0.10f)).padding(horizontal = 10.dp, vertical = 18.dp)) {
         apps.chunked(4).forEach { rowApps ->
             Row(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -887,9 +870,10 @@ fun IosFolderOverlay(
     val apps = remember(folder.appPackages, appMap) {
         folder.appPackages.mapNotNull { appMap[it] }
     }
-    val columns = if (iconSize >= 62.dp) 4 else 3
-    val rows = ceil(apps.size.toFloat() / columns.toFloat()).toInt().coerceAtLeast(1)
-    val gridHeight = ((iconSize + 34.dp) * rows + 24.dp).coerceIn(150.dp, 470.dp)
+    val columns = 3
+    val folderPages = remember(apps) { apps.chunked(9).ifEmpty { listOf(emptyList()) } }
+    val pager = rememberPagerState { folderPages.size }
+    val gridHeight = 312.dp
 
     LaunchedEffect(folder.folderId) {
         progress.animateTo(
@@ -907,20 +891,7 @@ fun IosFolderOverlay(
         contentAlignment = Alignment.Center,
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xB3050507))
-            .pointerInput(folder.folderId) {
-                var total = 0f
-                detectVerticalDragGestures(
-                    onDragStart = { total = 0f },
-                    onVerticalDrag = { _, dragAmount ->
-                        total += dragAmount
-                        if (abs(total) > 80f) {
-                            total = 0f
-                            saveAndDismiss()
-                        }
-                    }
-                )
-            }
+            .background(Color(0x35121C32))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -931,11 +902,11 @@ fun IosFolderOverlay(
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier
-                .widthIn(max = if (columns >= 4) 580.dp else 410.dp)
+                .widthIn(max = 342.dp)
                 .graphicsLayer {
                     val p = progress.value
-                    scaleX = 0.62f + 0.38f * p
-                    scaleY = 0.62f + 0.38f * p
+                    scaleX = 0.90f + 0.10f * p
+                    scaleY = 0.90f + 0.10f * p
                     alpha = p
                     transformOrigin = TransformOrigin(originNormalized.x, originNormalized.y)
                 }
@@ -974,43 +945,31 @@ fun IosFolderOverlay(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(gridHeight)
-                    .shadow(30.dp, RoundedCornerShape(38.dp), clip = false)
-                    .clip(RoundedCornerShape(38.dp))
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(Color(0xD93C3C3F), Color(0xD9222224))
-                        )
-                    )
-                    .border(0.7.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(38.dp))
-                    .padding(horizontal = 12.dp, vertical = 14.dp)
+                    .wallpaperGlass(RoundedCornerShape(36.dp), tint = Color.White.copy(alpha = 0.18f))
+                    .padding(horizontal = 12.dp, vertical = 22.dp)
             ) {
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(columns),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(2.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(apps, key = { it.packageName }) { app ->
-                        Box(contentAlignment = Alignment.TopCenter, modifier = Modifier.fillMaxWidth()) {
-                            IosAppIcon(
-                                app = app,
-                                iconSize = iconSize,
-                                labelFontSizeSp = labelFontSizeSp,
-                                showLabel = true,
-                                showBadges = true,
-                                isJiggleMode = false,
-                                onClick = {
-                                    saveAndDismiss()
-                                    onAppClick(app)
-                                },
-                                onLongClick = {
-                                    saveAndDismiss()
-                                    onAppLongClick(app)
+                HorizontalPager(state = pager, modifier = Modifier.fillMaxSize()) { page ->
+                    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+                        repeat(3) { row ->
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                                repeat(3) { column ->
+                                    val app = folderPages[page].getOrNull(row * 3 + column)
+                                    Box(Modifier.weight(1f), contentAlignment = Alignment.TopCenter) {
+                                        if (app != null) IosAppIcon(
+                                            app = app, iconSize = 58.dp, labelFontSizeSp = labelFontSizeSp,
+                                            onClick = { saveAndDismiss(); onAppClick(app) },
+                                            onLongClick = { saveAndDismiss(); onAppLongClick(app) }
+                                        ) else Spacer(Modifier.size(58.dp))
+                                    }
                                 }
-                            )
+                            }
                         }
                     }
                 }
+            }
+            if (folderPages.size > 1) {
+                Spacer(Modifier.height(12.dp))
+                IosPageDots(count = folderPages.size, selected = pager.currentPage)
             }
 
             Spacer(Modifier.height(14.dp))
@@ -1083,7 +1042,7 @@ fun IosCategoryExpandedView(
         contentAlignment = Alignment.Center,
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xB3050507))
+            .background(Color(0x35121C32))
             .pointerInput(category.id) {
                 var total = 0f
                 detectVerticalDragGestures(
@@ -1204,6 +1163,7 @@ private const val PAGE_RENAME = "rename"
 private const val PAGE_CATEGORY = "category"
 private const val PAGE_FOLDER = "folder"
 private const val PAGE_REMOVE = "remove"
+private const val PAGE_MORE = "more"
 
 @Composable
 fun IosContextMenu(
@@ -1213,6 +1173,7 @@ fun IosContextMenu(
     existingFolders: List<HomeGridItem.FolderItem>,
     strings: IosStrings,
     appLanguage: AppLanguage = AppLanguage.DE,
+    anchor: Rect? = null,
     onLaunch: () -> Unit,
     onEditHome: () -> Unit,
     onRemoveFromHome: () -> Unit,
@@ -1258,22 +1219,30 @@ fun IosContextMenu(
         onDismiss()
     }
 
-    Box(
-        contentAlignment = Alignment.Center,
+    BoxWithConstraints(
+        contentAlignment = Alignment.TopStart,
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0x99050507))
+            .background(Color(0x38101A2F))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = close
             )
-            .padding(horizontal = 22.dp, vertical = 26.dp)
+            .imePadding()
     ) {
+        val density = LocalDensity.current
+        val menuWidth = minOf(292.dp, maxWidth - 36.dp)
+        val left = if (anchor != null && anchor.width > 0f) with(density) { anchor.left.toDp() }.coerceIn(18.dp, maxWidth - menuWidth - 18.dp) else (maxWidth - menuWidth) / 2
+        val top = if (anchor != null && anchor.height > 0f) with(density) { anchor.top.toDp() }.coerceIn(64.dp, maxOf(64.dp, maxHeight - 408.dp)) else maxOf(64.dp, (maxHeight - 400.dp) / 2)
+
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier
-                .widthIn(max = 336.dp)
+                .offset(x = left, y = top)
+                .width(menuWidth)
+                .heightIn(max = maxOf(160.dp, maxHeight - top - 24.dp))
+                .verticalScroll(rememberScrollState())
                 .graphicsLayer {
                     scaleX = menuScale.value
                     scaleY = menuScale.value
@@ -1310,10 +1279,7 @@ fun IosContextMenu(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .shadow(26.dp, RoundedCornerShape(18.dp), clip = false)
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(Color(0xF21C1C1E))
-                        .border(0.55.dp, Color.White.copy(alpha = 0.13f), RoundedCornerShape(18.dp))
+                        .wallpaperGlass(RoundedCornerShape(24.dp), tint = Color(0xA0293347))
                 ) {
                     Crossfade(
                         targetState = page,
@@ -1321,6 +1287,16 @@ fun IosContextMenu(
                         label = "contextPage"
                     ) { currentPage ->
                         when (currentPage) {
+                            PAGE_MORE -> Column {
+                                PageHeader(strings.more) { page = PAGE_MAIN }
+                                MenuRow(text = strings.rename, onClick = { page = PAGE_RENAME })
+                                MenuDivider()
+                                MenuRow(text = strings.changeCategory, onClick = { page = PAGE_CATEGORY }, chevron = true)
+                                MenuDivider()
+                                MenuRow(text = strings.appInfo, onClick = onAppInfo)
+                                MenuDivider()
+                                MenuRow(text = strings.hideApp, onClick = onHide)
+                            }
                             PAGE_RENAME -> RenamePage(
                                 text = renameText,
                                 strings = strings,
@@ -1375,6 +1351,7 @@ fun IosContextMenu(
                                 strings = strings,
                                 isPinnedInDock = isPinnedInDock,
                                 onEditHome = onEditHome,
+                                onMoreClick = { page = PAGE_MORE },
                                 onRenameClick = { page = PAGE_RENAME },
                                 onChangeCategoryClick = { page = PAGE_CATEGORY },
                                 onMoveToFolderClick = { page = PAGE_FOLDER },
@@ -1402,10 +1379,7 @@ private fun ContextMenuHeader(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .shadow(18.dp, RoundedCornerShape(20.dp), clip = false)
-            .clip(RoundedCornerShape(20.dp))
-            .background(Color(0xEE2C2C2E))
-            .border(0.6.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(20.dp))
+            .wallpaperGlass(RoundedCornerShape(24.dp), tint = Color(0x70334258))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -1456,6 +1430,7 @@ private fun MainMenuPage(
     strings: IosStrings,
     isPinnedInDock: Boolean,
     onEditHome: () -> Unit,
+    onMoreClick: () -> Unit,
     onRenameClick: () -> Unit,
     onChangeCategoryClick: () -> Unit,
     onMoveToFolderClick: () -> Unit,
@@ -1468,28 +1443,15 @@ private fun MainMenuPage(
     Column(modifier = Modifier.fillMaxWidth()) {
         MenuRow(text = strings.editHomeScreen, onClick = onEditHome)
         MenuDivider()
-        MenuRow(text = strings.rename, onClick = onRenameClick)
-        MenuDivider()
-        MenuRow(text = strings.changeCategory, onClick = onChangeCategoryClick, chevron = true)
+        MenuRow(text = if (isPinnedInDock) strings.removeFromDock else strings.moveToDock, onClick = onToggleDock)
         MenuDivider()
         MenuRow(text = strings.moveToFolder, onClick = onMoveToFolderClick, chevron = true)
         MenuDivider()
-        MenuRow(
-            text = if (isPinnedInDock) strings.removeFromDock else strings.moveToDock,
-            onClick = onToggleDock
-        )
+        MenuRow(text = strings.more, onClick = onMoreClick, chevron = true)
         MenuDivider()
-        MenuRow(text = strings.hideApp, onClick = onHide)
-        MenuDivider()
-        MenuRow(text = strings.appInfo, onClick = onAppInfo)
-        MenuDivider()
-        MenuRow(
-            text = strings.removeApp,
-            onClick = onRemoveClick,
-            destructive = true,
-            chevron = true
-        )
+        MenuRow(text = strings.removeApp, onClick = onRemoveClick, destructive = true, chevron = true)
     }
+
 }
 
 @Composable
@@ -1923,13 +1885,10 @@ fun IosCustomizeSheet(
                             } else {
                                 Modifier
                                     .fillMaxWidth()
-                                    .fillMaxHeight(0.84f)
+                                    .fillMaxHeight(0.68f)
                             }
                         )
-                        .shadow(34.dp, shape, clip = false)
-                        .clip(shape)
-                        .background(Color(0xF51C1C1E))
-                        .border(0.6.dp, Color.White.copy(alpha = 0.12f), shape)
+                        .wallpaperGlass(shape, tint = Color(0xD51C273C))
                         .navigationBarsPadding()
                 ) {
                     Box(
@@ -2060,6 +2019,16 @@ fun IosCustomizeSheet(
 
                         SectionHeader(strings.homeScreen)
                         SettingsGroup {
+                            ToggleRow(
+                                label = when (settings.appLanguage) {
+                                    AppLanguage.DE -> "Hintergrund des Geräts"
+                                    AppLanguage.EN -> "Device wallpaper"
+                                    AppLanguage.TR -> "Cihaz duvar kâğıdı"
+                                },
+                                checked = settings.useSystemWallpaper,
+                                onCheckedChange = { checked -> onSettingsChange { it.copy(useSystemWallpaper = checked) } }
+                            )
+                            MenuDivider(inset = 14.dp)
                             ToggleRow(
                                 label = strings.showWidgets,
                                 checked = settings.showTopWidgetsOnFirstPage,
