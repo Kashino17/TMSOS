@@ -141,7 +141,9 @@ fun IosFolderView(
     hidden: Boolean = false,
     onDragOutStart: (AppInfo, Offset, Offset, Offset) -> Unit = { _, _, _, _ -> },
     onDragMove: (Offset) -> Unit = {},
-    onDragEnd: () -> Unit = {}
+    onDragEnd: () -> Unit = {},
+    /** Home-screen launch zoom (1 = rest): the open folder zooms away with it. */
+    zoom: () -> Float = { 1f }
 ) {
     val progress = remember(folder.folderId) { Animatable(0f) }
     val iconRects = remember { androidx.compose.runtime.mutableStateMapOf<String, Rect>() }
@@ -168,7 +170,11 @@ fun IosFolderView(
     }
     BackHandler { close() }
 
-    BoxWithConstraints(Modifier.fillMaxSize().graphicsLayer { alpha = if (hidden) 0f else 1f }) {
+    BoxWithConstraints(Modifier.fillMaxSize().graphicsLayer {
+        val z = zoom()
+        scaleX = z; scaleY = z
+        alpha = if (hidden) 0f else (1f - (z - 1f) / 0.14f).coerceIn(0f, 1f)
+    }) {
         val density = LocalDensity.current
         val panelW = min(maxWidth.value - 2 * 26f, 340f).dp
         val panelH = panelW + 6.dp
@@ -301,8 +307,8 @@ fun IosFolderView(
                                             iconSize = iconSize,
                                             labelFontSizeSp = labelFontSizeSp,
                                             isJiggleMode = jiggle,
-                                            onClick = { close { onAppClick(app, Rect.Zero) } },
-                                            onClickWithBounds = { b -> close { onAppClick(app, b) } },
+                                            onClick = { onAppClick(app, Rect.Zero) },
+                                            onClickWithBounds = { b -> onAppClick(app, b) },
                                             onLongClick = { onAppLongClick(app, Rect.Zero) },
                                             onLongClickWithBounds = { b -> onAppLongClick(app, b) }
                                         ) else Spacer(Modifier.size(iconSize))

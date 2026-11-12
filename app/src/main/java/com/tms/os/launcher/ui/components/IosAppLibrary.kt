@@ -6,6 +6,22 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.ui.BiasAlignment
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -115,11 +131,12 @@ fun IosAppLibraryPage(
     settings: LauncherSettings,
     strings: IosStrings,
     isUnfolded: Boolean,
-    /** True while a category is open on top: the pods fade away. */
-    hidden: Boolean,
+    /** 0..1 while a category grows out of its pod: the library zooms past and fades. */
+    podProgress: () -> Float,
+    podOrigin: Rect?,
     onAppClick: (AppInfo, Rect) -> Unit,
     onAppLongClick: (AppInfo, Rect) -> Unit,
-    onOpenPod: (String, List<AppInfo>) -> Unit
+    onOpenPod: (String, List<AppInfo>, Rect) -> Unit
 ) {
     var searching by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
@@ -143,12 +160,25 @@ fun IosAppLibraryPage(
         allApps.filter { !it.isHidden && it.displayLabel.contains(query.trim(), ignoreCase = true) }
             .sortedBy { it.displayLabel.lowercase(Locale.getDefault()) }
     }
-    val contentAlpha by animateFloatAsState(if (hidden) 0f else 1f, tween(220), label = "libraryAlpha")
+    var pageTop by remember { mutableStateOf(0f) }
+    // 0 = pods, 1 = alphabetical search list. One spring drives pill, button and content.
+    val searchT by animateFloatAsState(if (searching) 1f else 0f, spring(dampingRatio = 0.9f, stiffness = 380f), label = "librarySearch")
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .graphicsLayer { alpha = contentAlpha }
+            .onGloballyPositioned { pageTop = it.positionInRoot().y }
+            .graphicsLayer {
+                val p = podProgress().coerceIn(0f, 1f)
+                if (p > 0f) {
+                    alpha = (1f - p * 1.35f).coerceIn(0f, 1f)
+                    val s = 1f + 0.14f * p
+                    scaleX = s; scaleY = s
+                    podOrigin?.let { o ->
+                        transformOrigin = TransformOrigin((o.center.x / size.width).coerceIn(0f, 1f), ((o.center.y - pageTop) / size.height).coerceIn(0f, 1f))
+                    }
+                }
+            }
             .padding(top = 9.dp)
     ) {
         // ----------------------------------------------------------- search pill
@@ -156,47 +186,67 @@ fun IosAppLibraryPage(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth().padding(horizontal = LibrarySideMargin)
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = if (searching) Arrangement.Start else Arrangement.Center,
+            Box(
                 modifier = Modifier
                     .weight(1f)
                     .height(43.dp)
                     .wallpaperGlass(CircleShape, tint = IosMaterial.pod)
-                    .clickable(remember { MutableInteractionSource() }, null) { searching = true }
+                    .clickable(remember { MutableInteractionSource() }, null) {
+                        if (!searching) searching = true else { runCatching { fieldFocus.requestFocus() }; keyboard?.show() }
+                    }
                     .padding(horizontal = 14.dp)
             ) {
-                Icon(Icons.Rounded.Search, null, tint = Color.White.copy(alpha = 0.92f), modifier = Modifier.size(21.dp))
-                Spacer(Modifier.width(7.dp))
-                if (searching) {
-                    Box(Modifier.weight(1f)) {
+                // Centred at rest, gliding to the left edge when searching.
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.align(BiasAlignment(horizontalBias = -searchT, verticalBias = 0f))
+                ) {
+                    Icon(Icons.Rounded.Search, null, tint = Color.White.copy(alpha = 0.92f), modifier = Modifier.size(21.dp))
+                    Spacer(Modifier.width(7.dp))
+                    Box {
                         if (query.isEmpty()) Text(strings.appLibrary, style = IosText.body.copy(color = Color.White.copy(alpha = 0.92f)), maxLines = 1)
-                        BasicTextField(
+                        if (searching) BasicTextField(
                             value = query,
                             onValueChange = { query = it },
                             singleLine = true,
                             textStyle = IosText.body.copy(color = Color.White),
                             cursorBrush = SolidColor(Color.White),
-                            modifier = Modifier.fillMaxWidth().focusRequester(fieldFocus)
+                            modifier = Modifier.width(IntrinsicSize.Min).widthIn(min = 2.dp).focusRequester(fieldFocus)
                         )
                     }
-                } else {
-                    Text(strings.appLibrary, style = IosText.body.copy(color = Color.White.copy(alpha = 0.92f)), maxLines = 1)
                 }
             }
-            if (searching) Text(
-                strings.cancel,
-                style = IosText.subheadline.copy(color = Color.White),
-                modifier = Modifier.clickable(remember { MutableInteractionSource() }, null, onClick = closeSearch).padding(start = 14.dp, top = 10.dp, bottom = 10.dp)
-            )
+            AnimatedVisibility(
+                visible = searching,
+                enter = expandHorizontally(spring(dampingRatio = 0.9f, stiffness = 380f), expandFrom = Alignment.Start) + fadeIn(tween(200, delayMillis = 60)),
+                exit = shrinkHorizontally(spring(dampingRatio = 1f, stiffness = 420f), shrinkTowards = Alignment.Start) + fadeOut(tween(120))
+            ) {
+                Text(
+                    strings.cancel,
+                    style = IosText.subheadline.copy(color = Color.White),
+                    maxLines = 1,
+                    softWrap = false,
+                    modifier = Modifier.clickable(remember { MutableInteractionSource() }, null, onClick = closeSearch).padding(start = 14.dp, top = 10.dp, bottom = 10.dp)
+                )
+            }
         }
 
-        if (searching) {
+        // Pods and list cross-fade with a slight depth move instead of a hard cut.
+        AnimatedContent(
+            targetState = searching,
+            transitionSpec = {
+                (fadeIn(tween(240, delayMillis = 40, easing = LibraryEase)) + scaleIn(tween(280, easing = LibraryEase), initialScale = if (targetState) 1.04f else 0.96f)) togetherWith
+                    (fadeOut(tween(160, easing = LibraryEase)) + scaleOut(tween(220, easing = LibraryEase), targetScale = if (targetState) 0.96f else 1.04f))
+            },
+            modifier = Modifier.weight(1f),
+            label = "libraryContent"
+        ) { inSearch ->
+        if (inSearch) {
             LibraryAlphabeticalList(
                 apps = visibleApps,
                 onAppClick = { app, b -> closeSearch(); onAppClick(app, b) },
                 onAppLongClick = onAppLongClick,
-                modifier = Modifier.weight(1f).imePadding()
+                modifier = Modifier.fillMaxSize().imePadding()
             )
         } else {
             LazyVerticalGrid(
@@ -204,17 +254,18 @@ fun IosAppLibraryPage(
                 contentPadding = PaddingValues(start = LibrarySideMargin, end = LibrarySideMargin, top = 34.dp, bottom = 48.dp),
                 verticalArrangement = Arrangement.spacedBy(9.dp),
                 horizontalArrangement = Arrangement.spacedBy(PodGap),
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.fillMaxSize()
             ) {
                 items(pods, key = { it.id }) { pod ->
                     LibraryCategoryPod(
                         pod = pod,
                         onAppClick = onAppClick,
                         onAppLongClick = onAppLongClick,
-                        onOpen = { onOpenPod(pod.title, pod.all) }
+                        onOpen = { origin -> onOpenPod(pod.title, pod.all, origin) }
                     )
                 }
             }
+        }
         }
     }
 }
@@ -252,9 +303,11 @@ private fun LibraryCategoryPod(
     pod: LibraryPod,
     onAppClick: (AppInfo, Rect) -> Unit,
     onAppLongClick: (AppInfo, Rect) -> Unit,
-    onOpen: () -> Unit
+    onOpen: (Rect) -> Unit
 ) {
     val apps = pod.preview
+    var podBounds by remember { mutableStateOf(Rect.Zero) }
+    val open = { onOpen(podBounds) }
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val podSize = maxWidth
         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
@@ -262,8 +315,9 @@ private fun LibraryCategoryPod(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(1f)
+                    .onGloballyPositioned { podBounds = it.boundsInRoot() }
                     .wallpaperGlass(RoundedCornerShape(25.dp), tint = IosMaterial.pod)
-                    .clickable(remember { MutableInteractionSource() }, null, onClick = onOpen)
+                    .clickable(remember { MutableInteractionSource() }, null, onClick = open)
                     .padding(12.dp)
             ) {
                 val gap = 12.dp
@@ -282,7 +336,7 @@ private fun LibraryCategoryPod(
                             // The small icons are not buttons: the cluster opens the category.
                             Box(
                                 contentAlignment = Alignment.Center,
-                                modifier = Modifier.size(large).clickable(remember { MutableInteractionSource() }, null, onClick = onOpen)
+                                modifier = Modifier.size(large).clickable(remember { MutableInteractionSource() }, null, onClick = open)
                             ) {
                                 Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                                     for (row in 0..1) Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -326,7 +380,6 @@ private fun LibraryAppIcon(
         modifier = Modifier
             .size(size)
             .onGloballyPositioned { bounds = it.boundsInRoot() }
-            .clip(IosSquircle)
             .then(
                 if (interactive) Modifier.combinedClickable(
                     interactionSource = remember { MutableInteractionSource() },
@@ -339,7 +392,7 @@ private fun LibraryAppIcon(
         if (app.iconBitmap != null) {
             Image(app.iconBitmap, app.displayLabel, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
         } else {
-            LibraryLetterIcon(app.displayLabel, size)
+            Box(Modifier.clip(IosSquircle)) { LibraryLetterIcon(app.displayLabel, size) }
         }
     }
 }
@@ -412,7 +465,7 @@ private fun LibraryAlphabeticalList(
                             )
                             .padding(start = LibrarySideMargin)
                     ) {
-                        Box(Modifier.size(51.dp).onGloballyPositioned { bounds = it.boundsInRoot() }.clip(IosSquircle)) {
+                        Box(Modifier.size(51.dp).onGloballyPositioned { bounds = it.boundsInRoot() }) {
                             if (app.iconBitmap != null) Image(app.iconBitmap, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
                             else LibraryLetterIcon(app.displayLabel, 51.dp)
                         }
@@ -462,79 +515,86 @@ private fun LibraryAlphabeticalList(
 /* -------------------------------------------------------------------------- */
 
 /**
- * A category opened from the App Library, as on iOS: full screen, the title
- * top-left and all apps in the home-screen grid. Short categories sit centred
- * vertically, long ones scroll from the top. Tap outside or go back to close.
+ * A category opened from the App Library, as on iOS: it grows out of its pod
+ * to full screen (title top-left, all apps in the home-screen grid) and shrinks
+ * back into it. Short categories sit centred vertically, long ones scroll.
+ * [progress] is owned by the caller so the library behind can move in step.
  */
 @Composable
 fun IosLibraryCategoryView(
     title: String,
     apps: List<AppInfo>,
+    origin: Rect,
+    progress: () -> Float,
     columns: Int,
     sidePadding: Dp,
     iconSize: Dp,
     labelFontSizeSp: Float,
     onAppClick: (AppInfo, Rect) -> Unit,
     onAppLongClick: (AppInfo, Rect) -> Unit,
-    onDismiss: () -> Unit
+    onRequestClose: () -> Unit
 ) {
-    val progress = remember { Animatable(0f) }
-    val scope = rememberCoroutineScope()
-    var closing by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { progress.animateTo(1f, tween(240)) }
-    fun close(then: () -> Unit = {}) {
-        if (closing) return
-        closing = true
-        scope.launch { progress.animateTo(0f, tween(180)); onDismiss(); then() }
-    }
-    BackHandler { close() }
+    BackHandler(onBack = onRequestClose)
 
     BoxWithConstraints(
         Modifier
             .fillMaxSize()
             .graphicsLayer {
-                val p = progress.value
-                alpha = p
-                val s = 0.94f + 0.06f * p
+                val p = progress()
+                val start = if (origin.width > 0f) (origin.width / size.width).coerceIn(0.3f, 0.7f) else 0.6f
+                val s = start + (1f - start) * p
                 scaleX = s; scaleY = s
+                alpha = (p * 1.8f - 0.1f).coerceIn(0f, 1f)
+                if (origin.width > 0f) transformOrigin = TransformOrigin(
+                    (origin.center.x / size.width).coerceIn(0f, 1f), (origin.center.y / size.height).coerceIn(0f, 1f)
+                )
             }
-            .clickable(remember { MutableInteractionSource() }, null) { close() }
+            .clickable(remember { MutableInteractionSource() }, null, onClick = onRequestClose)
     ) {
         val cell = (maxWidth - sidePadding * 2) / columns
-        Column(
-            verticalArrangement = Arrangement.Center,
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .heightIn(min = maxHeight)
-                .padding(top = 70.dp, bottom = 48.dp)
-        ) {
-            Text(
-                title,
-                style = IosText.headline.copy(color = Color.White, fontSize = 28.sp, lineHeight = 34.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.2.sp),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(start = sidePadding + (cell - iconSize) / 2, end = 24.dp, bottom = 20.dp)
-            )
-            apps.chunked(columns).forEach { row ->
-                Row(Modifier.padding(horizontal = sidePadding).height(cell)) {
-                    for (i in 0 until columns) {
-                        val app = row.getOrNull(i)
-                        Box(Modifier.width(cell), contentAlignment = Alignment.TopCenter) {
-                            if (app != null) IosAppIcon(
-                                app = app,
-                                iconSize = iconSize,
-                                labelFontSizeSp = labelFontSizeSp,
-                                showBadges = false,
-                                onClick = { close { onAppClick(app, Rect.Zero) } },
-                                onClickWithBounds = { b -> close { onAppClick(app, b) } },
-                                onLongClick = { onAppLongClick(app, Rect.Zero) },
-                                onLongClickWithBounds = { b -> onAppLongClick(app, b) }
-                            )
-                        }
-                    }
+        val rows = (apps.size + columns - 1) / columns
+        val titleStyle = IosText.headline.copy(color = Color.White, fontSize = 28.sp, lineHeight = 34.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.2.sp)
+        val titlePadding = Modifier.padding(start = (cell - iconSize) / 2, end = 24.dp, bottom = 20.dp)
+        val fits = 54.dp + cell * rows + 118.dp <= maxHeight
+
+        @Composable
+        fun Cell(app: AppInfo) {
+            Box(Modifier.width(cell).height(cell), contentAlignment = Alignment.TopCenter) {
+                IosAppIcon(
+                    app = app,
+                    iconSize = iconSize,
+                    labelFontSizeSp = labelFontSizeSp,
+                    showBadges = false,
+                    onClick = { onAppClick(app, Rect.Zero) },
+                    onClickWithBounds = { b -> onAppClick(app, b) },
+                    onLongClick = { onAppLongClick(app, Rect.Zero) },
+                    onLongClickWithBounds = { b -> onAppLongClick(app, b) }
+                )
+            }
+        }
+
+        if (fits) {
+            Column(
+                verticalArrangement = Arrangement.Center,
+                modifier = Modifier.fillMaxSize().padding(start = sidePadding, end = sidePadding, top = 70.dp, bottom = 48.dp)
+            ) {
+                Text(title, style = titleStyle, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = titlePadding)
+                apps.chunked(columns).forEach { row -> Row { row.forEach { Cell(it) } } }
+            }
+        } else {
+            // Long categories: only what is on screen gets composed.
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(columns),
+                contentPadding = PaddingValues(start = sidePadding, end = sidePadding, top = 70.dp, bottom = 48.dp),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                item(span = { GridItemSpan(maxLineSpan) }, key = "title") {
+                    Text(title, style = titleStyle, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = titlePadding)
                 }
+                items(apps, key = { it.packageName }) { Cell(it) }
             }
         }
     }
 }
+
+private val LibraryEase = androidx.compose.animation.core.CubicBezierEasing(0.25f, 0.1f, 0.25f, 1f)

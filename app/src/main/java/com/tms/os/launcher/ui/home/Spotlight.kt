@@ -2,6 +2,14 @@ package com.tms.os.launcher.ui.home
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -167,7 +175,14 @@ fun IosSpotlight(
                     .padding(top = 62.dp, bottom = 12.dp)
                     .clickable(remember { MutableInteractionSource() }, null, onClick = onClose)
             ) {
-                if (q.isEmpty()) {
+                // Suggestions and results cross-fade instead of cutting.
+                AnimatedContent(
+                    targetState = q.isEmpty(),
+                    transitionSpec = { fadeIn(tween(200, delayMillis = 40)) togetherWith fadeOut(tween(120)) using SizeTransform(clip = false) },
+                    label = "spotlightContent"
+                ) { empty ->
+                Column {
+                if (empty) {
                     Header(strings.suggestions, if (results.size > 4) (if (moreSuggestions) hs.showLess else hs.showMore) else null, line = false) { moreSuggestions = !moreSuggestions }
                     Spacer(Modifier.height(10.dp))
                     SuggestionsCard(results.take(if (moreSuggestions) 8 else 4), onAppClick, onAppLongClick)
@@ -260,7 +275,9 @@ fun IosSpotlight(
                         ActionRow(hs.searchMaps, Icons.Rounded.NearMe, Color(0xFF34C759), Color.White, divider = false) { onWebSearch(q, "maps") }
                     }
                 }
-            }
+                }
+                }
+}
 
             // --------------------------------------------------------- search field
             Row(
@@ -338,7 +355,7 @@ private fun Header(title: String, action: String? = null, line: Boolean = true, 
 
 @Composable
 private fun AppIconImage(app: AppInfo, size: Dp) {
-    Box(Modifier.size(size).clip(IosSquircle).background(Color.White.copy(alpha = 0.08f))) {
+    Box(Modifier.size(size)) {
         app.iconBitmap?.let { Image(it, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
     }
 }
@@ -353,6 +370,7 @@ private fun SuggestionsCard(apps: List<AppInfo>, onClick: (AppInfo) -> Unit, onL
             .padding(horizontal = Side)
             .fillMaxWidth()
             .wallpaperGlass(RoundedCornerShape(20.dp), tint = IosMaterial.card, rim = 0.08f)
+            .animateContentSize(spring(dampingRatio = 0.9f, stiffness = 380f))
             .clickable(remember { MutableInteractionSource() }, null) {}
             .padding(vertical = 12.dp)
     ) {

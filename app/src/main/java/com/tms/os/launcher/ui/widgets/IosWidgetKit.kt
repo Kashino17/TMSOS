@@ -635,7 +635,7 @@ private fun SuggestionsWidget(size: WidgetSize, env: WidgetEnv) {
                             if (app != null) Modifier.pointerTap { env.onAppClick(app) } else Modifier
                         )
                     ) {
-                        Box(Modifier.size(44.dp).clip(IosSquircle)) {
+                        Box(Modifier.size(44.dp)) {
                             app?.iconBitmap?.let { Image(it, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
                         }
                         Spacer(Modifier.height(3.dp))

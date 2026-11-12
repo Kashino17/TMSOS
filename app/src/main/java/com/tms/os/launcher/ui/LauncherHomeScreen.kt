@@ -56,6 +56,11 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.BlurEffect
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.graphicsLayer
@@ -139,7 +144,9 @@ import kotlin.math.roundToInt
 /** How far the home screen is pushed "into" the display while an app is open. */
 private const val IOS_ZOOM_OUT = 1.14f
 /** Fast start, long gentle settle: the curve SpringBoard uses for app launch. */
-private val IosLaunchEasing = CubicBezierEasing(0.2f, 0.9f, 0.25f, 1f)
+// Gentle start, long settle: the home screen eases away under the opening app
+// instead of vanishing within the first two frames.
+private val IosLaunchEasing = CubicBezierEasing(0.33f, 0f, 0.2f, 1f)
 /** Search pill / page dots row above the dock: 10 dp + 24 dp pill + 16 dp gap. */
 private val PillAreaHeight = 50.dp
 /** Pull distance that fully reveals Spotlight. */
@@ -192,10 +199,13 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
     var menuAnchor by remember { mutableStateOf<Pair<String, Rect>?>(null) }
     var folderBounds by remember { mutableStateOf<Rect?>(null) }
     /** Category opened from the App Library: title and its apps. */
-    var openPod by remember { mutableStateOf<Pair<String, List<AppInfo>>?>(null) }
+    var openPod by remember { mutableStateOf<OpenPod?>(null) }
+    val podProgress = remember { Animatable(0f) }
+    val podProgressRead = remember { { podProgress.value } }
     var statusBarLightContent by remember { mutableStateOf(true) }
 
     val homeZoom = remember { Animatable(1f) }
+    val homeZoomRead = remember { { homeZoom.value } }
     val spotlight = remember { Animatable(0f) }
     val switcher = remember { Animatable(0f) }
     var leftToApp by remember { mutableStateOf(false) }
@@ -302,17 +312,21 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
         // Pager: 0 = Today View, 1..n = home pages, n+1 = App Library.
         val pagerState = rememberPagerState(initialPage = 1, pageCount = { homePageCount + 2 })
         val libraryPage = homePageCount + 1
-        val isAppLibrary = pagerState.currentPage == libraryPage
-        val isToday = pagerState.currentPage == 0
-        val homePageIndex = (pagerState.currentPage - 1).coerceIn(0, homePageCount - 1)
+        // The *settled* page on purpose: reading currentPage here would rebuild this
+        // whole screen in the middle of every page swipe. Anything that must follow
+        // the finger (dots, dock fade) reads the pager inside its own small scope.
+        val isAppLibrary = pagerState.settledPage == libraryPage
+        val isToday = pagerState.settledPage == 0
+        val homePageIndex = (pagerState.settledPage - 1).coerceIn(0, homePageCount - 1)
 
         LaunchedEffect(state.homePressGeneration) {
             if (state.homePressGeneration > 0) {
-                showCustomizeSheet = false; showGallery = false; openPod = null
+                showCustomizeSheet = false; showGallery = false
+                if (openPod != null) { podProgress.animateTo(0f, spring(dampingRatio = 1f, stiffness = 260f, visibilityThreshold = 0.004f)); openPod = null }
                 if (pagerState.currentPage != 1) pagerState.animateScrollToPage(1, animationSpec = spring(dampingRatio = 1f, stiffness = 300f))
             }
         }
-        BackHandler(enabled = showCustomizeSheet || pagerState.currentPage != 1 || state.isAnyOverlayOpen || state.isJiggleMode) {
+        BackHandler(enabled = showCustomizeSheet || pagerState.settledPage != 1 || state.isAnyOverlayOpen || state.isJiggleMode) {
             when {
                 showCustomizeSheet -> showCustomizeSheet = false
                 state.isAnyOverlayOpen || state.isJiggleMode -> viewModel.handleBackOrHomePress()
@@ -322,10 +336,15 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
 
         val anyOverlay = state.isSpotlightOpen || state.activeFolder != null ||
             state.activeCategoryModal != null || state.selectedAppForMenu != null || showCustomizeSheet || showGallery || openPod != null
-        val overlayBlur = animateDpAsState(
-            if (state.activeFolder != null || state.activeCategoryModal != null || state.selectedAppForMenu != null || showGallery) 18.dp else 0.dp,
-            tween(220), label = "overlayBlur"
-        )
+        // Folder, menu and gallery sit on a frosted home screen. The frost is the
+        // home content redrawn at 1/8 size and blurred there (64x fewer pixels than a
+        // full-size blur, and nothing is read back from the GPU), then stretched back.
+        val needsFrost = state.activeFolder != null || state.selectedAppForMenu != null || showGallery
+        val frost = animateFloatAsState(if (needsFrost) 1f else 0f, tween(280, easing = IosEase), label = "frost")
+        val canFrost = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+        val showFrost by remember { androidx.compose.runtime.derivedStateOf { frost.value > 0.002f } }
+        val homeLayer = rememberGraphicsLayer()
+        val frostLayer = rememberGraphicsLayer()
         val homeScale by animateFloatAsState(
             if (state.selectedAppForMenu != null) 0.985f else 1f, spring(dampingRatio = 0.9f, stiffness = 420f), label = "homeScale"
         )
@@ -341,17 +360,13 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
             }.coerceIn(0f, 1f)
         }
 
-        val edgeFractionRef = androidx.compose.runtime.rememberUpdatedState(object : () -> Float {
-            override fun invoke() = edgeFraction()
-        })
-
         val openAppWithAnimation: (AppInfo, Rect) -> Unit = { app, bounds ->
             if (!state.isJiggleMode) {
                 val options = if (bounds.width > 0 && bounds.height > 0) {
                     ActivityOptions.makeScaleUpAnimation(view, bounds.left.toInt(), bounds.top.toInt(), bounds.width.toInt(), bounds.height.toInt()).toBundle()
                 } else null
                 leftToApp = true
-                scope.launch { homeZoom.animateTo(IOS_ZOOM_OUT, tween(320, easing = IosLaunchEasing)) }
+                scope.launch { homeZoom.animateTo(IOS_ZOOM_OUT, tween(380, easing = IosLaunchEasing)) }
                 viewModel.launchApp(app.packageName, options)
             }
         }
@@ -565,24 +580,35 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
             }
         }
 
-        // Gesture callbacks outlive compositions (and Compose memoises lambdas), so
-        // they must always reach the *current* functions with current geometry.
-        // Anonymous objects on purpose: the Compose compiler memoises lambdas and
-        // references to local functions, which froze the first (empty) geometry.
-        val dragStartRef = androidx.compose.runtime.rememberUpdatedState(object : (HomeGridItem, Offset, Offset) -> Unit {
-            override fun invoke(i: HomeGridItem, d: Offset, p: Offset) = dragStart(i, d, p)
+        // Everything the pages, dock and overlays can ask for. A fresh object every
+        // composition (so it always sees current state) behind one stable handle:
+        // children receive [actions] and are skipped when nothing they show changed.
+        // (An anonymous object on purpose: Compose memoises lambdas and references
+        // to local functions, which once froze the first, empty grid geometry.)
+        val ops = androidx.compose.runtime.rememberUpdatedState<HomeOps>(object : HomeOps {
+            override fun openApp(app: AppInfo, bounds: Rect) = openAppWithAnimation(app, bounds)
+            override fun appMenu(app: AppInfo, bounds: Rect) { menuAnchor = app.packageName to bounds; viewModel.selectAppForContextMenu(app) }
+            override fun folder(folder: HomeGridItem.FolderItem, bounds: Rect) = openFolder(folder, bounds)
+            override fun widgetTap(kind: WidgetKind) { appForWidget(kind)?.let { leftToApp = true; viewModel.launchApp(it.packageName) } }
+            override fun enterJiggle() { haptic.performHapticFeedback(HapticFeedbackType.LongPress); viewModel.setJiggleMode(true) }
+            override fun exitJiggle() { if (state.isJiggleMode) viewModel.setJiggleMode(false) }
+            override fun remove(item: HomeGridItem) { removeTarget = item }
+            override fun stackBounds(id: String, r: Rect?) { if (r == null) stackRects.remove(id) else stackRects[id] = r }
+            override fun startDrag(item: HomeGridItem, downAt: Offset, at: Offset) = dragStart(item, downAt, at)
+            override fun startExternalDrag(pkg: String, iconTopLeft: Offset, downAt: Offset, at: Offset) = externalDragStart(pkg, iconTopLeft, downAt, at)
+            override fun moveDrag(at: Offset) = dragMove(at)
+            override fun endDrag() = dragEnd()
+            override fun spotlight() { viewModel.openSpotlight() }
+            override fun pod(title: String, apps: List<AppInfo>, origin: Rect) {
+                openPod = OpenPod(title, apps, origin)
+                scope.launch { podProgress.animateTo(1f, spring(dampingRatio = 0.86f, stiffness = 190f)) }
+            }
+            override fun dockIconBounds(pkg: String, r: Rect) { dockIconRects[pkg] = r }
+            override fun edge(): Float = edgeFraction()
+            override fun pageForDots(): Int = (pagerState.currentPage - 1).coerceIn(0, (homePageCount - 1).coerceAtLeast(0))
+            override fun isPaging(): Boolean = pagerState.isScrollInProgress
         })
-        val externalStartRef = androidx.compose.runtime.rememberUpdatedState(object : (String, Offset, Offset, Offset) -> Unit {
-            override fun invoke(pkg: String, t: Offset, d: Offset, p: Offset) = externalDragStart(pkg, t, d, p)
-        })
-        val dragMoveRef = androidx.compose.runtime.rememberUpdatedState(object : (Offset) -> Unit {
-            override fun invoke(p: Offset) = dragMove(p)
-        })
-        val dragEndRef = androidx.compose.runtime.rememberUpdatedState(object : () -> Unit {
-            override fun invoke() = dragEnd()
-        })
-        val onMove: (Offset) -> Unit = remember { { p -> dragMoveRef.value(p) } }
-        val onEnd: () -> Unit = remember { { dragEndRef.value() } }
+        val actions = remember { HomeActions(ops) }
 
         // Dwell before reflowing (iOS waits a beat), longer dwell to form a folder.
         LaunchedEffect(drag.hover) {
@@ -703,11 +729,18 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                         .fillMaxWidth()
                         .graphicsLayer {
                             val sp = spotlight.value.coerceIn(0f, 1f)
-                            val r = max(overlayBlur.value.toPx(), sp * 22.dp.toPx())
-                            renderEffect = if (r > 0.5f && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) BlurEffect(r, r, TileMode.Decal) else null
-                            alpha = 1f - sp
-                            val s = 1f - sp * 0.03f
+                            // Fades out under Spotlight; cross-fades to the frosted snapshot
+                            // under folders and menus (stays faintly visible until it is ready).
+                            val f = frost.value
+                            // No offscreen buffer for the fade: alpha goes straight onto the draws.
+                            compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha
+                            alpha = (1f - sp) * (if (canFrost) 1f - f else 1f - f * 0.75f)
+                            val s = 1f - sp * 0.03f - f * 0.02f
                             scaleX = s; scaleY = s
+                        }
+                        .drawWithContent {
+                            homeLayer.record { this@drawWithContent.drawContent() }
+                            drawLayer(homeLayer)
                         }
                 ) {
                     Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -730,10 +763,10 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                                     env = widgetEnv,
                                     strings = hs,
                                     jiggle = state.isJiggleMode,
-                                    onWidgetTap = { w -> appForWidget(w.kind)?.let { viewModel.launchApp(it.packageName) } },
-                                    onRemove = { removeTarget = it },
-                                    onEnterJiggle = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); viewModel.setJiggleMode(true) },
-                                    onExitJiggle = { viewModel.setJiggleMode(false) }
+                                    onWidgetTap = actions.todayWidgetTap,
+                                    onRemove = actions.remove,
+                                    onEnterJiggle = actions.enterJiggle,
+                                    onExitJiggle = actions.exitJiggle
                                 )
                                 libraryPage -> IosAppLibraryPage(
                                     allApps = state.allApps,
@@ -741,10 +774,11 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                                     settings = settings,
                                     strings = strings,
                                     isUnfolded = isUnfolded,
-                                    hidden = openPod != null,
-                                    onAppClick = { app, bounds -> openAppWithAnimation(app, bounds) },
-                                    onAppLongClick = { app, bounds -> menuAnchor = app.packageName to bounds; viewModel.selectAppForContextMenu(app) },
-                                    onOpenPod = { title, apps -> openPod = title to apps }
+                                    podProgress = podProgressRead,
+                                    podOrigin = openPod?.origin,
+                                    onAppClick = actions.openApp,
+                                    onAppLongClick = actions.appMenu,
+                                    onOpenPod = actions.pod
                                 )
                                 else -> Row(
                                     Modifier
@@ -752,11 +786,8 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                                         .combinedClickable(
                                             interactionSource = remember { MutableInteractionSource() },
                                             indication = null,
-                                            onClick = { if (state.isJiggleMode) viewModel.setJiggleMode(false) },
-                                            onLongClick = {
-                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                viewModel.setJiggleMode(true)
-                                            }
+                                            onClick = actions.exitJiggle,
+                                            onLongClick = actions.enterJiggle
                                         )
                                         .padding(top = topPad, bottom = bottomPad + chromeHeight)
                                 ) {
@@ -770,7 +801,7 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                                         ) { p, w, h ->
                                             GridItem(
                                                 p = p, w = w, h = h,
-                                                state = state,
+                                                appMap = state.appMap,
                                                 iconSize = iconSize,
                                                 labelSize = settings.labelFontSizeSp,
                                                 showLabels = settings.showAppLabels,
@@ -779,24 +810,8 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                                                 folderTarget = drag.folderTarget == p.item.id,
                                                 env = widgetEnv,
                                                 widgetLabel = (p.item as? HomeGridItem.WidgetItem)?.let { hs.widgetName(it.kind) },
-                                                dragModifier = Modifier.homeDragGesture(
-                                                    key = p.item.id,
-                                                    jiggle = state.isJiggleMode,
-                                                    enabled = !anyOverlay || state.selectedAppForMenu != null,
-                                                    onStart = { downAt, at -> dragStartRef.value(p.item, downAt, at) },
-                                                    onMove = onMove,
-                                                    onEnd = onEnd
-                                                ),
-                                                onAppClick = openAppWithAnimation,
-                                                onAppLongClick = { app, bounds -> menuAnchor = app.packageName to bounds; viewModel.selectAppForContextMenu(app) },
-                                                onFolderClick = { f, b -> openFolder(f, b) },
-                                                onWidgetTap = { k -> appForWidget(k)?.let { viewModel.launchApp(it.packageName) } },
-                                                onEnterJiggle = {
-                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                    viewModel.setJiggleMode(true)
-                                                },
-                                                onRemove = { removeTarget = p.item },
-                                                onStackBounds = { id, r -> if (r == null) stackRects.remove(id) else stackRects[id] = r }
+                                                dragEnabled = !anyOverlay || state.selectedAppForMenu != null,
+                                                actions = actions
                                             )
                                         }
                                     }
@@ -815,22 +830,23 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                                 enabled = !anyOverlay || state.selectedAppForMenu != null,
                                 onStart = { downAt, at ->
                                     dockIconRects.entries.firstOrNull { it.value.contains(downAt) }?.let { (pkg, r) ->
-                                        externalStartRef.value(pkg, r.topLeft, downAt, at)
+                                        actions.startExternalDrag(pkg, r.topLeft, downAt, at)
                                     }
                                 },
-                                onMove = onMove,
-                                onEnd = onEnd
+                                onMove = actions.moveDrag,
+                                onEnd = actions.endDrag
                             ),
-                        onDockIconBounds = { pkg, r -> dockIconRects[pkg] = r },
+                        onDockIconBounds = actions.dockIconBounds,
                         hiddenPkg = (drag.item as? HomeGridItem.AppItem)?.packageName?.takeIf { drag.active && !drag.dropping },
                         bottomGap = dockBottomGap,
                         dockMargin = dockMargin,
                         // Dock icons stand in the grid columns when the counts match.
                         slotWidth = if (!isUnfolded && dockCount == columns) with(density) { geometry.cellW.toDp() } else Dp.Unspecified,
                         pageCount = homePageCount,
-                        currentPage = homePageIndex,
+                        currentPage = actions.pageForDots,
+                        isPaging = actions.isPaging,
                         strings = strings,
-                        showSearch = !pagerState.isScrollInProgress && !state.isJiggleMode && !drag.active,
+                        showSearch = !state.isJiggleMode && !drag.active,
                         dockApps = dockApps,
                         recentApps = recentApps,
                         isUnfolded = isUnfolded,
@@ -840,14 +856,36 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                         dockHeight = dockHeight,
                         glassOpacity = settings.glassOpacity,
                         isJiggleMode = state.isJiggleMode,
-                        fade = edgeFractionRef.value,
-                        onSearch = { viewModel.openSpotlight() },
-                        onAppClick = openAppWithAnimation,
-                        onAppLongClick = { app, bounds -> menuAnchor = app.packageName to bounds; viewModel.selectAppForContextMenu(app) }
+                        fade = actions.edgeFraction,
+                        onSearch = actions.spotlight,
+                        onAppClick = actions.openApp,
+                        onAppLongClick = actions.appMenu
                     )
                     }
                 }
             }
+        }
+
+        if (canFrost && (showFrost || needsFrost)) {
+            Box(
+                Modifier
+                    .padding(top = IosMetrics.statusBarHeight)
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha
+                        alpha = frost.value * 0.9f
+                        val s = 1.03f - 0.03f * frost.value
+                        scaleX = s; scaleY = s
+                    }
+                    .drawBehind {
+                        val k = FrostDownscale
+                        frostLayer.renderEffect = BlurEffect(7f, 7f, TileMode.Clamp)
+                        frostLayer.record(size = IntSize((size.width / k).roundToInt().coerceAtLeast(1), (size.height / k).roundToInt().coerceAtLeast(1))) {
+                            scale(1f / k, 1f / k, pivot = Offset.Zero) { drawLayer(homeLayer) }
+                        }
+                        scale(k, k, pivot = Offset.Zero) { drawLayer(frostLayer) }
+                    }
+            )
         }
 
         // ------------------------------------------------- carried item (drag)
@@ -872,11 +910,10 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                         }
                 ) {
                     GridItem(
-                        p = p, w = w, h = h, state = state, iconSize = iconSize,
+                        p = p, w = w, h = h, appMap = state.appMap, iconSize = iconSize,
                         labelSize = settings.labelFontSizeSp, showLabels = false, showBadges = false,
                         jiggle = false, folderTarget = false, env = widgetEnv, widgetLabel = null,
-                        dragModifier = Modifier, onAppClick = { _, _ -> }, onAppLongClick = { _, _ -> },
-                        onFolderClick = { _, _ -> }, onWidgetTap = {}, onEnterJiggle = {}, onRemove = {}, onStackBounds = { _, _ -> }
+                        dragEnabled = false, actions = InertActions
                     )
                 }
             }
@@ -926,35 +963,43 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                 onDragOutStart = { app, iconTopLeft, downAt, at ->
                     folderForDrag = folder
                     viewModel.takeAppOutOfFolder(folder.folderId, app.packageName)
-                    externalStartRef.value(app.packageName, iconTopLeft, downAt, at)
+                    actions.startExternalDrag(app.packageName, iconTopLeft, downAt, at)
                 },
-                onDragMove = onMove,
-                onDragEnd = onEnd,
+                onDragMove = actions.moveDrag,
+                onDragEnd = actions.endDrag,
+                zoom = homeZoomRead,
                 appMap = state.appMap,
                 iconBounds = folderBounds,
                 iconSize = if (isUnfolded) 64.dp else minOf(iconSize, 62.dp),
                 labelFontSizeSp = settings.labelFontSizeSp,
                 jiggle = state.isJiggleMode,
-                onAppClick = { app, bounds -> openAppWithAnimation(app, bounds) },
-                onAppLongClick = { app, bounds -> menuAnchor = app.packageName to bounds; viewModel.selectAppForContextMenu(app) },
+                onAppClick = actions.openApp,
+                onAppLongClick = actions.appMenu,
                 onRename = { name -> viewModel.renameFolder(folder.folderId, name) },
                 onEnterJiggle = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); viewModel.setJiggleMode(true) },
                 onDismiss = { viewModel.openFolder(null) }
             )
         }
 
-        // App Library category: full screen, title + grid, like iOS.
-        openPod?.let { (title, apps) ->
+        // App Library category: grows out of its pod to full screen, like iOS.
+        openPod?.let { pod ->
             IosLibraryCategoryView(
-                title = title,
-                apps = apps,
+                title = pod.title,
+                apps = pod.apps,
+                origin = pod.origin,
+                progress = podProgressRead,
                 columns = columns,
                 sidePadding = sidePadding,
                 iconSize = iconSize,
                 labelFontSizeSp = settings.labelFontSizeSp,
-                onAppClick = { app, bounds -> openAppWithAnimation(app, bounds) },
-                onAppLongClick = { app, bounds -> menuAnchor = app.packageName to bounds; viewModel.selectAppForContextMenu(app) },
-                onDismiss = { openPod = null }
+                onAppClick = actions.openApp,
+                onAppLongClick = actions.appMenu,
+                onRequestClose = {
+                    scope.launch {
+                        podProgress.animateTo(0f, spring(dampingRatio = 1f, stiffness = 260f, visibilityThreshold = 0.004f))
+                        openPod = null
+                    }
+                }
             )
         }
 
@@ -1086,7 +1131,7 @@ private fun GridItem(
     p: PlacedCell<HomeGridItem>,
     w: Dp,
     h: Dp,
-    state: com.tms.os.launcher.viewmodel.LauncherUiState,
+    appMap: Map<String, AppInfo>,
     iconSize: Dp,
     labelSize: Float,
     showLabels: Boolean,
@@ -1095,17 +1140,27 @@ private fun GridItem(
     folderTarget: Boolean,
     env: WidgetEnv,
     widgetLabel: String?,
-    dragModifier: Modifier,
-    onAppClick: (AppInfo, Rect) -> Unit,
-    onAppLongClick: (AppInfo, Rect) -> Unit,
-    onFolderClick: (HomeGridItem.FolderItem, Rect) -> Unit,
-    onWidgetTap: (WidgetKind) -> Unit,
-    onEnterJiggle: () -> Unit,
-    onRemove: () -> Unit,
-    onStackBounds: (String, Rect?) -> Unit
+    dragEnabled: Boolean,
+    actions: HomeActions
 ) {
+    val item0 = p.item
+    val dragModifier = if (dragEnabled) Modifier.homeDragGesture(
+        key = item0.id,
+        jiggle = jiggle,
+        enabled = true,
+        onStart = { downAt, at -> actions.startDrag(item0, downAt, at) },
+        onMove = actions.moveDrag,
+        onEnd = actions.endDrag
+    ) else Modifier
+    val onAppClick = actions.openApp
+    val onAppLongClick = actions.appMenu
+    val onFolderClick = actions.folder
+    val onWidgetTap = actions.widgetTap
+    val onEnterJiggle = actions.enterJiggle
+    val onRemove = { actions.remove(item0) }
+    val onStackBounds = actions.stackBounds
     when (val item = p.item) {
-        is HomeGridItem.AppItem -> state.appMap[item.packageName]?.let { app ->
+        is HomeGridItem.AppItem -> appMap[item.packageName]?.let { app ->
             Box(Modifier.size(w, h).then(dragModifier), contentAlignment = Alignment.TopCenter) {
                 IosAppIcon(
                     app = app,
@@ -1126,7 +1181,7 @@ private fun GridItem(
         is HomeGridItem.FolderItem -> Box(Modifier.size(w, h).then(dragModifier), contentAlignment = Alignment.TopCenter) {
             IosFolderIcon(
                 folder = item,
-                appMap = state.appMap,
+                appMap = appMap,
                 iconSize = iconSize,
                 labelFontSizeSp = labelSize,
                 showLabel = showLabels,
@@ -1188,7 +1243,8 @@ private fun HomeChrome(
     dockMargin: Dp,
     slotWidth: Dp,
     pageCount: Int,
-    currentPage: Int,
+    currentPage: () -> Int,
+    isPaging: () -> Boolean,
     strings: com.tms.os.launcher.ui.theme.IosStrings,
     showSearch: Boolean,
     dockApps: List<AppInfo>,
@@ -1218,9 +1274,10 @@ private fun HomeChrome(
             .padding(bottom = bottomGap)
     ) {
         Box(Modifier.height(PillAreaHeight).padding(top = 10.dp, bottom = 16.dp), contentAlignment = Alignment.Center) {
-            androidx.compose.animation.Crossfade(targetState = showSearch, animationSpec = tween(160), label = "pageControl") { search ->
+            // Pager state is read here, in this small scope, not in the whole screen.
+            androidx.compose.animation.Crossfade(targetState = showSearch && !isPaging(), animationSpec = tween(200), label = "pageControl") { search ->
                 if (search) IosSearchButton(text = strings.search, onClick = onSearch)
-                else IosPageDots(count = pageCount, selected = currentPage)
+                else IosPageDots(count = pageCount, selected = currentPage())
             }
         }
 
@@ -1291,3 +1348,66 @@ private fun HomeChrome(
         }
     }
 }
+
+
+/** What pages, dock and overlays can ask the home screen to do. */
+private interface HomeOps {
+    fun openApp(app: AppInfo, bounds: Rect)
+    fun appMenu(app: AppInfo, bounds: Rect)
+    fun folder(folder: HomeGridItem.FolderItem, bounds: Rect)
+    fun widgetTap(kind: WidgetKind)
+    fun enterJiggle()
+    fun exitJiggle()
+    fun remove(item: HomeGridItem)
+    fun stackBounds(id: String, r: Rect?)
+    fun startDrag(item: HomeGridItem, downAt: Offset, at: Offset)
+    fun startExternalDrag(pkg: String, iconTopLeft: Offset, downAt: Offset, at: Offset)
+    fun moveDrag(at: Offset)
+    fun endDrag()
+    fun spotlight()
+    fun pod(title: String, apps: List<AppInfo>, origin: Rect)
+    fun dockIconBounds(pkg: String, r: Rect)
+    fun edge(): Float
+    fun pageForDots(): Int
+    fun isPaging(): Boolean
+}
+
+/**
+ * Stable handle on [HomeOps]: the lambdas never change identity, so composables
+ * that take them are skipped during unrelated updates, yet every call reaches
+ * the newest state.
+ */
+@androidx.compose.runtime.Stable
+private class HomeActions(ops: androidx.compose.runtime.State<HomeOps>?) {
+    val openApp: (AppInfo, Rect) -> Unit = { a, r -> ops?.value?.openApp(a, r) }
+    val appMenu: (AppInfo, Rect) -> Unit = { a, r -> ops?.value?.appMenu(a, r) }
+    val folder: (HomeGridItem.FolderItem, Rect) -> Unit = { f, r -> ops?.value?.folder(f, r) }
+    val widgetTap: (WidgetKind) -> Unit = { k -> ops?.value?.widgetTap(k) }
+    val todayWidgetTap: (HomeGridItem.WidgetItem) -> Unit = { w -> ops?.value?.widgetTap(w.kind) }
+    val enterJiggle: () -> Unit = { ops?.value?.enterJiggle() }
+    val exitJiggle: () -> Unit = { ops?.value?.exitJiggle() }
+    val remove: (HomeGridItem) -> Unit = { i -> ops?.value?.remove(i) }
+    val stackBounds: (String, Rect?) -> Unit = { id, r -> ops?.value?.stackBounds(id, r) }
+    val startDrag: (HomeGridItem, Offset, Offset) -> Unit = { i, d, a -> ops?.value?.startDrag(i, d, a) }
+    val startExternalDrag: (String, Offset, Offset, Offset) -> Unit = { p, t, d, a -> ops?.value?.startExternalDrag(p, t, d, a) }
+    val moveDrag: (Offset) -> Unit = { a -> ops?.value?.moveDrag(a) }
+    val endDrag: () -> Unit = { ops?.value?.endDrag() }
+    val spotlight: () -> Unit = { ops?.value?.spotlight() }
+    val pod: (String, List<AppInfo>, Rect) -> Unit = { t, a, o -> ops?.value?.pod(t, a, o) }
+    val dockIconBounds: (String, Rect) -> Unit = { p, r -> ops?.value?.dockIconBounds(p, r) }
+    val edgeFraction: () -> Float = { ops?.value?.edge() ?: 0f }
+    val pageForDots: () -> Int = { ops?.value?.pageForDots() ?: 0 }
+    val isPaging: () -> Boolean = { ops?.value?.isPaging() ?: false }
+}
+
+/** For the carried copy of an item while dragging: looks the same, does nothing. */
+private val InertActions = HomeActions(null)
+
+/** A category opened from the App Library and the pod it grows out of. */
+private data class OpenPod(val title: String, val apps: List<AppInfo>, val origin: Rect)
+
+/** iOS' standard ease curve for fades. */
+private val IosEase = CubicBezierEasing(0.25f, 0.1f, 0.25f, 1f)
+
+/** The frosted backdrop is rendered at 1/8 of the screen size. */
+private const val FrostDownscale = 8f

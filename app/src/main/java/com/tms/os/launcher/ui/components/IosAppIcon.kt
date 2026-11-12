@@ -175,28 +175,19 @@ fun IosAppIcon(
             }
 
             if (displayedIcon != null) {
+                // The bitmap already has the iOS shape; touch-down only darkens it.
                 Image(
                     bitmap = displayedIcon!!,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .size(iconSize)
-                        .clip(IosSquircle)
+                    colorFilter = if (pressShade > 0.01f) androidx.compose.ui.graphics.ColorFilter.tint(
+                        Color.Black.copy(alpha = pressShade), androidx.compose.ui.graphics.BlendMode.SrcAtop
+                    ) else null,
+                    modifier = Modifier.size(iconSize)
                 )
             } else {
                 LetterIcon(app.displayLabel, iconSize)
             }
-
-            // Touch-down shade (icons themselves are flat: no rim, no shadow).
-            Box(
-                modifier = Modifier
-                    .size(iconSize)
-                    .clip(IosSquircle)
-                    .drawWithContent {
-                        drawContent()
-                        if (pressShade > 0f) drawRect(Color.Black.copy(alpha = pressShade))
-                    }
-            )
 
             if (showBadges && app.badgeCount > 0 && !isJiggleMode) {
                 val text = if (app.badgeCount > 99) "99+" else app.badgeCount.toString()
@@ -353,20 +344,13 @@ fun IosFolderIcon(
                         ) {
                             for (col in 0 until 3) {
                                 val app = apps.getOrNull(row * 3 + col)
-                                Box(
-                                    modifier = Modifier
-                                        .size(mini)
-                                        .clip(IosSquircle)
-                                        .background(Color.Transparent)
-                                ) {
+                                Box(modifier = Modifier.size(mini)) {
                                     if (app?.iconBitmap != null) {
                                         Image(
                                             bitmap = app.iconBitmap,
                                             contentDescription = null,
                                             contentScale = ContentScale.Crop,
-                                            modifier = Modifier
-                                                .size(mini)
-                                                .clip(IosSquircle)
+                                            modifier = Modifier.size(mini)
                                         )
                                     }
                                 }

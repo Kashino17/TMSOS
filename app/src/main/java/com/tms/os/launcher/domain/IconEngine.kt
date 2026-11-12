@@ -66,18 +66,38 @@ object IconEngine {
             IconThemeMode.STANDARD -> Unit
         }
 
-        // A hair of inset-free overscan keeps the clip edge perfectly clean.
+        // The iOS superellipse is baked into the bitmap once, here, so the UI
+        // never has to path-clip an icon while it animates or scrolls.
         val output = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(output)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-        canvas.drawBitmap(
-            square,
-            Rect(0, 0, square.width, square.height),
-            RectF(0f, 0f, sizePx.toFloat(), sizePx.toFloat()),
-            paint
-        )
+        val shader = android.graphics.BitmapShader(square, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+        if (square.width != sizePx || square.height != sizePx) {
+            shader.setLocalMatrix(Matrix().apply { setScale(sizePx / square.width.toFloat(), sizePx / square.height.toFloat()) })
+        }
+        paint.shader = shader
+        canvas.drawPath(squirclePath(sizePx), paint)
         if (square !== output) square.recycle()
         return output.asImageBitmap()
+    }
+
+    private val squirclePaths = java.util.concurrent.ConcurrentHashMap<Int, android.graphics.Path>()
+
+    /** Same superellipse (n = 4.2) as [com.tms.os.launcher.ui.theme.IosSquircleShape]. */
+    private fun squirclePath(size: Int): android.graphics.Path = squirclePaths.getOrPut(size) {
+        val path = android.graphics.Path()
+        val exponent = 2.0 / 4.2
+        val c = size / 2f
+        val steps = 240
+        for (i in 0..steps) {
+            val t = i.toDouble() / steps * 2.0 * Math.PI
+            val cos = Math.cos(t); val sin = Math.sin(t)
+            val x = c + (Math.signum(cos) * Math.pow(Math.abs(cos), exponent)).toFloat() * c
+            val y = c + (Math.signum(sin) * Math.pow(Math.abs(sin), exponent)).toFloat() * c
+            if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+        }
+        path.close()
+        path
     }
 
     private fun renderFullBleedSquare(

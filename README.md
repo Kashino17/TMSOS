@@ -8,6 +8,13 @@ Ein maßgeschneiderter, werbefreier und kostenloser **iOS-Style Homescreen-Launc
 
 ---
 
+## Neu in v5.3.0 – fließende Übergänge
+- **App-Mediathek**: Kategorien wachsen aus ihrer Kachel heraus und schrumpfen wieder hinein; die Suche gleitet (Feld rückt nach links, „Abbrechen“ schiebt sich herein, Kacheln und Liste blenden ineinander).
+- **Spotlight**: Vorschläge und Treffer blenden weich über, Karten ändern ihre Größe animiert.
+- **Ordner und Long-Press-Menü**: der Hintergrund wird weich unscharf (in 1/8-Auflösung berechnet statt als Vollbild-Unschärfe pro Bild).
+- **Apps öffnen**: Start direkt aus dem Icon – auch aus Ordnern und Kategorien, ohne dass diese erst zuklappen; der Homescreen weicht sanfter zurück.
+- **Flüssiger**: Icons tragen ihre Form im Bild (kein Zuschneiden pro Frame mehr), beim Seitenwischen wird nicht mehr der ganze Bildschirm neu aufgebaut.
+
 ## Neu in v5.2.0 – Icons füllen die Fläche
 - **App-Symbole ausgefüllt**: Android-Icons werden jetzt korrekt auf den sichtbaren Ausschnitt zugeschnitten, kleine Logos zusätzlich zentriert vergrößert – wie bei iOS füllt das Motiv das Icon.
 - **Icon-Stil „Dunkel"** neu: nur helle Hintergrundplatten werden dunkel, Motive behalten ihre Farbe.
