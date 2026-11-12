@@ -17,14 +17,12 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
@@ -39,11 +37,13 @@ import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shop
 import androidx.compose.material.icons.filled.SmartDisplay
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -82,7 +82,13 @@ import com.tms.os.launcher.model.AppLanguage
 import com.tms.os.launcher.model.AppShortcutItem
 import com.tms.os.launcher.model.ContactItem
 import kotlinx.coroutines.launch
-import java.util.Locale
+
+private data class LibraryPodData(
+    val id: String,
+    val title: String,
+    val apps: List<AppInfo>,
+    val category: AppCategory? = null
+)
 
 @Composable
 fun SpotlightSearchOverlay(
@@ -93,7 +99,7 @@ fun SpotlightSearchOverlay(
     mathResult: String?,
     autoOpenKeyboard: Boolean = true,
     showWebSearch: Boolean = true,
-    searchBarAtBottom: Boolean = true,
+    searchBarAtBottom: Boolean = false,
     onQueryChange: (String) -> Unit,
     onAppClick: (AppInfo) -> Unit,
     onAppLongClick: (AppInfo) -> Unit,
@@ -104,7 +110,6 @@ fun SpotlightSearchOverlay(
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
-    val bgInteractionSource = remember { MutableInteractionSource() }
 
     val dismissSpotlight = {
         focusManager.clearFocus()
@@ -119,19 +124,19 @@ fun SpotlightSearchOverlay(
         }
     }
 
-    // Outer full-screen backdrop: Tapping ANYWHERE on the background or swiping UP closes Spotlight!
+    // Outer full-screen backdrop: Tapping ANYWHERE on the background or swiping UP/DOWN closes Spotlight!
     Box(
         contentAlignment = if (searchBarAtBottom) Alignment.BottomCenter else Alignment.TopCenter,
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0x9908080C))
+            .background(Color(0xAA0A0A0E))
             .pointerInput(Unit) {
                 var totalDy = 0f
                 detectVerticalDragGestures(
                     onDragStart = { totalDy = 0f },
                     onVerticalDrag = { _, dragAmount ->
                         totalDy += dragAmount
-                        if (totalDy < -42f) {
+                        if (totalDy < -36f || totalDy > 65f) {
                             totalDy = 0f
                             dismissSpotlight()
                         }
@@ -139,14 +144,13 @@ fun SpotlightSearchOverlay(
                 )
             }
             .clickable(
-                interactionSource = bgInteractionSource,
+                interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = dismissSpotlight
             )
             .imePadding()
-            .padding(top = 42.dp, start = 16.dp, end = 16.dp, bottom = 14.dp)
+            .padding(top = 44.dp, start = 16.dp, end = 16.dp, bottom = 14.dp)
     ) {
-        // NOTE: This Column wraps only its content height so any tap outside the cards hits the backdrop and closes Spotlight!
         Column(
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -158,7 +162,7 @@ fun SpotlightSearchOverlay(
                     onGo = { results.firstOrNull()?.let { onAppClick(it) } },
                     onDismiss = dismissSpotlight
                 )
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(14.dp))
             }
 
             // Instant Math / Currency / Unit Conversion Card
@@ -168,13 +172,9 @@ fun SpotlightSearchOverlay(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 10.dp)
+                        .padding(bottom = 12.dp)
                         .clip(RoundedCornerShape(22.dp))
-                        .background(
-                            Brush.horizontalGradient(
-                                listOf(Color(0xEE2C2C2E), Color(0xEE1C1C1E))
-                            )
-                        )
+                        .background(Color(0xEE242428))
                         .border(0.8.dp, Color(0xFFFF9F0A).copy(alpha = 0.55f), RoundedCornerShape(22.dp))
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
@@ -214,7 +214,7 @@ fun SpotlightSearchOverlay(
                         }
                     }
                     Text(
-                        text = "Sofort-Rechner",
+                        text = "Rechner",
                         color = Color(0xFFFF9F0A),
                         fontSize = 11.5.sp,
                         fontWeight = FontWeight.SemiBold
@@ -222,18 +222,13 @@ fun SpotlightSearchOverlay(
                 }
             }
 
-            // Quick App Shortcuts Card (when typing matching action/app)
+            // Quick App Shortcuts Card
             if (shortcuts.isNotEmpty() && query.isNotBlank()) {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(bottom = 10.dp)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = {}
-                        )
                 ) {
                     shortcuts.take(2).forEach { sc ->
                         Row(
@@ -276,7 +271,7 @@ fun SpotlightSearchOverlay(
                 }
             }
 
-            // Contacts Direct-Call Results Card (if contacts found)
+            // Contacts Direct-Call Card
             if (contacts.isNotEmpty() && query.isNotBlank()) {
                 Column(
                     verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -285,12 +280,7 @@ fun SpotlightSearchOverlay(
                         .padding(bottom = 10.dp)
                         .clip(RoundedCornerShape(20.dp))
                         .background(Color(0xE6252529))
-                        .border(0.75.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(20.dp))
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = {}
-                        )
+                        .border(0.75.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(20.dp))
                         .padding(12.dp)
                 ) {
                     Text(
@@ -346,27 +336,17 @@ fun SpotlightSearchOverlay(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .shadow(16.dp, RoundedCornerShape(24.dp), clip = false)
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(Color(0xE62C2C2E), Color(0xE61C1C1E))
-                        )
-                    )
-                    .border(0.8.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(24.dp))
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = {} // Only consume clicks inside the card itself
-                    )
-                    .padding(14.dp)
+                    .clip(RoundedCornerShape(26.dp))
+                    .background(Color(0xD9242428))
+                    .border(0.6.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(26.dp))
+                    .padding(horizontal = 12.dp, vertical = 14.dp)
             ) {
                 Row(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
                 ) {
                     Text(
                         text = if (query.isBlank()) "SIRI-VORSCHLÄGE" else "TOP-TREFFER (${results.size})",
@@ -386,19 +366,19 @@ fun SpotlightSearchOverlay(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
                 if (results.isEmpty()) {
                     Text(
                         text = "Keine installierte App für „$query“ gefunden.",
                         color = Color.White.copy(alpha = 0.65f),
                         fontSize = 14.sp,
-                        modifier = Modifier.padding(vertical = 12.dp, horizontal = 4.dp)
+                        modifier = Modifier.padding(vertical = 12.dp, horizontal = 6.dp)
                     )
                 } else {
                     val displayedApps = results.take(8)
                     val rows = displayedApps.chunked(4)
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         for (row in rows) {
                             Row(
                                 horizontalArrangement = Arrangement.SpaceEvenly,
@@ -413,7 +393,7 @@ fun SpotlightSearchOverlay(
                                         if (app != null) {
                                             IosAppIconView(
                                                 app = app,
-                                                iconSize = 56.dp,
+                                                iconSize = 64.dp,
                                                 showLabel = true,
                                                 showBadges = true,
                                                 isJiggleMode = false,
@@ -434,10 +414,9 @@ fun SpotlightSearchOverlay(
                     }
                 }
 
-                // Quick Web Search Shortcuts when user typed a query
                 if (showWebSearch && query.isNotBlank()) {
                     Spacer(modifier = Modifier.height(12.dp))
-                    HorizontalDivider(thickness = 0.5.dp, color = Color.White.copy(alpha = 0.14f))
+                    HorizontalDivider(thickness = 0.5.dp, color = Color.White.copy(alpha = 0.12f))
                     Spacer(modifier = Modifier.height(10.dp))
 
                     Row(
@@ -471,7 +450,6 @@ fun SpotlightSearchOverlay(
 
             if (searchBarAtBottom) {
                 Spacer(modifier = Modifier.height(12.dp))
-                // iOS 18 One-Handed Bottom Frosted Spotlight Search Pill (right above keyboard!)
                 SpotlightSearchPillRow(
                     query = query,
                     focusRequester = focusRequester,
@@ -479,20 +457,6 @@ fun SpotlightSearchOverlay(
                     onGo = { results.firstOrNull()?.let { onAppClick(it) } },
                     onDismiss = dismissSpotlight
                 )
-            } else {
-                // Hint text on empty space below card
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 12.dp)
-                ) {
-                    Text(
-                        text = "Tippe auf den freien Hintergrund oder wische nach oben zum Schließen",
-                        color = Color.White.copy(alpha = 0.42f),
-                        fontSize = 11.5.sp
-                    )
-                }
             }
         }
     }
@@ -513,23 +477,18 @@ private fun SpotlightSearchPillRow(
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
-                onClick = {} // Consume taps inside the search bar row
+                onClick = {}
             )
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .weight(1f)
-                .height(48.dp)
-                .shadow(14.dp, RoundedCornerShape(16.dp), clip = false)
-                .clip(RoundedCornerShape(16.dp))
-                .background(
-                    Brush.verticalGradient(
-                        listOf(Color(0xF036363A), Color(0xF026262A))
-                    )
-                )
-                .border(0.85.dp, Color.White.copy(alpha = 0.24f), RoundedCornerShape(16.dp))
-                .padding(horizontal = 14.dp)
+                .height(46.dp)
+                .clip(RoundedCornerShape(23.dp))
+                .background(Color(0xE636363A))
+                .border(0.6.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(23.dp))
+                .padding(horizontal = 16.dp)
         ) {
             Icon(
                 imageVector = Icons.Default.Search,
@@ -541,11 +500,10 @@ private fun SpotlightSearchPillRow(
             Box(modifier = Modifier.weight(1f)) {
                 if (query.isEmpty()) {
                     Text(
-                        text = "Apps, Kontakte, 500 AED in EUR…",
-                        color = Color.White.copy(alpha = 0.48f),
-                        fontSize = 14.5.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        text = "Suchen",
+                        color = Color.White.copy(alpha = 0.55f),
+                        fontSize = 16.sp,
+                        maxLines = 1
                     )
                 }
                 BasicTextField(
@@ -555,7 +513,7 @@ private fun SpotlightSearchPillRow(
                     textStyle = TextStyle(
                         color = Color.White,
                         fontSize = 16.sp,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Normal
                     ),
                     cursorBrush = SolidColor(Color(0xFF0A84FF)),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
@@ -632,6 +590,12 @@ private fun SpotlightActionPill(
     }
 }
 
+/**
+ * 1:1 Authentic iOS App-Bibliothek Screen (Exact match to Screenshot 2!)
+ * - Top full-width Frosted Pill with centered "🔍 App-Bibliothek" and "⋮" menu icon on the right.
+ * - 2-column square pods where the 3 primary icons + 2x2 mini-cluster fill the pod edge-to-edge.
+ * - Includes "Vorschläge" + "Kürzlich hinzugefügt" + all smart categories.
+ */
 @Composable
 fun IosAppLibraryScreen(
     categorizedApps: Map<AppCategory, List<AppInfo>>,
@@ -647,6 +611,7 @@ fun IosAppLibraryScreen(
 ) {
     var libraryFilter by remember { mutableStateOf("") }
     var showAlphabeticalList by remember { mutableStateOf(false) }
+    var showMoreMenu by remember { mutableStateOf(false) }
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     val alphaListState = rememberLazyListState()
@@ -667,44 +632,88 @@ fun IosAppLibraryScreen(
         }.toSortedMap()
     }
 
+    // Build pods matching Screenshot 2: "Vorschläge", "Kürzlich hinzugefügt", then Smart Categories
+    val pods = remember(categorizedApps, allApps, appLanguage) {
+        val list = mutableListOf<LibraryPodData>()
+        val visible = allApps.filter { !it.isHidden }
+
+        val suggestions = categorizedApps[AppCategory.SUGGESTIONS].orEmpty().ifEmpty {
+            visible.take(4)
+        }
+        if (suggestions.isNotEmpty()) {
+            list.add(
+                LibraryPodData(
+                    id = "pod_suggestions",
+                    title = "Vorschläge",
+                    apps = suggestions.take(4),
+                    category = AppCategory.SUGGESTIONS
+                )
+            )
+        }
+
+        val recentlyAdded = visible.sortedByDescending { it.firstInstallTime }.take(8)
+        if (recentlyAdded.isNotEmpty()) {
+            list.add(
+                LibraryPodData(
+                    id = "pod_recent",
+                    title = "Kürzlich hinzugefügt",
+                    apps = recentlyAdded,
+                    category = null
+                )
+            )
+        }
+
+        for ((cat, appsInCat) in categorizedApps) {
+            if (cat == AppCategory.SUGGESTIONS || appsInCat.isEmpty()) continue
+            list.add(
+                LibraryPodData(
+                    id = "pod_${cat.id}",
+                    title = cat.localizedTitle(appLanguage),
+                    apps = appsInCat,
+                    category = cat
+                )
+            )
+        }
+        list
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(top = 12.dp, start = 16.dp, end = 16.dp, bottom = 8.dp)
+            .padding(top = 8.dp, start = 18.dp, end = 18.dp, bottom = 4.dp)
     ) {
-        // Authentic iOS App Library Frosted Top Search Bar
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        // 1:1 Authentic iOS App-Bibliothek Top Pill ("🔍 App-Bibliothek" centered + "⋮" on right)
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 6.dp)
+                .height(48.dp)
+                .clip(RoundedCornerShape(24.dp))
+                .background(Color(0xA62C2C2E))
+                .border(0.5.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(24.dp))
+                .padding(horizontal = 16.dp)
         ) {
+            // Centered Search Icon + Input / Placeholder
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center,
                 modifier = Modifier
-                    .weight(1f)
-                    .height(42.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(Color(0xCC2C2C2E))
-                    .border(0.75.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(14.dp))
-                    .padding(horizontal = 14.dp)
+                    .align(Alignment.Center)
+                    .fillMaxWidth(0.82f)
             ) {
                 Icon(
                     imageVector = Icons.Default.Search,
                     contentDescription = null,
-                    tint = Color.White.copy(alpha = 0.6f),
-                    modifier = Modifier.size(18.dp)
+                    tint = Color.White.copy(alpha = 0.85f),
+                    modifier = Modifier.size(20.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Box(modifier = Modifier.weight(1f)) {
+                Box {
                     if (libraryFilter.isEmpty()) {
                         Text(
-                            text = "App-Mediathek",
-                            color = Color.White.copy(alpha = 0.55f),
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Medium
+                            text = "App-Bibliothek",
+                            color = Color.White.copy(alpha = 0.85f),
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Normal
                         )
                     }
                     BasicTextField(
@@ -714,68 +723,68 @@ fun IosAppLibraryScreen(
                             if (it.isNotEmpty()) showAlphabeticalList = true
                         },
                         singleLine = true,
-                        textStyle = TextStyle(color = Color.White, fontSize = 15.sp),
-                        cursorBrush = SolidColor(Color(0xFF0A84FF)),
-                        modifier = Modifier.fillMaxWidth()
+                        textStyle = TextStyle(color = Color.White, fontSize = 16.sp),
+                        cursorBrush = SolidColor(Color(0xFF0A84FF))
                     )
                 }
                 if (libraryFilter.isNotEmpty()) {
+                    Spacer(modifier = Modifier.width(6.dp))
                     Icon(
                         imageVector = Icons.Default.Close,
                         contentDescription = "Leeren",
-                        tint = Color.White.copy(alpha = 0.7f),
+                        tint = Color.White.copy(alpha = 0.75f),
                         modifier = Modifier
                             .size(18.dp)
-                            .clickable { libraryFilter = "" }
+                            .clickable {
+                                libraryFilter = ""
+                                showAlphabeticalList = false
+                            }
                     )
                 }
             }
 
-            // Toggle between Smart Categories & A-Z List with Index Scroller
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .height(42.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(if (showAlphabeticalList) Color(0xFF0A84FF) else Color(0xCC2C2C2E))
-                    .border(0.75.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(14.dp))
-                    .clickable {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        showAlphabeticalList = !showAlphabeticalList
-                    }
-                    .padding(horizontal = 14.dp)
-            ) {
-                Text(
-                    text = if (showAlphabeticalList) "Kategorien" else "A–Z",
-                    color = Color.White,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-
-            // Direct shortcut to TMS OS Command Center Settings
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .size(42.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(Color(0xCC2C2C2E))
-                    .border(0.75.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(14.dp))
-                    .clickable { onOpenSettingsClick() }
-            ) {
+            // Right-aligned Three-Dots Menu ("⋮") inside the pill
+            Box(modifier = Modifier.align(Alignment.CenterEnd)) {
                 Icon(
-                    imageVector = Icons.Default.Settings,
-                    contentDescription = "TMS OS Einstellungen",
+                    imageVector = Icons.Default.MoreVert,
+                    contentDescription = "Menü",
                     tint = Color.White,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier
+                        .size(22.dp)
+                        .clickable { showMoreMenu = true }
                 )
+
+                DropdownMenu(
+                    expanded = showMoreMenu,
+                    onDismissRequest = { showMoreMenu = false },
+                    modifier = Modifier.background(Color(0xFF2C2C2E))
+                ) {
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                text = if (showAlphabeticalList) "Kategorie-Kacheln anzeigen" else "Alphabetische A–Z Liste",
+                                color = Color.White
+                            )
+                        },
+                        onClick = {
+                            showMoreMenu = false
+                            showAlphabeticalList = !showAlphabeticalList
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("TMS OS Einstellungen", color = Color(0xFF0A84FF)) },
+                        onClick = {
+                            showMoreMenu = false
+                            onOpenSettingsClick()
+                        }
+                    )
+                }
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
         if (showAlphabeticalList || libraryFilter.isNotBlank()) {
-            // Authentic iOS A-Z Vertical List + Right-Edge Fast Alphabet Index Scroller!
             val letters = remember(groupedByLetter) { groupedByLetter.keys.toList() }
 
             Row(
@@ -783,7 +792,7 @@ fun IosAppLibraryScreen(
                     .fillMaxSize()
                     .clip(RoundedCornerShape(26.dp))
                     .background(Color(0xD8161618))
-                    .border(0.8.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(26.dp))
+                    .border(0.6.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(26.dp))
                     .padding(start = 16.dp, top = 8.dp, bottom = 8.dp, end = 6.dp)
             ) {
                 LazyColumn(
@@ -815,7 +824,7 @@ fun IosAppLibraryScreen(
                                     .clickable { onAppClick(app) }
                                     .padding(vertical = 7.dp)
                             ) {
-                                Box(modifier = Modifier.size(44.dp)) {
+                                Box(modifier = Modifier.size(48.dp)) {
                                     if (app.iconBitmap != null) {
                                         Image(
                                             bitmap = app.iconBitmap,
@@ -843,7 +852,6 @@ fun IosAppLibraryScreen(
                     }
                 }
 
-                // Right-side iOS A-Z Quick Jump Index Bar
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center,
@@ -875,54 +883,48 @@ fun IosAppLibraryScreen(
                 }
             }
         } else {
-            // Authentic iOS Square Frosted Category Pods Grid
+            // 1:1 Authentic iOS App-Bibliothek Square Frosted Pods Grid (Exact match to Screenshot 2!)
             val columnsCount = if (isUnfolded) 3 else 2
-            val entries = categorizedApps.entries.toList()
 
             LazyVerticalGrid(
                 columns = GridCells.Fixed(columnsCount),
-                contentPadding = PaddingValues(bottom = 84.dp, top = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                contentPadding = PaddingValues(bottom = 32.dp, top = 2.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp),
+                horizontalArrangement = Arrangement.spacedBy(18.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
-                items(entries, key = { it.key.id }) { (category, appsInCat) ->
+                items(pods, key = { it.id }) { pod ->
                     IosAppLibraryCategoryPod(
-                        category = category,
-                        apps = appsInCat,
-                        glassOpacity = glassOpacity,
-                        appLanguage = appLanguage,
+                        title = pod.title,
+                        apps = pod.apps,
                         onAppClick = onAppClick,
                         onAppLongClick = onAppLongClick,
-                        onExpandCategory = { onCategoryExpandClick(category) }
+                        onExpandCategory = {
+                            if (pod.category != null && pod.category != AppCategory.SUGGESTIONS) {
+                                onCategoryExpandClick(pod.category)
+                            } else {
+                                showAlphabeticalList = true
+                            }
+                        }
                     )
-                }
-
-                item(span = { GridItemSpan(maxLineSpan) }) {
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 6.dp)
-                    ) {
-                        Text(
-                            text = "${allApps.count { !it.isHidden }} Apps automatisch in ${entries.size} iOS-Kategorien sortiert",
-                            color = Color.White.copy(alpha = 0.50f),
-                            fontSize = 12.sp
-                        )
-                    }
                 }
             }
         }
     }
 }
 
+/**
+ * 1:1 Authentic iOS App-Bibliothek Category Pod (Screenshot 2):
+ * - Rounded square (`RoundedCornerShape(30.dp)`), dark translucent glass (`Color(0xA6242426)`).
+ * - Inside padding `12.dp`, row/column spacing `10.dp`.
+ * - Each of the 3 primary app icons uses `Modifier.fillMaxSize()` so it fills its quadrant completely!
+ * - The 4th quadrant (if > 4 apps) renders a 2x2 sub-grid (`Arrangement.spacedBy(5.dp)`) where each
+ *   mini-icon fills its sub-cell edge-to-edge!
+ */
 @Composable
 private fun IosAppLibraryCategoryPod(
-    category: AppCategory,
+    title: String,
     apps: List<AppInfo>,
-    glassOpacity: Float,
-    appLanguage: AppLanguage,
     onAppClick: (AppInfo) -> Unit,
     onAppLongClick: (AppInfo) -> Unit,
     onExpandCategory: () -> Unit
@@ -931,93 +933,80 @@ private fun IosAppLibraryCategoryPod(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.fillMaxWidth()
     ) {
-        // True Square iOS Frosted Glass Pod
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(1f)
-                .shadow(12.dp, RoundedCornerShape(30.dp), clip = false)
                 .clip(RoundedCornerShape(30.dp))
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color(0xFF3A3A3C).copy(alpha = glassOpacity.coerceIn(0.45f, 0.92f)),
-                            Color(0xFF222225).copy(alpha = (glassOpacity + 0.06f).coerceIn(0.50f, 0.95f))
-                        )
-                    )
-                )
-                .border(0.85.dp, Color.White.copy(alpha = 0.20f), RoundedCornerShape(30.dp))
+                .background(Color(0xA6242426))
+                .border(0.5.dp, Color.White.copy(alpha = 0.09f), RoundedCornerShape(30.dp))
                 .clickable { onExpandCategory() }
-                .padding(14.dp)
+                .padding(12.dp)
         ) {
             Column(
-                verticalArrangement = Arrangement.SpaceBetween,
+                verticalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
-                // Row 1: Quadrants 0 & 1
+                // Row 1: Quadrant 0 & Quadrant 1
                 Row(
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
                 ) {
-                    Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                        PodDirectAppSlot(apps.getOrNull(0), onAppClick, onAppLongClick)
+                    Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                        PodFullBleedAppIcon(apps.getOrNull(0), onAppClick, onAppLongClick)
                     }
-                    Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                        PodDirectAppSlot(apps.getOrNull(1), onAppClick, onAppLongClick)
+                    Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                        PodFullBleedAppIcon(apps.getOrNull(1), onAppClick, onAppLongClick)
                     }
                 }
 
-                // Row 2: Quadrant 2 & either Quadrant 3 (if <= 4 apps) OR 2x2 Mini Cluster
+                // Row 2: Quadrant 2 & Quadrant 3 (Direct icon if <= 4 apps, else 2x2 cluster filling Quadrant 3!)
                 Row(
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
                 ) {
-                    Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                        PodDirectAppSlot(apps.getOrNull(2), onAppClick, onAppLongClick)
+                    Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                        PodFullBleedAppIcon(apps.getOrNull(2), onAppClick, onAppLongClick)
                     }
 
-                    Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
                         if (apps.size <= 4) {
-                            PodDirectAppSlot(apps.getOrNull(3), onAppClick, onAppLongClick)
+                            PodFullBleedAppIcon(apps.getOrNull(3), onAppClick, onAppLongClick)
                         } else {
-                            // 2x2 Mini-Icon Cluster that opens the full Category Modal
                             val extraApps = apps.drop(3).take(4)
-                            Box(
-                                contentAlignment = Alignment.Center,
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(5.dp),
                                 modifier = Modifier
-                                    .size(58.dp)
+                                    .fillMaxSize()
                                     .clickable { onExpandCategory() }
-                                    .padding(2.dp)
+                                    .padding(1.dp)
                             ) {
-                                Column(
-                                    verticalArrangement = Arrangement.SpaceBetween,
-                                    modifier = Modifier.fillMaxSize()
-                                ) {
-                                    for (r in 0..1) {
-                                        Row(
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                            for (c in 0..1) {
-                                                val miniApp = extraApps.getOrNull(r * 2 + c)
-                                                Box(
-                                                    modifier = Modifier.size(25.dp),
-                                                    contentAlignment = Alignment.Center
-                                                ) {
-                                                    if (miniApp?.iconBitmap != null) {
-                                                        Image(
-                                                            bitmap = miniApp.iconBitmap,
-                                                            contentDescription = null,
-                                                            contentScale = ContentScale.Fit,
-                                                            modifier = Modifier.fillMaxSize()
-                                                        )
-                                                    }
+                                for (r in 0..1) {
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .weight(1f)
+                                    ) {
+                                        for (c in 0..1) {
+                                            val miniApp = extraApps.getOrNull(r * 2 + c)
+                                            Box(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .fillMaxHeight(),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                if (miniApp?.iconBitmap != null) {
+                                                    Image(
+                                                        bitmap = miniApp.iconBitmap,
+                                                        contentDescription = miniApp.displayLabel,
+                                                        contentScale = ContentScale.Fit,
+                                                        modifier = Modifier.fillMaxSize()
+                                                    )
                                                 }
                                             }
                                         }
@@ -1033,10 +1022,10 @@ private fun IosAppLibraryCategoryPod(
         Spacer(modifier = Modifier.height(7.dp))
 
         Text(
-            text = category.localizedTitle(appLanguage),
+            text = title,
             color = Color.White,
             fontSize = 13.sp,
-            fontWeight = FontWeight.SemiBold,
+            fontWeight = FontWeight.Normal,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.Center
@@ -1045,22 +1034,26 @@ private fun IosAppLibraryCategoryPod(
 }
 
 @Composable
-private fun PodDirectAppSlot(
+private fun PodFullBleedAppIcon(
     app: AppInfo?,
     onAppClick: (AppInfo) -> Unit,
     onAppLongClick: (AppInfo) -> Unit
 ) {
-    if (app == null) {
-        Spacer(modifier = Modifier.size(58.dp))
+    if (app?.iconBitmap != null) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .fillMaxSize()
+                .clickable { onAppClick(app) }
+        ) {
+            Image(
+                bitmap = app.iconBitmap,
+                contentDescription = app.displayLabel,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
     } else {
-        IosAppIconView(
-            app = app,
-            iconSize = 58.dp,
-            showLabel = false,
-            showBadges = true,
-            isJiggleMode = false,
-            onClick = { onAppClick(app) },
-            onLongClick = { onAppLongClick(app) }
-        )
+        Spacer(modifier = Modifier.fillMaxSize())
     }
 }

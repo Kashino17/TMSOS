@@ -153,7 +153,7 @@ fun CommandCenterSettingsScreen(
                             )
                             Spacer(modifier = Modifier.height(10.dp))
                             Text(
-                                text = "TMS OS v3.0.0 Ultimate • ${state.allApps.size} Apps indexiert",
+                                text = "TMS OS v4.0.0 Reference • ${state.allApps.size} Apps indexiert",
                                 color = Color(0xFF0A84FF),
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold

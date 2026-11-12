@@ -16,8 +16,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -38,13 +39,6 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Wallpaper
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -65,6 +59,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -90,6 +85,7 @@ import com.tms.os.launcher.ui.components.IosFolderGridIconView
 import com.tms.os.launcher.ui.components.IosFrostedDock
 import com.tms.os.launcher.ui.components.IosHapticTouchContextMenu
 import com.tms.os.launcher.ui.components.IosTopWidgetsHeader
+import com.tms.os.launcher.ui.components.IosWidgetGalleryBottomSheet
 import com.tms.os.launcher.ui.components.SpotlightSearchOverlay
 import com.tms.os.launcher.viewmodel.LauncherViewModel
 import kotlinx.coroutines.launch
@@ -107,10 +103,13 @@ fun LauncherHomeScreen(
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
     val settings = state.settings
+    var showWidgetGallerySheet by remember { mutableStateOf(false) }
 
-    // Authentic iOS Depth-of-Field Scale & Hardware Blur when any overlay (Spotlight / Folder / Menu) opens
+    val anyModalOpen = state.isAnyOverlayOpen || showWidgetGallerySheet
+
+    // Authentic iOS Depth-of-Field Scale & Hardware Blur when any overlay opens
     val homeScale by animateFloatAsState(
-        targetValue = if (state.isAnyOverlayOpen) 0.93f else 1.0f,
+        targetValue = if (state.isSpotlightOpen || state.activeFolder != null || state.activeCategoryModal != null || state.selectedAppForMenu != null) 0.94f else 1.0f,
         animationSpec = spring(
             dampingRatio = 0.82f,
             stiffness = Spring.StiffnessMediumLow
@@ -119,7 +118,7 @@ fun LauncherHomeScreen(
     )
 
     val homeBlurDp by animateDpAsState(
-        targetValue = if (state.isAnyOverlayOpen) (22.dp * settings.blurIntensity) else 0.dp,
+        targetValue = if (state.isSpotlightOpen || state.activeFolder != null || state.activeCategoryModal != null || state.selectedAppForMenu != null) (20.dp * settings.blurIntensity) else 0.dp,
         animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
         label = "homeBlur"
     )
@@ -130,41 +129,12 @@ fun LauncherHomeScreen(
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
-                        Color.Black.copy(alpha = 0.18f),
-                        Color.Black.copy(alpha = 0.08f),
-                        Color.Black.copy(alpha = 0.28f)
+                        Color.Black.copy(alpha = 0.14f),
+                        Color.Black.copy(alpha = 0.06f),
+                        Color.Black.copy(alpha = 0.24f)
                     )
                 )
             )
-            .pointerInput(
-                state.isSpotlightOpen,
-                state.activeFolder,
-                state.activeCategoryModal,
-                state.selectedAppForMenu,
-                settings.enableSwipeDownSpotlight
-            ) {
-                var accumulatedDy = 0f
-                var gestureStartY = 0f
-                detectVerticalDragGestures(
-                    onDragStart = { startOffset ->
-                        accumulatedDy = 0f
-                        gestureStartY = startOffset.y
-                    },
-                    onVerticalDrag = { _, dragAmount ->
-                        accumulatedDy += dragAmount
-                        if (accumulatedDy > 62f && !state.isAnyOverlayOpen) {
-                            accumulatedDy = 0f
-                            // Top-edge swipe-down opens Android Notification Center; middle swipe-down opens Spotlight!
-                            if (gestureStartY < 115f) {
-                                viewModel.expandStatusBar()
-                            } else if (settings.enableSwipeDownSpotlight) {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                viewModel.openSpotlight()
-                            }
-                        }
-                    }
-                )
-            }
     ) {
         val isUnfolded = maxWidth >= 580.dp
 
@@ -183,29 +153,26 @@ fun LauncherHomeScreen(
         val firstPageRows = if (settings.showTopWidgetsOnFirstPage) max(rows - 2, 2) else rows
         val page0Capacity = max(columns * firstPageRows, 8)
 
-        // Strictly separate Page 0 (Daily-Driver Single Apps) from Page 1+ (Smart Category Folders)
         val pages: List<List<HomeGridItem>> = remember(
             state.homeGridItems,
             page0Capacity,
-            itemsPerPage
+            itemsPerPage,
+            settings.showTopWidgetsOnFirstPage
         ) {
             if (state.homeGridItems.isEmpty()) {
                 listOf(emptyList())
             } else {
+                val hasFolders = state.homeGridItems.any { it is HomeGridItem.FolderItem }
                 val explicitPage0 = state.homeGridItems.filter { it.page == 0 }
                 val explicitPage1Plus = state.homeGridItems.filter { it.page >= 1 }
 
-                if (explicitPage0.isNotEmpty() || explicitPage1Plus.isNotEmpty()) {
+                if (hasFolders && explicitPage0.isNotEmpty() && explicitPage1Plus.isNotEmpty()) {
                     val result = mutableListOf<List<HomeGridItem>>()
-                    if (explicitPage0.isNotEmpty()) {
-                        result.add(explicitPage0.take(page0Capacity))
-                        val overflowPage0 = explicitPage0.drop(page0Capacity)
-                        val combinedRest = overflowPage0 + explicitPage1Plus
-                        combinedRest.chunked(itemsPerPage).forEach { result.add(it) }
-                    } else {
-                        explicitPage1Plus.chunked(itemsPerPage).forEach { result.add(it) }
-                    }
-                    result.ifEmpty { listOf(emptyList()) }
+                    result.add(explicitPage0.take(page0Capacity))
+                    val overflowPage0 = explicitPage0.drop(page0Capacity)
+                    val combinedRest = overflowPage0 + explicitPage1Plus
+                    combinedRest.chunked(itemsPerPage).forEach { result.add(it) }
+                    result
                 } else {
                     val result = mutableListOf<List<HomeGridItem>>()
                     val firstPage = state.homeGridItems.take(page0Capacity)
@@ -233,12 +200,17 @@ fun LauncherHomeScreen(
         )
 
         val isOnAppLibraryPage = pagerState.currentPage == totalPagerPages - 1
-        val baseIconSize = (if (isUnfolded) 62.dp else 59.dp) * settings.iconSizeScale
+
+        // Dynamic Full-Size iOS Icon Calculation matching Screenshot 3 & 4 (68.dp on 4-column cover screen!)
+        val effectiveCols = if (isBookSplitMode) columns * 2 else columns
+        val cellWidth = (maxWidth - 28.dp) / effectiveCols.coerceAtLeast(3)
+        val baseIconSize = (cellWidth * 0.74f).coerceIn(62.dp, 74.dp) * settings.iconSizeScale
+
         val suggestedApps = remember(state.categorizedApps) {
             state.categorizedApps[AppCategory.SUGGESTIONS].orEmpty().take(4)
         }
 
-        // BACKGROUND HOME LAYER (Scales & blurs smoothly when Spotlight/Folder/Menu opens)
+        // BACKGROUND HOME LAYER
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -249,130 +221,96 @@ fun LauncherHomeScreen(
                 .blur(homeBlurDp)
                 .statusBarsPadding()
                 .navigationBarsPadding()
-        ) {
-            // Top Jiggle Mode Edit Action Bar
-            AnimatedVisibility(visible = state.isJiggleMode) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.fillMaxWidth()
+                // Intercept downward swipe in Initial pass so swiping down ANYWHERE (even on top of an icon!) opens Spotlight reliably!
+                .pointerInput(
+                    anyModalOpen,
+                    state.isJiggleMode,
+                    isOnAppLibraryPage,
+                    settings.enableSwipeDownSpotlight
                 ) {
-                    Row(
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 6.dp)
-                    ) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            // 1-Click Smart Folder Sort
-                            Box(
-                                modifier = Modifier
-                                    .clip(CircleShape)
-                                    .background(Color(0xDD2C2C2E))
-                                    .border(0.8.dp, Color.White.copy(alpha = 0.25f), CircleShape)
-                                    .clickable {
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        viewModel.autoOrganizeHomeWithSmartFolders()
-                                    }
-                                    .padding(horizontal = 12.dp, vertical = 7.dp)
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        imageVector = Icons.Default.AutoAwesome,
-                                        contentDescription = null,
-                                        tint = Color(0xFFFFD60A),
-                                        modifier = Modifier.size(15.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(5.dp))
-                                    Text(
-                                        text = "Smart-Ordner",
-                                        color = Color.White,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
+                    if (anyModalOpen || state.isJiggleMode || isOnAppLibraryPage) return@pointerInput
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                        val startPos = down.position
+                        var totalDx = 0f
+                        var totalDy = 0f
+                        var triggered = false
+
+                        while (!triggered) {
+                            val event = awaitPointerEvent(pass = PointerEventPass.Initial)
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            if (!change.pressed) break
+
+                            totalDx = change.position.x - startPos.x
+                            totalDy = change.position.y - startPos.y
+
+                            if (totalDy > 54f && totalDy > totalDx.absoluteValue * 1.35f) {
+                                triggered = true
+                                change.consume()
+                                if (startPos.y < 90f) {
+                                    viewModel.expandStatusBar()
+                                } else if (settings.enableSwipeDownSpotlight) {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    viewModel.openSpotlight()
                                 }
-                            }
-
-                            // Wallpaper Picker
-                            Box(
-                                modifier = Modifier
-                                    .clip(CircleShape)
-                                    .background(Color(0xDD2C2C2E))
-                                    .border(0.8.dp, Color.White.copy(alpha = 0.25f), CircleShape)
-                                    .clickable { viewModel.openWallpaperPicker() }
-                                    .padding(horizontal = 11.dp, vertical = 7.dp)
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        imageVector = Icons.Default.Wallpaper,
-                                        contentDescription = null,
-                                        tint = Color.White,
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(5.dp))
-                                    Text(
-                                        text = "Wallpaper",
-                                        color = Color.White,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                }
-                            }
-
-                            // Settings Shortcut
-                            Box(
-                                modifier = Modifier
-                                    .clip(CircleShape)
-                                    .background(Color(0xDD2C2C2E))
-                                    .border(0.8.dp, Color.White.copy(alpha = 0.25f), CircleShape)
-                                    .clickable { onOpenSettingsActivity() }
-                                    .padding(horizontal = 10.dp, vertical = 7.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Settings,
-                                    contentDescription = "TMS OS",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(15.dp)
-                                )
-                            }
-                        }
-
-                        // Done ("Fertig") pill button
-                        Box(
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .background(Color(0xFF0A84FF))
-                                .clickable { viewModel.setJiggleMode(false) }
-                                .padding(horizontal = 16.dp, vertical = 7.dp)
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Default.Check,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(15.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = "Fertig",
-                                    color = Color.White,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
                             }
                         }
                     }
+                }
+        ) {
+            // 1:1 Authentic iOS Jiggle Mode Top Bar: "Bearbeiten" (left) & "Fertig" (right) matching Screenshot 3!
+            AnimatedVisibility(visible = state.isJiggleMode && !isOnAppLibraryPage) {
+                Row(
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 18.dp, vertical = 6.dp)
+                ) {
+                    // Left Pill: "Bearbeiten" -> Opens the iOS Widget Gallery Sheet (Screenshot 1!)
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(Color(0x992C2C2E))
+                            .border(0.5.dp, Color.White.copy(alpha = 0.14f), CircleShape)
+                            .clickable {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                showWidgetGallerySheet = true
+                            }
+                            .padding(horizontal = 18.dp, vertical = 8.dp)
+                    ) {
+                        Text(
+                            text = "Bearbeiten",
+                            color = Color.White,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
 
-                    Text(
-                        text = "Ziehe ein Icon auf die Mitte eines anderen für Ordner, oder an den Rand zum Tauschen",
-                        color = Color.White.copy(alpha = 0.65f),
-                        fontSize = 11.sp,
-                        modifier = Modifier.padding(bottom = 2.dp)
-                    )
+                    // Right Pill: "Fertig"
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(Color(0x992C2C2E))
+                            .border(0.5.dp, Color.White.copy(alpha = 0.14f), CircleShape)
+                            .clickable {
+                                viewModel.setJiggleMode(false)
+                            }
+                            .padding(horizontal = 18.dp, vertical = 8.dp)
+                    ) {
+                        Text(
+                            text = "Fertig",
+                            color = Color.White,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
 
-            // Main Horizontal Pager (Home Screen Pages + Smart App Library on far right)
+            // Main Horizontal Pager (Home Screen Pages + App-Bibliothek on far right)
             HorizontalPager(
                 state = pagerState,
                 userScrollEnabled = !state.isJiggleMode,
@@ -495,7 +433,7 @@ fun LauncherHomeScreen(
                                     onMediaPlayPause = { viewModel.mediaPlayPause() },
                                     onMediaNext = { viewModel.mediaNext() },
                                     onMediaPrev = { viewModel.mediaPrevious() },
-                                    onWeatherClick = onOpenSettingsActivity,
+                                    onWeatherClick = { showWidgetGallerySheet = true },
                                     onRefreshWeatherClick = { viewModel.refreshLiveWeatherIfNeeded(force = true) }
                                 )
                             }
@@ -567,7 +505,7 @@ fun LauncherHomeScreen(
                                     onMediaPlayPause = {},
                                     onMediaNext = {},
                                     onMediaPrev = {},
-                                    onWeatherClick = onOpenSettingsActivity,
+                                    onWeatherClick = { showWidgetGallerySheet = true },
                                     onRefreshWeatherClick = { viewModel.refreshLiveWeatherIfNeeded(force = true) }
                                 )
                             }
@@ -628,63 +566,42 @@ fun LauncherHomeScreen(
                             onMediaPlayPause = { viewModel.mediaPlayPause() },
                             onMediaNext = { viewModel.mediaNext() },
                             onMediaPrev = { viewModel.mediaPrevious() },
-                            onWeatherClick = onOpenSettingsActivity,
+                            onWeatherClick = { showWidgetGallerySheet = true },
                             onRefreshWeatherClick = { viewModel.refreshLiveWeatherIfNeeded(force = true) }
                         )
                     }
                 }
             }
 
-            // Bottom Section: iOS 18 Search Pill / Page Dots + Frosted Glass Dock
+            // Bottom Section: Authentic iOS Page Dots Pill (`• • •`) + Frosted Glass Dock (Exact match to Screenshot 3 & 4!)
             if (!isOnAppLibraryPage) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    val isDraggingPager = pagerState.isScrollInProgress
-
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center,
                         modifier = Modifier
-                            .padding(vertical = 4.dp)
+                            .padding(bottom = 8.dp)
                             .clip(CircleShape)
-                            .background(Color(0x992C2C2E))
-                            .border(0.6.dp, Color.White.copy(alpha = 0.22f), CircleShape)
+                            .background(Color(0x882C2C2E))
+                            .border(0.5.dp, Color.White.copy(alpha = 0.12f), CircleShape)
                             .clickable { viewModel.openSpotlight() }
-                            .padding(horizontal = 13.dp, vertical = 5.5.dp)
+                            .padding(horizontal = 14.dp, vertical = 7.dp)
                     ) {
-                        if (!isDraggingPager && pagerState.currentPage == 0) {
-                            Icon(
-                                imageVector = Icons.Default.Search,
-                                contentDescription = "Suchen",
-                                tint = Color.White.copy(alpha = 0.90f),
-                                modifier = Modifier.size(13.dp)
+                        for (i in 0 until totalPagerPages) {
+                            val selected = pagerState.currentPage == i
+                            Box(
+                                modifier = Modifier
+                                    .padding(horizontal = 3.5.dp)
+                                    .size(6.5.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        if (selected) Color.White
+                                        else Color.White.copy(alpha = 0.35f)
+                                    )
                             )
-                            Spacer(modifier = Modifier.width(5.dp))
-                            Text(
-                                text = "Suchen",
-                                color = Color.White.copy(alpha = 0.92f),
-                                fontSize = 11.5.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                        } else {
-                            for (i in 0 until totalPagerPages) {
-                                val selected = pagerState.currentPage == i
-                                Box(
-                                    modifier = Modifier
-                                        .padding(horizontal = 3.dp)
-                                        .size(if (selected) 7.dp else 5.5.dp)
-                                        .clip(CircleShape)
-                                        .background(
-                                            if (selected) Color.White
-                                            else Color.White.copy(alpha = 0.35f)
-                                        )
-                                        .clickable {
-                                            scope.launch { pagerState.animateScrollToPage(i) }
-                                        }
-                                )
-                            }
                         }
                     }
 
@@ -703,17 +620,55 @@ fun LauncherHomeScreen(
                         showLabels = settings.showDockLabels,
                         showBadges = settings.enableBadges,
                         glassOpacity = settings.glassOpacity,
-                        iconSize = baseIconSize * 0.98f,
+                        iconSize = baseIconSize,
                         labelFontSizeSp = settings.labelFontSizeSp,
                         isJiggleMode = state.isJiggleMode,
-                        onAppClick = { viewModel.launchApp(it.packageName) },
+                        onAppClick = { app ->
+                            if (state.isJiggleMode) viewModel.selectAppForContextMenu(app)
+                            else viewModel.launchApp(app.packageName)
+                        },
                         onAppLongClick = { viewModel.selectAppForContextMenu(it) }
                     )
                 }
             }
         }
 
-        // OVERLAYS (Rendered crisp on top of the blurred & scaled-down Home Screen!)
+        // OVERLAYS
+
+        // 0. Authentic iOS Widget Gallery Bottom Sheet (Screenshot 1!)
+        AnimatedVisibility(
+            visible = showWidgetGallerySheet,
+            enter = fadeIn() + slideInVertically(initialOffsetY = { it / 2 }),
+            exit = fadeOut() + slideOutVertically(targetOffsetY = { it / 2 })
+        ) {
+            IosWidgetGalleryBottomSheet(
+                weatherCity = settings.weatherCity,
+                weatherTempCelsius = settings.weatherTempCelsius,
+                weatherHighCelsius = settings.weatherHighCelsius,
+                weatherLowCelsius = settings.weatherLowCelsius,
+                weatherCondition = settings.weatherCondition,
+                useFahrenheit = settings.useFahrenheit,
+                batteryPercent = state.batteryPercent,
+                showWidgetsOnHome = settings.showTopWidgetsOnFirstPage,
+                onSelectWidgetsForHome = { leftW, rightW ->
+                    viewModel.updateSettings {
+                        it.copy(
+                            showTopWidgetsOnFirstPage = true,
+                            leftWidgetType = leftW,
+                            rightWidgetType = rightW
+                        )
+                    }
+                },
+                onToggleWidgetsOnHome = { show ->
+                    viewModel.updateSettings { it.copy(showTopWidgetsOnFirstPage = show) }
+                },
+                onAutoSortSmartFolders = {
+                    viewModel.autoOrganizeHomeWithSmartFolders()
+                },
+                onOpenSettings = onOpenSettingsActivity,
+                onDismiss = { showWidgetGallerySheet = false }
+            )
+        }
 
         // 1. Expanded Folder Overlay (with Origin-based iOS Spring Zoom!)
         val folderOrigin = TransformOrigin(
@@ -766,7 +721,7 @@ fun LauncherHomeScreen(
             }
         }
 
-        // 3. Spotlight Search Overlay (Swipe Down or "Suchen" Pill)
+        // 3. Spotlight Search Overlay (Swipe Down or Page Pill Tap)
         AnimatedVisibility(
             visible = state.isSpotlightOpen,
             enter = fadeIn() + slideInVertically(
@@ -837,6 +792,10 @@ fun LauncherHomeScreen(
     }
 }
 
+/**
+ * Top-aligned, fixed-rhythm iOS Grid matching Screenshot 3 & 4 (1794491112605_643096.jpg & 1794491112481_643094.jpg)!
+ * Never stretches rows with weight(1f) so icons sit at their exact iOS coordinates from the top down.
+ */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun HomeGridPageContent(
@@ -888,6 +847,7 @@ private fun HomeGridPageContent(
     var isMergeHover by remember { mutableStateOf(false) }
 
     Column(
+        verticalArrangement = Arrangement.Top,
         modifier = Modifier
             .fillMaxSize()
             .combinedClickable(
@@ -896,7 +856,7 @@ private fun HomeGridPageContent(
                 onClick = onEmptySpaceClick,
                 onLongClick = onEmptySpaceLongClick
             )
-            .padding(top = 6.dp, bottom = 2.dp)
+            .padding(top = 10.dp, bottom = 4.dp)
     ) {
         if (showWidgets) {
             IosTopWidgetsHeader(
@@ -923,22 +883,21 @@ private fun HomeGridPageContent(
                 onWeatherClick = onWeatherClick,
                 onRefreshWeatherClick = onRefreshWeatherClick
             )
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(14.dp))
         }
 
-        // Fixed-Slot iOS Grid with Real Finger Drag & Drop in Jiggle Mode!
+        // Top-aligned rows with crisp 14.dp vertical spacing (exact match to Screenshot 3 & 4!)
         Column(
+            verticalArrangement = Arrangement.spacedBy(14.dp),
             modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 10.dp)
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp)
         ) {
             for (rowIdx in 0 until slotRows) {
                 Row(
                     horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
+                    verticalAlignment = Alignment.Top,
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     for (colIdx in 0 until columns) {
                         val itemIndex = rowIdx * columns + colIdx
@@ -947,7 +906,7 @@ private fun HomeGridPageContent(
                         val isTargetHighlighted = hoveredTargetSlot == itemIndex && !isBeingDragged
 
                         Box(
-                            contentAlignment = Alignment.Center,
+                            contentAlignment = Alignment.TopCenter,
                             modifier = Modifier
                                 .weight(1f)
                                 .zIndex(if (isBeingDragged) 20f else 0f)

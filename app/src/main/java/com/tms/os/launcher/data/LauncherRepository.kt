@@ -69,7 +69,7 @@ class LauncherRepository(private val context: Context) {
             mainUnfoldedColumns = prefs.getInt("mainUnfoldedColumns", 6),
             mainUnfoldedRows = prefs.getInt("mainUnfoldedRows", 5),
             dockIconCount = prefs.getInt("dockIconCount", 4),
-            foldMode = FoldPostureMode.fromId(prefs.getString("foldMode", FoldPostureMode.BOOK_SPLIT.id) ?: ""),
+            foldMode = FoldPostureMode.fromId(prefs.getString("foldMode_v4", FoldPostureMode.IPAD_GRID.id) ?: ""),
             pageTransition = PageTransitionEffect.fromId(prefs.getString("pageTransition", PageTransitionEffect.IOS_SLIDE.id) ?: ""),
             iconSizeScale = prefs.getFloat("iconSizeScale", 1.0f),
             labelFontSizeSp = prefs.getFloat("labelFontSizeSp", 11.5f),
@@ -80,14 +80,14 @@ class LauncherRepository(private val context: Context) {
             showAppLabels = prefs.getBoolean("showAppLabels", true),
             showDockLabels = prefs.getBoolean("showDockLabels", false),
             showRecentInUnfoldedDock = prefs.getBoolean("showRecentInUnfoldedDock", true),
-            showTopWidgetsOnFirstPage = prefs.getBoolean("showTopWidgetsOnFirstPage", true),
+            showTopWidgetsOnFirstPage = prefs.getBoolean("showTopWidgetsOnFirstPage_v4", false),
             leftWidgetType = LeftWidgetType.fromId(prefs.getString("leftWidgetType", LeftWidgetType.CALENDAR_CLOCK.id) ?: ""),
             rightWidgetType = RightWidgetType.fromId(prefs.getString("rightWidgetType", RightWidgetType.LIVE_WEATHER.id) ?: ""),
             quickNoteText = prefs.getString("quickNoteText", "Tippen für Schnell-Notiz…") ?: "Tippen für Schnell-Notiz…",
             customAndroidWidgetId = prefs.getInt("customAndroidWidgetId", -1),
             enableBadges = prefs.getBoolean("enableBadges", true),
             enableSwipeDownSpotlight = prefs.getBoolean("enableSwipeDownSpotlight", true),
-            searchBarAtBottomInSpotlight = prefs.getBoolean("searchBarAtBottomInSpotlight", true),
+            searchBarAtBottomInSpotlight = prefs.getBoolean("searchBarAtBottomInSpotlight_v4", false),
             autoOpenKeyboardInSpotlight = prefs.getBoolean("autoOpenKeyboardInSpotlight", true),
             showWebSearchInSpotlight = prefs.getBoolean("showWebSearchInSpotlight", true),
             instantLaunchSingleSearchResult = prefs.getBoolean("instantLaunchSingleSearchResult", false),
@@ -113,7 +113,7 @@ class LauncherRepository(private val context: Context) {
             putInt("mainUnfoldedColumns", settings.mainUnfoldedColumns)
             putInt("mainUnfoldedRows", settings.mainUnfoldedRows)
             putInt("dockIconCount", settings.dockIconCount)
-            putString("foldMode", settings.foldMode.id)
+            putString("foldMode_v4", settings.foldMode.id)
             putString("pageTransition", settings.pageTransition.id)
             putFloat("iconSizeScale", settings.iconSizeScale)
             putFloat("labelFontSizeSp", settings.labelFontSizeSp)
@@ -124,14 +124,14 @@ class LauncherRepository(private val context: Context) {
             putBoolean("showAppLabels", settings.showAppLabels)
             putBoolean("showDockLabels", settings.showDockLabels)
             putBoolean("showRecentInUnfoldedDock", settings.showRecentInUnfoldedDock)
-            putBoolean("showTopWidgetsOnFirstPage", settings.showTopWidgetsOnFirstPage)
+            putBoolean("showTopWidgetsOnFirstPage_v4", settings.showTopWidgetsOnFirstPage)
             putString("leftWidgetType", settings.leftWidgetType.id)
             putString("rightWidgetType", settings.rightWidgetType.id)
             putString("quickNoteText", settings.quickNoteText)
             putInt("customAndroidWidgetId", settings.customAndroidWidgetId)
             putBoolean("enableBadges", settings.enableBadges)
             putBoolean("enableSwipeDownSpotlight", settings.enableSwipeDownSpotlight)
-            putBoolean("searchBarAtBottomInSpotlight", settings.searchBarAtBottomInSpotlight)
+            putBoolean("searchBarAtBottomInSpotlight_v4", settings.searchBarAtBottomInSpotlight)
             putBoolean("autoOpenKeyboardInSpotlight", settings.autoOpenKeyboardInSpotlight)
             putBoolean("showWebSearchInSpotlight", settings.showWebSearchInSpotlight)
             putBoolean("instantLaunchSingleSearchResult", settings.instantLaunchSingleSearchResult)
@@ -511,7 +511,7 @@ class LauncherRepository(private val context: Context) {
     }
 
     fun loadDockPackages(allApps: List<AppInfo>, maxDockSize: Int = 4): List<String> {
-        val saved = prefs.getString("dock_packages_json", null)
+        val saved = prefs.getString("dock_packages_v4_json", null)
         if (saved != null) {
             try {
                 val arr = JSONArray(saved)
@@ -526,24 +526,22 @@ class LauncherRepository(private val context: Context) {
             }
         }
 
+        // Exact Dock defaults matching Screenshot 3 & 4: Phone, Chrome/Browser, WhatsApp/Messages, Calculator!
         val defaults = mutableListOf<String>()
         findBestApp(allApps, listOf("dialer", "phone", "telefon", "contacts"))?.let { defaults.add(it.packageName) }
+        findBestApp(allApps, listOf("chrome", "sbrowser", "browser", "brave", "firefox"))?.let {
+            if (!defaults.contains(it.packageName)) defaults.add(it.packageName)
+        }
         findBestApp(allApps, listOf("whatsapp", "messaging", "messages", "mms", "telegram"))?.let {
             if (!defaults.contains(it.packageName)) defaults.add(it.packageName)
         }
-        findBestApp(allApps, listOf("chrome", "sbrowser", "browser", "firefox", "brave"))?.let {
-            if (!defaults.contains(it.packageName)) defaults.add(it.packageName)
-        }
-        if (allApps.any { it.packageName == context.packageName } && defaults.size < 4) {
-            defaults.add(context.packageName)
-        }
-        findBestApp(allApps, listOf("camera", "kamera", "gallery", "galerie"))?.let {
+        findBestApp(allApps, listOf("popupcalculator", "calculator", "rechner", "camera", "kamera"))?.let {
             if (defaults.size < 4 && !defaults.contains(it.packageName)) defaults.add(it.packageName)
         }
 
         for (app in allApps) {
             if (defaults.size >= 4) break
-            if (!defaults.contains(app.packageName) && !app.isHidden) {
+            if (!defaults.contains(app.packageName) && !app.isHidden && app.packageName != context.packageName) {
                 defaults.add(app.packageName)
             }
         }
@@ -555,11 +553,11 @@ class LauncherRepository(private val context: Context) {
     fun saveDockPackages(packages: List<String>) {
         val arr = JSONArray()
         packages.forEach { arr.put(it) }
-        prefs.edit().putString("dock_packages_json", arr.toString()).apply()
+        prefs.edit().putString("dock_packages_v4_json", arr.toString()).apply()
     }
 
     fun loadHomeGridItems(allApps: List<AppInfo>, dockPackages: List<String>): List<HomeGridItem> {
-        val raw = prefs.getString("home_grid_items_v3_json", null)
+        val raw = prefs.getString("home_grid_items_v4_json", null)
         val validPackages = allApps.filter { !it.isHidden }.map { it.packageName }.toSet()
 
         if (raw != null) {
@@ -613,26 +611,15 @@ class LauncherRepository(private val context: Context) {
                     }
                 }
 
-                // Place newly installed apps directly into their matching Smart Category Folder on Page 1!
-                val appByPkg = allApps.associateBy { it.packageName }
                 for (app in allApps) {
                     if (!app.isHidden && !placedPackages.contains(app.packageName)) {
-                        val targetFolderIdx = items.indexOfFirst {
-                            it is HomeGridItem.FolderItem &&
-                                (it.folderId == "smart_${app.category.id}" || it.title == app.category.titleDe)
-                        }
-                        if (targetFolderIdx >= 0) {
-                            val folder = items[targetFolderIdx] as HomeGridItem.FolderItem
-                            items[targetFolderIdx] = folder.copy(appPackages = folder.appPackages + app.packageName)
-                        } else {
-                            items.add(
-                                HomeGridItem.AppItem(
-                                    packageName = app.packageName,
-                                    page = 1,
-                                    position = items.size
-                                )
+                        items.add(
+                            HomeGridItem.AppItem(
+                                packageName = app.packageName,
+                                page = items.size / 24,
+                                position = items.size
                             )
-                        }
+                        )
                         placedPackages.add(app.packageName)
                     }
                 }
@@ -642,7 +629,7 @@ class LauncherRepository(private val context: Context) {
             }
         }
 
-        return generateSmartOrganizedHomeGrid(allApps, dockPackages)
+        return generateFlatSortedHomeGrid(allApps, dockPackages)
     }
 
     /**
@@ -769,7 +756,7 @@ class LauncherRepository(private val context: Context) {
         val items = sortedApps.mapIndexed { idx, app ->
             HomeGridItem.AppItem(
                 packageName = app.packageName,
-                page = if (idx < 16) 0 else 1 + ((idx - 16) / 24),
+                page = idx / 24,
                 position = idx
             )
         }
@@ -802,7 +789,7 @@ class LauncherRepository(private val context: Context) {
             }
             arr.put(obj)
         }
-        prefs.edit().putString("home_grid_items_v3_json", arr.toString()).apply()
+        prefs.edit().putString("home_grid_items_v4_json", arr.toString()).apply()
     }
 
     fun exportBackupJson(): String {

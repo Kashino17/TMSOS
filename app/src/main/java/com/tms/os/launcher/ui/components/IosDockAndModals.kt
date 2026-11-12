@@ -92,7 +92,7 @@ fun IosFrostedDock(
         contentAlignment = Alignment.Center,
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 6.dp)
+            .padding(horizontal = 12.dp, vertical = 6.dp)
     ) {
         val dockModifier = if (isUnfolded) {
             Modifier
@@ -102,24 +102,16 @@ fun IosFrostedDock(
 
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = if (isUnfolded) Arrangement.spacedBy(14.dp) else Arrangement.SpaceEvenly,
+            horizontalArrangement = if (isUnfolded) Arrangement.spacedBy(18.dp) else Arrangement.SpaceBetween,
             modifier = dockModifier
-                .shadow(18.dp, RoundedCornerShape(32.dp), clip = false)
-                .clip(RoundedCornerShape(32.dp))
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color(0xFF3E3E42).copy(alpha = glassOpacity.coerceIn(0.40f, 0.92f)),
-                            Color(0xFF222226).copy(alpha = (glassOpacity + 0.08f).coerceIn(0.48f, 0.95f))
-                        )
-                    )
-                )
+                .clip(RoundedCornerShape(36.dp))
+                .background(Color(0xA6242426))
                 .border(
-                    width = 0.85.dp,
-                    color = Color.White.copy(alpha = 0.24f),
-                    shape = RoundedCornerShape(32.dp)
+                    width = 0.5.dp,
+                    color = Color.White.copy(alpha = 0.08f),
+                    shape = RoundedCornerShape(36.dp)
                 )
-                .padding(horizontal = if (isUnfolded) 18.dp else 10.dp, vertical = 10.dp)
+                .padding(horizontal = 18.dp, vertical = 14.dp)
         ) {
             dockApps.forEach { app ->
                 IosAppIconView(
@@ -130,16 +122,17 @@ fun IosFrostedDock(
                     showBadges = showBadges,
                     isJiggleMode = isJiggleMode,
                     onClick = { onAppClick(app) },
-                    onLongClick = { onAppLongClick(app) }
+                    onLongClick = { onAppLongClick(app) },
+                    onDeleteOrMenuClick = { onAppLongClick(app) }
                 )
             }
 
             if (isUnfolded && showRecentInUnfolded && recentApps.isNotEmpty()) {
                 Box(
                     modifier = Modifier
-                        .width(1.5.dp)
-                        .height(iconSize * 0.78f)
-                        .background(Color.White.copy(alpha = 0.26f))
+                        .width(1.dp)
+                        .height(iconSize * 0.75f)
+                        .background(Color.White.copy(alpha = 0.20f))
                 )
 
                 recentApps.forEach { recentApp ->
