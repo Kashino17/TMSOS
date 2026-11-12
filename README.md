@@ -8,6 +8,18 @@ Ein maßgeschneiderter, werbefreier und kostenloser **iOS-Style Homescreen-Launc
 
 ---
 
+## Neu in v5.0.0 – iOS 26 Edition
+- **Echte Widgets** wie bei iOS (klein 2×2, mittel 4×2, groß 4×4): Wetter mit Stunden- und Tagesvorhersage, Kalender, Uhr/Weltzeit, Batterien, Siri-Vorschläge, Notizen – Icons fließen um Widgets herum.
+- **Smart Stack:** mehrere Widgets übereinander, vertikal durchwischen; entsteht aus der Galerie oder durch Ziehen eines Widgets auf ein gleich großes.
+- **Heute-Ansicht** links von Seite 1 und **Widget-Galerie** mit Suche und Größenauswahl („Bearbeiten“ → „Widget hinzufügen“).
+- **Bearbeiten wie iOS:** lang drücken und ziehen, andere Icons weichen animiert aus, am Rand halten wechselt die Seite, Ordner per Draufhalten, Apps zwischen Dock und Raster ziehen, Apps aus Ordnern ziehen.
+- **Spotlight folgt dem Finger** beim Herunterziehen.
+- **Ordner** wachsen aus dem Icon zum Glas-Panel; **Long-Press-Menü** am angehobenen Icon mit echten App-Kurzbefehlen.
+- **App-Umschalter:** auf dem Homescreen vom Dock hochwischen – Karten seitlich durchblättern, hochschnippen zum Schließen.
+- **iOS-Bewegung:** App-Start zoomt aus dem Icon, beim Zurückkehren federn die Icons an ihren Platz; Liquid-Glass-Dock.
+
+> Update: einfach die neue APK über die alte installieren – das Homescreen-Layout bleibt erhalten.
+
 ## Hauptfunktionen
 
 1. **Samsung Galaxy Fold Dual-Display Engine:**
@@ -36,6 +48,7 @@ Ein maßgeschneiderter, werbefreier und kostenloser **iOS-Style Homescreen-Launc
 
 ## Build aus dem Quellcode
 ```bash
-gradle assembleRelease
+./gradlew assembleRelease
+# APK: app/build.nosync/outputs/apk/release/app-release.apk
 ```
 Die signierte und R8-optimierte APK wird unter `app/build/outputs/apk/release/app-release.apk` sowie im Projekt-Root als `TMS-OS-Launcher.apk` abgelegt.
