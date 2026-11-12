@@ -13,6 +13,29 @@ enum class AppLanguage(val code: String, val displayName: String) {
     }
 }
 
+enum class IconThemeMode(val id: String, val titleDe: String, val descDe: String) {
+    STANDARD("standard", "Standard (Farbig)", "Originale App-Farben im randlosen Apple-Squircle"),
+    IOS_DARK("ios_dark", "iOS 18 Dunkel (Dark Mode)", "Dunkelt helle Icon-Hintergründe automatisch auf edles iOS-Anthrazit ab"),
+    IOS_TINTED("ios_tinted", "iOS 18 Getönt (Tinted)", "Edler monochromer Apple-Farbverlauf mit deiner Wunsch-Akzentfarbe");
+
+    companion object {
+        fun fromId(id: String): IconThemeMode = entries.find { it.id == id } ?: STANDARD
+    }
+}
+
+enum class TintAccentColor(val id: String, val titleDe: String, val colorHex: Long) {
+    IOS_BLUE("blue", "Apple Blau", 0xFF0A84FF),
+    EMERALD("emerald", "Smaragdgrün", 0xFF30D158),
+    ROYAL_PURPLE("purple", "Violett", 0xFFBF5AF2),
+    DESERT_GOLD("gold", "Wüstengold", 0xFFFF9F0A),
+    CRIMSON_RED("red", "Karmesinrot", 0xFFFF375F),
+    TITANIUM("titanium", "Titan Silber", 0xFF98989F);
+
+    companion object {
+        fun fromId(id: String): TintAccentColor = entries.find { it.id == id } ?: IOS_BLUE
+    }
+}
+
 enum class AppCategory(
     val id: String,
     val titleDe: String,
@@ -140,19 +163,39 @@ data class AppInfo(
     val isSystemApp: Boolean,
     val firstInstallTime: Long,
     val launchCount: Int = 0,
+    val usageDurationMinutes30d: Int = 0,
     val lastLaunchedTime: Long = 0L,
     val badgeCount: Int = 0,
     val isHidden: Boolean = false,
+    val isPinnedOnPageOne: Boolean = false,
     val iconBitmap: ImageBitmap? = null
 ) {
     val displayLabel: String
         get() = customLabel?.takeIf { it.isNotBlank() } ?: label
+
+    val effectivePriorityScore: Int
+        get() = (launchCount * 20) + usageDurationMinutes30d
 }
 
+data class AppShortcutItem(
+    val packageName: String,
+    val shortcutId: String,
+    val shortLabel: String,
+    val appLabel: String
+)
+
+data class ContactItem(
+    val id: String,
+    val name: String,
+    val phoneNumber: String
+)
+
 sealed class HomeGridItem(val id: String) {
+    abstract val page: Int
+
     data class AppItem(
         val packageName: String,
-        val page: Int = 0,
+        override val page: Int = 0,
         val position: Int = 0
     ) : HomeGridItem("app:$packageName")
 
@@ -160,19 +203,31 @@ sealed class HomeGridItem(val id: String) {
         val folderId: String,
         val title: String,
         val appPackages: List<String>,
-        val page: Int = 0,
+        override val page: Int = 1,
         val position: Int = 0,
         val categoryColorHex: Long = 0xFF0A84FF
     ) : HomeGridItem("folder:$folderId")
 }
 
 enum class FoldPostureMode(val id: String, val titleDe: String, val descDe: String) {
-    IPAD_GRID("ipad_grid", "iPadOS Breitbild-Raster", "Großzügiges 6x5 Raster mit erweitertem Dock & Zuletzt-Genutzt-Leiste"),
-    BOOK_SPLIT("book_split", "Dual-Page Buch-Modus", "Zeigt zwei iPhone-Seiten nebeneinander wie ein aufgeschlagenes Buch"),
-    CLASSIC_SCALED("classic_scaled", "Klassisch (Skaliert)", "Behält das gleiche Seiten-Layout wie auf dem Frontdisplay bei");
+    BOOK_SPLIT(
+        "book_split",
+        "Smart Dual-Page Dashboard (Empfohlen)",
+        "Links Seite 1 (Smart-Stack Widgets + Top-Apps) & Rechts Seite 2 (Alle Smart-Kategorie-Ordner) gleichzeitig!"
+    ),
+    IPAD_GRID(
+        "ipad_grid",
+        "iPadOS Breitbild-Raster",
+        "Großzügiges 6x5 Raster über die gesamte Breite mit erweitertem iPadOS-Dock"
+    ),
+    CLASSIC_SCALED(
+        "classic_scaled",
+        "Klassisch (Skaliert)",
+        "Behält das gleiche Seiten-Layout wie auf dem Frontdisplay bei"
+    );
 
     companion object {
-        fun fromId(id: String): FoldPostureMode = entries.find { it.id == id } ?: IPAD_GRID
+        fun fromId(id: String): FoldPostureMode = entries.find { it.id == id } ?: BOOK_SPLIT
     }
 }
 
@@ -191,10 +246,21 @@ enum class PageTransitionEffect(val id: String, val titleDe: String, val descDe:
 enum class LeftWidgetType(val id: String, val titleDe: String) {
     CALENDAR_CLOCK("calendar_clock", "iOS Kalender & Live-Uhr"),
     BATTERY_STATUS("battery_status", "iOS Batterie & Geräte-Status"),
-    SIRI_SUGGESTIONS("siri_suggestions", "Siri Top-4 App-Vorschläge");
+    SIRI_SUGGESTIONS("siri_suggestions", "Siri Top-4 App-Vorschläge"),
+    QUICK_NOTE("quick_note", "iOS Schnell-Notiz & Aufgaben");
 
     companion object {
         fun fromId(id: String): LeftWidgetType = entries.find { it.id == id } ?: CALENDAR_CLOCK
+    }
+}
+
+enum class RightWidgetType(val id: String, val titleDe: String) {
+    LIVE_WEATHER("live_weather", "iOS Live-Wetter (Open-Meteo)"),
+    MEDIA_CONTROLLER("media_controller", "iOS Musik- & Medien-Steuerung"),
+    STORAGE_RAM("storage_ram", "System- & Speicher-Monitor");
+
+    companion object {
+        fun fromId(id: String): RightWidgetType = entries.find { it.id == id } ?: LIVE_WEATHER
     }
 }
 
@@ -204,10 +270,12 @@ data class LauncherSettings(
     val mainUnfoldedColumns: Int = 6,
     val mainUnfoldedRows: Int = 5,
     val dockIconCount: Int = 4,
-    val foldMode: FoldPostureMode = FoldPostureMode.IPAD_GRID,
+    val foldMode: FoldPostureMode = FoldPostureMode.BOOK_SPLIT,
     val pageTransition: PageTransitionEffect = PageTransitionEffect.IOS_SLIDE,
-    val iconSizeScale: Float = 1.0f, // 0.80f .. 1.20f
+    val iconSizeScale: Float = 1.0f,
     val labelFontSizeSp: Float = 11.5f,
+    val iconThemeMode: IconThemeMode = IconThemeMode.STANDARD,
+    val tintAccentColor: TintAccentColor = TintAccentColor.IOS_BLUE,
     val useIosSystemIcons: Boolean = true,
     val fullBleedAdaptiveIcons: Boolean = true,
     val showAppLabels: Boolean = true,
@@ -215,8 +283,12 @@ data class LauncherSettings(
     val showRecentInUnfoldedDock: Boolean = true,
     val showTopWidgetsOnFirstPage: Boolean = true,
     val leftWidgetType: LeftWidgetType = LeftWidgetType.CALENDAR_CLOCK,
+    val rightWidgetType: RightWidgetType = RightWidgetType.LIVE_WEATHER,
+    val quickNoteText: String = "Tippen für Schnell-Notiz…",
+    val customAndroidWidgetId: Int = -1,
     val enableBadges: Boolean = true,
     val enableSwipeDownSpotlight: Boolean = true,
+    val searchBarAtBottomInSpotlight: Boolean = true,
     val autoOpenKeyboardInSpotlight: Boolean = true,
     val showWebSearchInSpotlight: Boolean = true,
     val instantLaunchSingleSearchResult: Boolean = false,
@@ -230,6 +302,6 @@ data class LauncherSettings(
     val weatherLastUpdated: Long = 0L,
     val useFahrenheit: Boolean = false,
     val glassOpacity: Float = 0.78f,
-    val blurIntensity: Float = 0.85f,
+    val blurIntensity: Float = 0.88f,
     val appLanguage: AppLanguage = AppLanguage.DE
 )

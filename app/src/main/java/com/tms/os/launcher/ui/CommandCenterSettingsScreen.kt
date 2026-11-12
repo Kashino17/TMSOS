@@ -1,5 +1,8 @@
 package com.tms.os.launcher.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.provider.Settings
 import androidx.compose.foundation.Image
@@ -76,8 +79,11 @@ import androidx.compose.ui.unit.sp
 import com.tms.os.launcher.model.AppCategory
 import com.tms.os.launcher.model.AppLanguage
 import com.tms.os.launcher.model.FoldPostureMode
+import com.tms.os.launcher.model.IconThemeMode
 import com.tms.os.launcher.model.LeftWidgetType
 import com.tms.os.launcher.model.PageTransitionEffect
+import com.tms.os.launcher.model.RightWidgetType
+import com.tms.os.launcher.model.TintAccentColor
 import com.tms.os.launcher.ui.components.IosAppIconView
 import com.tms.os.launcher.viewmodel.LauncherViewModel
 import kotlin.math.roundToInt
@@ -147,7 +153,7 @@ fun CommandCenterSettingsScreen(
                             )
                             Spacer(modifier = Modifier.height(10.dp))
                             Text(
-                                text = "TMS OS v2.0.0 Pro • ${state.allApps.size} Apps indexiert",
+                                text = "TMS OS v3.0.0 Ultimate • ${state.allApps.size} Apps indexiert",
                                 color = Color(0xFF0A84FF),
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold
@@ -569,8 +575,18 @@ private fun SettingsSubPageContent(
                 "general" -> {
                     item {
                         SettingsSwitchCard(
+                            title = "Spotlight-Suchleiste unten (iOS 18 Einhand-Modus)",
+                            subtitle = "Positioniert das Suchfeld direkt über der Tastatur für bequeme Einhand-Bedienung auf dem Galaxy Fold",
+                            checked = settings.searchBarAtBottomInSpotlight,
+                            onCheckedChange = { v ->
+                                viewModel.updateSettings { it.copy(searchBarAtBottomInSpotlight = v) }
+                            }
+                        )
+                    }
+                    item {
+                        SettingsSwitchCard(
                             title = "Swipe-Down für Spotlight-Suche",
-                            subtitle = "Wische irgendwo auf dem Homescreen nach unten, um sofort Spotlight zu öffnen",
+                            subtitle = "Wische auf dem Homescreen nach unten (oberer Rand öffnet die Android-Benachrichtigungsleiste)",
                             checked = settings.enableSwipeDownSpotlight,
                             onCheckedChange = { v ->
                                 viewModel.updateSettings { it.copy(enableSwipeDownSpotlight = v) }
@@ -619,6 +635,56 @@ private fun SettingsSubPageContent(
                     }
                     item {
                         Column(
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(Color(0xFF1C1C1E))
+                                .padding(16.dp)
+                        ) {
+                            Text(
+                                text = if (state.isUsageStatsGranted) {
+                                    "✓ 30-Tage Nutzungsanalyse (UsageStats) aktiv"
+                                } else {
+                                    "Nutzungsanalyse für intelligente Seite-1-Auswahl"
+                                },
+                                color = if (state.isUsageStatsGranted) Color(0xFF30D158) else Color(0xFFFF9F0A),
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Erlaubt TMS OS, deine am häufigsten genutzten Apps der letzten 30 Tage automatisch als Einzel-Apps auf Seite 1 zu platzieren.",
+                                color = Color(0xFF8E8E93),
+                                fontSize = 12.5.sp
+                            )
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(Color(0xFF2C2C2E))
+                                    .clickable {
+                                        try {
+                                            val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).apply {
+                                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                            }
+                                            context.startActivity(intent)
+                                        } catch (_: Exception) {
+                                        }
+                                    }
+                                    .padding(vertical = 12.dp)
+                            ) {
+                                Text(
+                                    text = "Nutzungszugriff in Android öffnen",
+                                    color = Color(0xFF0A84FF),
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 13.5.sp
+                                )
+                            }
+                        }
+                    }
+                    item {
+                        Column(
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -633,7 +699,7 @@ private fun SettingsSubPageContent(
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "Ordnet deinen gesamten Homescreen automatisch ohne manuelles Verschieben:",
+                                text = "Seite 1 = Top-Einzel-Apps • Seite 2 = Alle Smart-Kategorie-Ordner:",
                                 color = Color(0xFF8E8E93),
                                 fontSize = 13.sp
                             )
@@ -650,7 +716,7 @@ private fun SettingsSubPageContent(
                                     .padding(vertical = 13.dp)
                             ) {
                                 Text(
-                                    text = "Alltags-Apps + Smart-Kategorie-Ordner anlegen",
+                                    text = "Seite 1 Einzel-Apps + Seite 2 Smart-Ordner anlegen",
                                     color = Color.White,
                                     fontWeight = FontWeight.SemiBold,
                                     fontSize = 14.sp
@@ -677,6 +743,74 @@ private fun SettingsSubPageContent(
                             }
                         }
                     }
+                    item {
+                        var backupStatus by remember { mutableStateOf<String?>(null) }
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(Color(0xFF1C1C1E))
+                                .padding(16.dp)
+                        ) {
+                            Text(
+                                text = "Backup & Wiederherstellung (JSON)",
+                                color = Color.White,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Sichere dein komplettes Layout, Kategorien, Ordner & Einstellungen in die Zwischenablage oder spiele ein Backup wieder ein.",
+                                color = Color(0xFF8E8E93),
+                                fontSize = 12.5.sp
+                            )
+                            if (backupStatus != null) {
+                                Text(
+                                    text = backupStatus!!,
+                                    color = Color(0xFF30D158),
+                                    fontSize = 12.5.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(Color(0xFF2C2C2E))
+                                        .clickable {
+                                            val json = viewModel.exportBackupJson()
+                                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                                            cm?.setPrimaryClip(ClipData.newPlainText("TMS_OS_Backup", json))
+                                            backupStatus = "✓ Backup-JSON in Zwischenablage kopiert!"
+                                        }
+                                        .padding(vertical = 12.dp)
+                                ) {
+                                    Text("Backup kopieren", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                }
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(Color(0xFF2C2C2E))
+                                        .clickable {
+                                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                                            val text = cm?.primaryClip?.getItemAt(0)?.text?.toString().orEmpty()
+                                            if (viewModel.importBackupJson(text)) {
+                                                backupStatus = "✓ Backup erfolgreich wiederhergestellt!"
+                                            } else {
+                                                backupStatus = "Kein gültiges Backup in der Zwischenablage."
+                                            }
+                                        }
+                                        .padding(vertical = 12.dp)
+                                ) {
+                                    Text("Backup importieren", color = Color(0xFF0A84FF), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                        }
+                    }
                 }
 
                 "appearance" -> {
@@ -697,7 +831,7 @@ private fun SettingsSubPageContent(
                                 .padding(16.dp)
                         ) {
                             Text(
-                                text = "LIVE-VORSCHAU",
+                                text = "LIVE-VORSCHAU (${settings.iconThemeMode.titleDe.uppercase()})",
                                 color = Color.White.copy(alpha = 0.5f),
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
@@ -719,6 +853,76 @@ private fun SettingsSubPageContent(
                                         onClick = {},
                                         onLongClick = {}
                                     )
+                                }
+                            }
+                        }
+                    }
+
+                    // iOS 18 Icon Theme Mode Selector (Standard / iOS 18 Dark / iOS 18 Tinted)
+                    item {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(Color(0xFF1C1C1E))
+                                .padding(16.dp)
+                        ) {
+                            Text(
+                                text = "iOS 18 Icon-Farbmodus",
+                                color = Color.White,
+                                fontSize = 15.5.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            IosSegmentedRow(
+                                options = IconThemeMode.entries,
+                                selected = settings.iconThemeMode,
+                                labelFor = { it.titleDe },
+                                onSelect = { mode ->
+                                    viewModel.updateSettings { it.copy(iconThemeMode = mode) }
+                                }
+                            )
+
+                            if (settings.iconThemeMode == IconThemeMode.IOS_TINTED) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "iOS 18 Tinting-Akzentfarbe:",
+                                    color = Color(0xFF8E8E93),
+                                    fontSize = 12.5.sp
+                                )
+                                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    items(TintAccentColor.entries) { accent ->
+                                        val isSelected = settings.tintAccentColor == accent
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier
+                                                .clip(CircleShape)
+                                                .background(if (isSelected) Color(0xFF2C2C2E) else Color(0xFF141416))
+                                                .border(
+                                                    width = if (isSelected) 1.5.dp else 0.6.dp,
+                                                    color = if (isSelected) Color(accent.colorHex) else Color.White.copy(alpha = 0.15f),
+                                                    shape = CircleShape
+                                                )
+                                                .clickable {
+                                                    viewModel.updateSettings { it.copy(tintAccentColor = accent) }
+                                                }
+                                                .padding(horizontal = 12.dp, vertical = 7.dp)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(14.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color(accent.colorHex))
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = accent.titleDe,
+                                                color = Color.White,
+                                                fontSize = 12.5.sp,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1050,6 +1254,51 @@ private fun SettingsSubPageContent(
                         ) {
                             Text(
                                 text = wType.titleDe,
+                                color = Color.White,
+                                fontSize = 15.5.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            if (selected) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = null,
+                                    tint = Color(0xFF0A84FF)
+                                )
+                            }
+                        }
+                    }
+
+                    item {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Rechtes Smart-Stack Widget auswählen (oder direkt auf dem Homescreen vertikal wischen)",
+                            color = Color(0xFF8E8E93),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+
+                    items(RightWidgetType.entries) { rType ->
+                        val selected = settings.rightWidgetType == rType
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(Color(0xFF1C1C1E))
+                                .border(
+                                    width = if (selected) 1.5.dp else 0.dp,
+                                    color = if (selected) Color(0xFF0A84FF) else Color.Transparent,
+                                    shape = RoundedCornerShape(16.dp)
+                                )
+                                .clickable {
+                                    viewModel.updateSettings { it.copy(rightWidgetType = rType) }
+                                }
+                                .padding(16.dp)
+                        ) {
+                            Text(
+                                text = rType.titleDe,
                                 color = Color.White,
                                 fontSize = 15.5.sp,
                                 fontWeight = FontWeight.SemiBold

@@ -1,26 +1,42 @@
 package com.tms.os.launcher.data
 
+import android.app.ActivityManager
+import android.app.AppOpsManager
+import android.app.usage.UsageStatsManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.database.Cursor
 import android.graphics.Bitmap
+import android.media.AudioManager
 import android.net.Uri
 import android.os.BatteryManager
 import android.os.Build
+import android.os.Environment
+import android.os.Process
+import android.os.StatFs
+import android.os.SystemClock
+import android.provider.ContactsContract
 import android.provider.Settings
+import android.view.KeyEvent
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.core.content.ContextCompat
 import com.tms.os.launcher.domain.IconEngine
 import com.tms.os.launcher.domain.SmartCategorizer
 import com.tms.os.launcher.model.AppCategory
 import com.tms.os.launcher.model.AppInfo
 import com.tms.os.launcher.model.AppLanguage
+import com.tms.os.launcher.model.ContactItem
 import com.tms.os.launcher.model.FoldPostureMode
 import com.tms.os.launcher.model.HomeGridItem
+import com.tms.os.launcher.model.IconThemeMode
 import com.tms.os.launcher.model.LauncherSettings
 import com.tms.os.launcher.model.LeftWidgetType
 import com.tms.os.launcher.model.PageTransitionEffect
+import com.tms.os.launcher.model.RightWidgetType
+import com.tms.os.launcher.model.TintAccentColor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -29,6 +45,13 @@ import java.net.URLEncoder
 import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+
+data class SystemStorageRamInfo(
+    val usedRamGb: Float,
+    val totalRamGb: Float,
+    val usedStorageGb: Int,
+    val totalStorageGb: Int
+)
 
 class LauncherRepository(private val context: Context) {
 
@@ -46,10 +69,12 @@ class LauncherRepository(private val context: Context) {
             mainUnfoldedColumns = prefs.getInt("mainUnfoldedColumns", 6),
             mainUnfoldedRows = prefs.getInt("mainUnfoldedRows", 5),
             dockIconCount = prefs.getInt("dockIconCount", 4),
-            foldMode = FoldPostureMode.fromId(prefs.getString("foldMode", FoldPostureMode.IPAD_GRID.id) ?: ""),
+            foldMode = FoldPostureMode.fromId(prefs.getString("foldMode", FoldPostureMode.BOOK_SPLIT.id) ?: ""),
             pageTransition = PageTransitionEffect.fromId(prefs.getString("pageTransition", PageTransitionEffect.IOS_SLIDE.id) ?: ""),
             iconSizeScale = prefs.getFloat("iconSizeScale", 1.0f),
             labelFontSizeSp = prefs.getFloat("labelFontSizeSp", 11.5f),
+            iconThemeMode = IconThemeMode.fromId(prefs.getString("iconThemeMode", IconThemeMode.STANDARD.id) ?: ""),
+            tintAccentColor = TintAccentColor.fromId(prefs.getString("tintAccentColor", TintAccentColor.IOS_BLUE.id) ?: ""),
             useIosSystemIcons = prefs.getBoolean("useIosSystemIcons", true),
             fullBleedAdaptiveIcons = prefs.getBoolean("fullBleedAdaptiveIcons", true),
             showAppLabels = prefs.getBoolean("showAppLabels", true),
@@ -57,8 +82,12 @@ class LauncherRepository(private val context: Context) {
             showRecentInUnfoldedDock = prefs.getBoolean("showRecentInUnfoldedDock", true),
             showTopWidgetsOnFirstPage = prefs.getBoolean("showTopWidgetsOnFirstPage", true),
             leftWidgetType = LeftWidgetType.fromId(prefs.getString("leftWidgetType", LeftWidgetType.CALENDAR_CLOCK.id) ?: ""),
+            rightWidgetType = RightWidgetType.fromId(prefs.getString("rightWidgetType", RightWidgetType.LIVE_WEATHER.id) ?: ""),
+            quickNoteText = prefs.getString("quickNoteText", "Tippen für Schnell-Notiz…") ?: "Tippen für Schnell-Notiz…",
+            customAndroidWidgetId = prefs.getInt("customAndroidWidgetId", -1),
             enableBadges = prefs.getBoolean("enableBadges", true),
             enableSwipeDownSpotlight = prefs.getBoolean("enableSwipeDownSpotlight", true),
+            searchBarAtBottomInSpotlight = prefs.getBoolean("searchBarAtBottomInSpotlight", true),
             autoOpenKeyboardInSpotlight = prefs.getBoolean("autoOpenKeyboardInSpotlight", true),
             showWebSearchInSpotlight = prefs.getBoolean("showWebSearchInSpotlight", true),
             instantLaunchSingleSearchResult = prefs.getBoolean("instantLaunchSingleSearchResult", false),
@@ -72,7 +101,7 @@ class LauncherRepository(private val context: Context) {
             weatherLastUpdated = prefs.getLong("weatherLastUpdated", 0L),
             useFahrenheit = prefs.getBoolean("useFahrenheit", false),
             glassOpacity = prefs.getFloat("glassOpacity", 0.78f),
-            blurIntensity = prefs.getFloat("blurIntensity", 0.85f),
+            blurIntensity = prefs.getFloat("blurIntensity", 0.88f),
             appLanguage = AppLanguage.fromCode(prefs.getString("appLanguage", AppLanguage.DE.code) ?: "de")
         )
     }
@@ -88,6 +117,8 @@ class LauncherRepository(private val context: Context) {
             putString("pageTransition", settings.pageTransition.id)
             putFloat("iconSizeScale", settings.iconSizeScale)
             putFloat("labelFontSizeSp", settings.labelFontSizeSp)
+            putString("iconThemeMode", settings.iconThemeMode.id)
+            putString("tintAccentColor", settings.tintAccentColor.id)
             putBoolean("useIosSystemIcons", settings.useIosSystemIcons)
             putBoolean("fullBleedAdaptiveIcons", settings.fullBleedAdaptiveIcons)
             putBoolean("showAppLabels", settings.showAppLabels)
@@ -95,8 +126,12 @@ class LauncherRepository(private val context: Context) {
             putBoolean("showRecentInUnfoldedDock", settings.showRecentInUnfoldedDock)
             putBoolean("showTopWidgetsOnFirstPage", settings.showTopWidgetsOnFirstPage)
             putString("leftWidgetType", settings.leftWidgetType.id)
+            putString("rightWidgetType", settings.rightWidgetType.id)
+            putString("quickNoteText", settings.quickNoteText)
+            putInt("customAndroidWidgetId", settings.customAndroidWidgetId)
             putBoolean("enableBadges", settings.enableBadges)
             putBoolean("enableSwipeDownSpotlight", settings.enableSwipeDownSpotlight)
+            putBoolean("searchBarAtBottomInSpotlight", settings.searchBarAtBottomInSpotlight)
             putBoolean("autoOpenKeyboardInSpotlight", settings.autoOpenKeyboardInSpotlight)
             putBoolean("showWebSearchInSpotlight", settings.showWebSearchInSpotlight)
             putBoolean("instantLaunchSingleSearchResult", settings.instantLaunchSingleSearchResult)
@@ -135,8 +170,10 @@ class LauncherRepository(private val context: Context) {
         val customCategories = getCustomCategoryOverrides()
         val customLabels = getCustomLabels()
         val hiddenSet = getHiddenPackages()
+        val pinnedSet = getPinnedPageOnePackages()
         val launchCounts = getLaunchCounts()
         val lastLaunched = getLastLaunchedTimes()
+        val usageMinutesMap = getUsageStatsMinutesMap()
 
         val result = mutableListOf<AppInfo>()
         val seenPackages = mutableSetOf<String>()
@@ -166,7 +203,7 @@ class LauncherRepository(private val context: Context) {
             val overrideCat = customCategories[pkg]
             val category = SmartCategorizer.categorizeApp(pkg, rawLabel, appInfo, overrideCat)
 
-            val cacheKey = "${pkg}_${settings.useIosSystemIcons}_${settings.fullBleedAdaptiveIcons}"
+            val cacheKey = "${pkg}_${settings.useIosSystemIcons}_${settings.fullBleedAdaptiveIcons}_${settings.iconThemeMode.id}_${settings.tintAccentColor.id}"
             val iconBitmap = iconCache.getOrPut(cacheKey) {
                 try {
                     val drawable = ri.loadIcon(pm)
@@ -176,7 +213,9 @@ class LauncherRepository(private val context: Context) {
                         drawable = drawable,
                         sizePx = 192,
                         useIosSystemIcons = settings.useIosSystemIcons,
-                        fullBleedAdaptive = settings.fullBleedAdaptiveIcons
+                        fullBleedAdaptive = settings.fullBleedAdaptiveIcons,
+                        themeMode = settings.iconThemeMode,
+                        tintAccent = settings.tintAccentColor
                     )
                 } catch (_: Exception) {
                     createFallbackBitmap(192)
@@ -193,9 +232,11 @@ class LauncherRepository(private val context: Context) {
                     isSystemApp = isSystem,
                     firstInstallTime = firstInstall,
                     launchCount = launchCounts[pkg] ?: 0,
+                    usageDurationMinutes30d = usageMinutesMap[pkg] ?: 0,
                     lastLaunchedTime = lastLaunched[pkg] ?: 0L,
                     badgeCount = badgeMap[pkg] ?: 0,
                     isHidden = hiddenSet.contains(pkg),
+                    isPinnedOnPageOne = pinnedSet.contains(pkg),
                     iconBitmap = iconBitmap
                 )
             )
@@ -209,12 +250,133 @@ class LauncherRepository(private val context: Context) {
         return bitmap.asImageBitmap()
     }
 
+    /**
+     * Reads real 30-day Android foreground usage stats (in minutes) if PACKAGE_USAGE_STATS is granted.
+     */
+    fun getUsageStatsMinutesMap(): Map<String, Int> {
+        if (!isUsageStatsPermissionGranted()) return emptyMap()
+        return try {
+            val usm = context.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager ?: return emptyMap()
+            val end = System.currentTimeMillis()
+            val start = end - (30L * 24L * 60L * 60L * 1000L)
+            val stats = usm.queryAndAggregateUsageStats(start, end)
+            val map = mutableMapOf<String, Int>()
+            for ((pkg, u) in stats) {
+                val mins = (u.totalTimeInForeground / 60000L).toInt()
+                if (mins > 0) map[pkg] = mins
+            }
+            map
+        } catch (_: Exception) {
+            emptyMap()
+        }
+    }
+
+    fun isUsageStatsPermissionGranted(): Boolean {
+        return try {
+            val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
+            val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                appOps.unsafeCheckOpNoThrow(
+                    AppOpsManager.OPSTR_GET_USAGE_STATS,
+                    Process.myUid(),
+                    context.packageName
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                appOps.checkOpNoThrow(
+                    AppOpsManager.OPSTR_GET_USAGE_STATS,
+                    Process.myUid(),
+                    context.packageName
+                )
+            }
+            mode == AppOpsManager.MODE_ALLOWED
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    suspend fun loadContactsIfPermitted(): List<ContactItem> = withContext(Dispatchers.IO) {
+        if (ContextCompat.checkSelfPermission(context, android.Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
+            return@withContext emptyList()
+        }
+        val list = mutableListOf<ContactItem>()
+        var cursor: Cursor? = null
+        try {
+            cursor = context.contentResolver.query(
+                ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                arrayOf(
+                    ContactsContract.CommonDataKinds.Phone.CONTACT_ID,
+                    ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+                    ContactsContract.CommonDataKinds.Phone.NUMBER
+                ),
+                null,
+                null,
+                ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + " ASC"
+            )
+            val seenNames = mutableSetOf<String>()
+            while (cursor != null && cursor.moveToNext() && list.size < 200) {
+                val id = cursor.getString(0) ?: continue
+                val name = cursor.getString(1)?.trim() ?: continue
+                val number = cursor.getString(2)?.trim() ?: continue
+                if (name.isNotBlank() && seenNames.add(name)) {
+                    list.add(ContactItem(id, name, number))
+                }
+            }
+        } catch (_: Exception) {
+        } finally {
+            cursor?.close()
+        }
+        list
+    }
+
     fun getDeviceBatteryPercent(): Int {
         return try {
             val bm = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
             bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)?.coerceIn(0, 100) ?: 85
         } catch (_: Exception) {
             85
+        }
+    }
+
+    fun getStorageAndRamInfo(): SystemStorageRamInfo {
+        return try {
+            val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+            val memInfo = ActivityManager.MemoryInfo()
+            am.getMemoryInfo(memInfo)
+            val totalRamGb = (memInfo.totalMem.toDouble() / (1024.0 * 1024.0 * 1024.0)).toFloat()
+            val usedRamGb = ((memInfo.totalMem - memInfo.availMem).toDouble() / (1024.0 * 1024.0 * 1024.0)).toFloat()
+
+            val stat = StatFs(Environment.getDataDirectory().path)
+            val totalBytes = stat.blockSizeLong * stat.blockCountLong
+            val availBytes = stat.blockSizeLong * stat.availableBlocksLong
+            val totalStorageGb = (totalBytes / (1024L * 1024L * 1024L)).toInt()
+            val usedStorageGb = ((totalBytes - availBytes) / (1024L * 1024L * 1024L)).toInt()
+
+            SystemStorageRamInfo(usedRamGb, totalRamGb, usedStorageGb, totalStorageGb)
+        } catch (_: Exception) {
+            SystemStorageRamInfo(6.4f, 12.0f, 128, 512)
+        }
+    }
+
+    fun sendMediaKeyEvent(keyCode: Int) {
+        try {
+            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+            val eventTime = SystemClock.uptimeMillis()
+            val downEvent = KeyEvent(eventTime, eventTime, KeyEvent.ACTION_DOWN, keyCode, 0)
+            val upEvent = KeyEvent(eventTime, eventTime, KeyEvent.ACTION_UP, keyCode, 0)
+            audioManager.dispatchMediaKeyEvent(downEvent)
+            audioManager.dispatchMediaKeyEvent(upEvent)
+        } catch (_: Exception) {
+        }
+    }
+
+    fun expandSystemNotificationShade() {
+        try {
+            val service = context.getSystemService("statusbar") ?: return
+            val statusbarManager = Class.forName("android.app.StatusBarManager")
+            val expand = statusbarManager.getMethod("expandNotificationsPanel")
+            expand.isAccessible = true
+            expand.invoke(service)
+        } catch (_: Exception) {
         }
     }
 
@@ -226,6 +388,16 @@ class LauncherRepository(private val context: Context) {
         val times = getLastLaunchedTimes().toMutableMap()
         times[packageName] = System.currentTimeMillis()
         saveLastLaunchedTimes(times)
+    }
+
+    fun setAppPinnedOnPageOne(packageName: String, pinned: Boolean) {
+        val set = getPinnedPageOnePackages().toMutableSet()
+        if (pinned) set.add(packageName) else set.remove(packageName)
+        prefs.edit().putStringSet("pinned_page_one_packages", set).apply()
+    }
+
+    fun getPinnedPageOnePackages(): Set<String> {
+        return prefs.getStringSet("pinned_page_one_packages", emptySet()) ?: emptySet()
     }
 
     fun setAppCategoryOverride(packageName: String, category: AppCategory?) {
@@ -387,7 +559,7 @@ class LauncherRepository(private val context: Context) {
     }
 
     fun loadHomeGridItems(allApps: List<AppInfo>, dockPackages: List<String>): List<HomeGridItem> {
-        val raw = prefs.getString("home_grid_items_json", null)
+        val raw = prefs.getString("home_grid_items_v3_json", null)
         val validPackages = allApps.filter { !it.isHidden }.map { it.packageName }.toSet()
 
         if (raw != null) {
@@ -431,7 +603,7 @@ class LauncherRepository(private val context: Context) {
                                         folderId = folderId,
                                         title = title,
                                         appPackages = folderPkgs,
-                                        page = obj.optInt("page", 0),
+                                        page = obj.optInt("page", 1),
                                         position = obj.optInt("position", items.size),
                                         categoryColorHex = obj.optLong("colorHex", 0xFF0A84FF)
                                     )
@@ -441,17 +613,27 @@ class LauncherRepository(private val context: Context) {
                     }
                 }
 
-                var nextPos = items.size
+                // Place newly installed apps directly into their matching Smart Category Folder on Page 1!
+                val appByPkg = allApps.associateBy { it.packageName }
                 for (app in allApps) {
                     if (!app.isHidden && !placedPackages.contains(app.packageName)) {
-                        items.add(
-                            HomeGridItem.AppItem(
-                                packageName = app.packageName,
-                                page = nextPos / 20,
-                                position = nextPos
+                        val targetFolderIdx = items.indexOfFirst {
+                            it is HomeGridItem.FolderItem &&
+                                (it.folderId == "smart_${app.category.id}" || it.title == app.category.titleDe)
+                        }
+                        if (targetFolderIdx >= 0) {
+                            val folder = items[targetFolderIdx] as HomeGridItem.FolderItem
+                            items[targetFolderIdx] = folder.copy(appPackages = folder.appPackages + app.packageName)
+                        } else {
+                            items.add(
+                                HomeGridItem.AppItem(
+                                    packageName = app.packageName,
+                                    page = 1,
+                                    position = items.size
+                                )
                             )
-                        )
-                        nextPos++
+                        }
+                        placedPackages.add(app.packageName)
                     }
                 }
 
@@ -463,9 +645,15 @@ class LauncherRepository(private val context: Context) {
         return generateSmartOrganizedHomeGrid(allApps, dockPackages)
     }
 
+    /**
+     * Exact structure chosen by the user:
+     * - Page 0 (Seite 1): Up to 16 single daily-driver apps (Smart-Pinned + highest UsageStats/Launch score + essentials). NO folders on Page 0!
+     * - Page 1 (Seite 2): ALL remaining apps cleanly bundled into Smart Category Folders!
+     */
     fun generateSmartOrganizedHomeGrid(
         allApps: List<AppInfo>,
-        dockPackages: List<String>
+        dockPackages: List<String>,
+        page0SingleAppCount: Int = 16
     ): List<HomeGridItem> {
         val dockSet = dockPackages.toSet()
         val availableApps = allApps.filter { !it.isHidden && !dockSet.contains(it.packageName) }
@@ -473,13 +661,34 @@ class LauncherRepository(private val context: Context) {
         val items = mutableListOf<HomeGridItem>()
         val placed = mutableSetOf<String>()
 
+        // 1. Place user's manually pinned Page-1 apps first
+        val pinnedApps = availableApps.filter { it.isPinnedOnPageOne }
+        for (app in pinnedApps) {
+            if (items.size >= page0SingleAppCount) break
+            items.add(HomeGridItem.AppItem(app.packageName, page = 0, position = items.size))
+            placed.add(app.packageName)
+        }
+
+        // 2. Place apps with actual high usage (UsageStatsManager 30d + LaunchCount)
+        val byUsage = availableApps
+            .filter { !placed.contains(it.packageName) && it.effectivePriorityScore > 0 }
+            .sortedByDescending { it.effectivePriorityScore }
+
+        for (app in byUsage) {
+            if (items.size >= page0SingleAppCount) break
+            items.add(HomeGridItem.AppItem(app.packageName, page = 0, position = items.size))
+            placed.add(app.packageName)
+        }
+
+        // 3. Fill remaining slots on Page 0 with curated daily essentials
         val priorityKeywords = listOf(
             "camera", "kamera", "apps.photos", "gallery", "galerie", "whatsapp",
             "maps", "gmail", "calendar", "kalender", "deskclock", "clock", "uhr",
-            "com.android.settings", "einstellungen", "vending", "youtube", "spotify"
+            "com.android.settings", "einstellungen", "vending", "youtube", "spotify",
+            "instagram", "telegram", "binance", "revolut", "n26", "fab"
         )
         for (kw in priorityKeywords) {
-            if (items.size >= 12) break
+            if (items.size >= page0SingleAppCount) break
             val match = availableApps.firstOrNull {
                 !placed.contains(it.packageName) &&
                     (it.packageName.lowercase(Locale.ROOT).contains(kw) ||
@@ -491,6 +700,16 @@ class LauncherRepository(private val context: Context) {
             }
         }
 
+        // If still under page0SingleAppCount, top up with remaining apps
+        for (app in availableApps) {
+            if (items.size >= page0SingleAppCount) break
+            if (!placed.contains(app.packageName)) {
+                items.add(HomeGridItem.AppItem(app.packageName, page = 0, position = items.size))
+                placed.add(app.packageName)
+            }
+        }
+
+        // 4. Page 1 (Seite 2): Group ALL remaining apps into Smart iOS Category Folders!
         val remaining = availableApps.filter { !placed.contains(it.packageName) }
         val byCategory = remaining.groupBy { it.category }
 
@@ -509,22 +728,20 @@ class LauncherRepository(private val context: Context) {
         )
 
         for (cat in orderedCategories) {
-            val catApps = byCategory[cat].orEmpty()
-            if (catApps.size >= 2) {
+            val catApps = byCategory[cat]
+                ?.sortedWith(
+                    compareByDescending<AppInfo> { it.effectivePriorityScore }
+                        .thenBy { it.displayLabel.lowercase(Locale.ROOT) }
+                )
+                .orEmpty()
+
+            if (catApps.isNotEmpty()) {
                 items.add(
                     HomeGridItem.FolderItem(
                         folderId = "smart_${cat.id}",
                         title = cat.titleDe,
                         appPackages = catApps.map { it.packageName },
-                        page = if (items.size < 16) 0 else 1,
-                        position = items.size
-                    )
-                )
-            } else if (catApps.size == 1) {
-                items.add(
-                    HomeGridItem.AppItem(
-                        packageName = catApps[0].packageName,
-                        page = if (items.size < 16) 0 else 1,
+                        page = 1,
                         position = items.size
                     )
                 )
@@ -543,15 +760,16 @@ class LauncherRepository(private val context: Context) {
         val sortedApps = allApps
             .filter { !it.isHidden && !dockSet.contains(it.packageName) }
             .sortedWith(
-                compareBy<AppInfo> { it.category.ordinal }
-                    .thenByDescending { it.launchCount }
+                compareByDescending<AppInfo> { it.isPinnedOnPageOne }
+                    .thenByDescending { it.effectivePriorityScore }
+                    .thenBy { it.category.ordinal }
                     .thenBy { it.displayLabel.lowercase(Locale.ROOT) }
             )
 
         val items = sortedApps.mapIndexed { idx, app ->
             HomeGridItem.AppItem(
                 packageName = app.packageName,
-                page = idx / 20,
+                page = if (idx < 16) 0 else 1 + ((idx - 16) / 24),
                 position = idx
             )
         }
@@ -584,7 +802,39 @@ class LauncherRepository(private val context: Context) {
             }
             arr.put(obj)
         }
-        prefs.edit().putString("home_grid_items_json", arr.toString()).apply()
+        prefs.edit().putString("home_grid_items_v3_json", arr.toString()).apply()
+    }
+
+    fun exportBackupJson(): String {
+        val root = JSONObject()
+        root.put("version", 3)
+        root.put("dock", prefs.getString("dock_packages_json", "[]"))
+        root.put("grid", prefs.getString("home_grid_items_v3_json", "[]"))
+        root.put("custom_categories", prefs.getString("custom_categories", "{}"))
+        root.put("custom_labels", prefs.getString("custom_labels", "{}"))
+        root.put("weatherCity", prefs.getString("weatherCity", "Berlin"))
+        root.put("iconThemeMode", prefs.getString("iconThemeMode", "standard"))
+        root.put("foldMode", prefs.getString("foldMode", "book_split"))
+        return root.toString(2)
+    }
+
+    fun importBackupJson(jsonStr: String): Boolean {
+        return try {
+            val root = JSONObject(jsonStr)
+            prefs.edit().apply {
+                if (root.has("dock")) putString("dock_packages_json", root.getString("dock"))
+                if (root.has("grid")) putString("home_grid_items_v3_json", root.getString("grid"))
+                if (root.has("custom_categories")) putString("custom_categories", root.getString("custom_categories"))
+                if (root.has("custom_labels")) putString("custom_labels", root.getString("custom_labels"))
+                if (root.has("weatherCity")) putString("weatherCity", root.getString("weatherCity"))
+                if (root.has("iconThemeMode")) putString("iconThemeMode", root.getString("iconThemeMode"))
+                if (root.has("foldMode")) putString("foldMode", root.getString("foldMode"))
+                apply()
+            }
+            true
+        } catch (_: Exception) {
+            false
+        }
     }
 
     private fun findBestApp(apps: List<AppInfo>, keywords: List<String>): AppInfo? {
@@ -619,6 +869,16 @@ class LauncherRepository(private val context: Context) {
             }
         } catch (_: Exception) {
             false
+        }
+    }
+
+    fun dialPhoneNumber(phone: String) {
+        try {
+            val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${Uri.encode(phone)}")).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        } catch (_: Exception) {
         }
     }
 

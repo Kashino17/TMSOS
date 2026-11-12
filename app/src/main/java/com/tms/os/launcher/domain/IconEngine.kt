@@ -8,7 +8,6 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
-import android.graphics.RadialGradient
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Shader
@@ -17,6 +16,8 @@ import android.graphics.drawable.AdaptiveIconDrawable
 import android.graphics.drawable.Drawable
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import com.tms.os.launcher.model.IconThemeMode
+import com.tms.os.launcher.model.TintAccentColor
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -27,9 +28,6 @@ import kotlin.math.sin
 
 object IconEngine {
 
-    /**
-     * Creates an authentic Apple iOS continuous curvature squircle path for [0, 0, size, size].
-     */
     fun createAppleSquirclePath(size: Float): Path {
         val path = Path()
         val r = size * 0.225f
@@ -48,70 +46,29 @@ object IconEngine {
         drawable: Drawable,
         sizePx: Int = 192,
         useIosSystemIcons: Boolean = true,
-        fullBleedAdaptive: Boolean = true
+        fullBleedAdaptive: Boolean = true,
+        themeMode: IconThemeMode = IconThemeMode.STANDARD,
+        tintAccent: TintAccentColor = TintAccentColor.IOS_BLUE
     ): ImageBitmap {
-        if (useIosSystemIcons) {
-            val nativeIos = tryRenderNativeIosSystemIcon(packageName, label, sizePx)
-            if (nativeIos != null) {
-                return nativeIos.asImageBitmap()
-            }
+        val sizeF = sizePx.toFloat()
+        val contentBitmap: Bitmap = if (useIosSystemIcons) {
+            tryRenderNativeIosSystemIcon(packageName, label, sizePx, themeMode == IconThemeMode.IOS_DARK)
+        } else {
+            null
+        } ?: renderExtractedAppBitmap(drawable, sizePx, fullBleedAdaptive)
+
+        // Apply iOS 18 Dark Mode or Tinted Mode transformation if selected
+        when (themeMode) {
+            IconThemeMode.STANDARD -> Unit
+            IconThemeMode.IOS_DARK -> applyIos18DarkThemeInPlace(contentBitmap)
+            IconThemeMode.IOS_TINTED -> applyIos18TintedThemeInPlace(contentBitmap, tintAccent.colorHex)
         }
 
-        val sizeF = sizePx.toFloat()
+        // Clip to the Apple Squircle Path with anti-aliasing
         val output = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(output)
         val squirclePath = createAppleSquirclePath(sizeF)
 
-        // Render raw icon content onto an unmasked square bitmap first
-        val contentBitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
-        val contentCanvas = Canvas(contentBitmap)
-
-        if (fullBleedAdaptive && drawable is AdaptiveIconDrawable) {
-            val bg = drawable.background
-            val fg = drawable.foreground
-            // AdaptiveIcon layers have an 18-25% safe-zone inset around the 72dp viewport (108dp total)
-            val inset = (sizePx * 0.21f).toInt()
-            if (bg != null) {
-                bg.setBounds(-inset, -inset, sizePx + inset, sizePx + inset)
-                bg.draw(contentCanvas)
-            } else {
-                contentCanvas.drawColor(Color.WHITE)
-            }
-            if (fg != null) {
-                fg.setBounds(-inset, -inset, sizePx + inset, sizePx + inset)
-                fg.draw(contentCanvas)
-            }
-            // If Samsung's package manager still left transparent corners inside the square,
-            // auto-crop and scale to fill 100% of the squircle
-            ensureFullBleedFill(contentBitmap, sizePx)
-        } else {
-            // Legacy drawable or pre-masked Samsung icon:
-            val rawSize = sizePx
-            val temp = Bitmap.createBitmap(rawSize, rawSize, Bitmap.Config.ARGB_8888)
-            val tempCanvas = Canvas(temp)
-            drawable.setBounds(0, 0, rawSize, rawSize)
-            drawable.draw(tempCanvas)
-
-            val bounds = findNonTransparentBounds(temp)
-            val dominantCornerColor = sampleDominantEdgeColor(temp, bounds)
-
-            val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-            contentCanvas.drawColor(dominantCornerColor)
-
-            // Zoom slightly beyond the non-transparent bounding box so pre-rounded corners fill our squircle
-            val bw = max(1, bounds.width())
-            val bh = max(1, bounds.height())
-            val expand = (min(bw, bh) * 0.06f).toInt()
-            val srcRect = Rect(
-                (bounds.left + expand).coerceAtMost(bounds.right - 1),
-                (bounds.top + expand).coerceAtMost(bounds.bottom - 1),
-                (bounds.right - expand).coerceAtLeast(bounds.left + 1),
-                (bounds.bottom - expand).coerceAtLeast(bounds.top + 1)
-            )
-            contentCanvas.drawBitmap(temp, srcRect, Rect(0, 0, sizePx, sizePx), paint)
-        }
-
-        // Clip to the Apple Squircle Path with anti-aliasing
         val maskPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
         canvas.drawPath(squirclePath, maskPaint)
         maskPaint.xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN)
@@ -121,8 +78,12 @@ object IconEngine {
         // Subtle iOS inner glass border highlight
         val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
-            strokeWidth = max(1.5f, sizeF * 0.01f)
-            color = Color.argb(38, 255, 255, 255)
+            strokeWidth = max(1.5f, sizeF * 0.011f)
+            color = if (themeMode == IconThemeMode.STANDARD) {
+                Color.argb(40, 255, 255, 255)
+            } else {
+                Color.argb(65, 255, 255, 255)
+            }
         }
         val r = sizeF * 0.225f
         val halfStroke = borderPaint.strokeWidth / 2f
@@ -136,8 +97,130 @@ object IconEngine {
         return output.asImageBitmap()
     }
 
+    private fun renderExtractedAppBitmap(
+        drawable: Drawable,
+        sizePx: Int,
+        fullBleedAdaptive: Boolean
+    ): Bitmap {
+        val contentBitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
+        val contentCanvas = Canvas(contentBitmap)
+
+        if (fullBleedAdaptive && drawable is AdaptiveIconDrawable) {
+            val bg = drawable.background
+            val fg = drawable.foreground
+            val inset = (sizePx * 0.21f).toInt()
+            if (bg != null) {
+                bg.setBounds(-inset, -inset, sizePx + inset, sizePx + inset)
+                bg.draw(contentCanvas)
+            } else {
+                contentCanvas.drawColor(Color.WHITE)
+            }
+            if (fg != null) {
+                fg.setBounds(-inset, -inset, sizePx + inset, sizePx + inset)
+                fg.draw(contentCanvas)
+            }
+            ensureFullBleedFill(contentBitmap, sizePx)
+        } else {
+            val temp = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
+            val tempCanvas = Canvas(temp)
+            drawable.setBounds(0, 0, sizePx, sizePx)
+            drawable.draw(tempCanvas)
+
+            val bounds = findNonTransparentBounds(temp)
+            val dominantCornerColor = sampleDominantEdgeColor(temp, bounds)
+
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+            contentCanvas.drawColor(dominantCornerColor)
+
+            val bw = max(1, bounds.width())
+            val bh = max(1, bounds.height())
+            val expand = (min(bw, bh) * 0.06f).toInt()
+            val srcRect = Rect(
+                (bounds.left + expand).coerceAtMost(bounds.right - 1),
+                (bounds.top + expand).coerceAtMost(bounds.bottom - 1),
+                (bounds.right - expand).coerceAtLeast(bounds.left + 1),
+                (bounds.bottom - expand).coerceAtLeast(bounds.top + 1)
+            )
+            contentCanvas.drawBitmap(temp, srcRect, Rect(0, 0, sizePx, sizePx), paint)
+        }
+        return contentBitmap
+    }
+
+    /**
+     * iOS 18 Dark Mode Icon Shader:
+     * Replaces bright/white icon backgrounds with sleek iOS 18 dark charcoal (#1B1B1F -> #121215)
+     * while keeping colorful foreground symbols vibrant!
+     */
+    private fun applyIos18DarkThemeInPlace(bitmap: Bitmap) {
+        val w = bitmap.width
+        val h = bitmap.height
+        val pixels = IntArray(w * h)
+        bitmap.getPixels(pixels, 0, w, 0, 0, w, h)
+
+        val hsv = FloatArray(3)
+        for (i in pixels.indices) {
+            val c = pixels[i]
+            val a = Color.alpha(c)
+            if (a < 20) continue
+            val r = Color.red(c)
+            val g = Color.green(c)
+            val b = Color.blue(c)
+            Color.RGBToHSV(r, g, b, hsv)
+            val sat = hsv[1]
+            val v = hsv[2]
+
+            // Bright & low-saturation pixels (white/light grey icon backgrounds) become dark iOS 18 charcoal
+            if (v > 0.78f && sat < 0.18f) {
+                val yRatio = (i / w).toFloat() / h.toFloat()
+                val darkVal = (30 - (yRatio * 10)).toInt().coerceIn(16, 32)
+                pixels[i] = Color.argb(a, darkVal, darkVal, darkVal + 3)
+            } else if (sat >= 0.25f) {
+                // Boost foreground color vibrancy slightly on dark background
+                hsv[1] = (sat * 1.12f).coerceAtMost(1f)
+                hsv[2] = (v * 1.05f).coerceAtMost(1f)
+                pixels[i] = Color.HSVToColor(a, hsv)
+            }
+        }
+        bitmap.setPixels(pixels, 0, w, 0, 0, w, h)
+    }
+
+    /**
+     * iOS 18 Tinted Icon Shader:
+     * Renders the icon in a monochrome dark-to-accent gradient matching Apple's iOS 18 Tinted Mode.
+     */
+    private fun applyIos18TintedThemeInPlace(bitmap: Bitmap, accentHex: Long) {
+        val w = bitmap.width
+        val h = bitmap.height
+        val pixels = IntArray(w * h)
+        bitmap.getPixels(pixels, 0, w, 0, 0, w, h)
+
+        val accentR = ((accentHex shr 16) and 0xFF).toInt()
+        val accentG = ((accentHex shr 8) and 0xFF).toInt()
+        val accentB = (accentHex and 0xFF).toInt()
+
+        // Detect whether the icon background at the edges is bright or dark so foreground always contrasts
+        val edgeSample = pixels[(h / 2) * w + (w / 10)]
+        val edgeLum = (0.299f * Color.red(edgeSample) + 0.587f * Color.green(edgeSample) + 0.114f * Color.blue(edgeSample)) / 255f
+        val invertLum = edgeLum > 0.72f
+
+        for (i in pixels.indices) {
+            val c = pixels[i]
+            val a = Color.alpha(c)
+            if (a < 20) continue
+            val lumRaw = (0.299f * Color.red(c) + 0.587f * Color.green(c) + 0.114f * Color.blue(c)) / 255f
+            val lum = if (invertLum) (1f - lumRaw) else lumRaw
+
+            // Map luminance: dark base (#16161A) -> vibrant tint accent
+            val t = (lum * 1.15f).coerceIn(0f, 1f)
+            val nr = (20 + (accentR - 20) * t).toInt().coerceIn(0, 255)
+            val ng = (20 + (accentG - 20) * t).toInt().coerceIn(0, 255)
+            val nb = (24 + (accentB - 24) * t).toInt().coerceIn(0, 255)
+            pixels[i] = Color.argb(a, nr, ng, nb)
+        }
+        bitmap.setPixels(pixels, 0, w, 0, 0, w, h)
+    }
+
     private fun ensureFullBleedFill(bitmap: Bitmap, sizePx: Int) {
-        // Check if corner region at (12%, 12%) is transparent (happens when OEM wraps AdaptiveIcon inside another shape)
         val probe = (sizePx * 0.11f).toInt().coerceIn(2, sizePx / 2)
         val alphaTopLeft = Color.alpha(bitmap.getPixel(probe, probe))
         val alphaBottomRight = Color.alpha(bitmap.getPixel(sizePx - probe, sizePx - probe))
@@ -204,21 +287,16 @@ object IconEngine {
         return Color.rgb(Color.red(first), Color.green(first), Color.blue(first))
     }
 
-    /**
-     * Renders ultra-crisp native iOS 18 icons for core system apps so the Home Screen
-     * looks indistinguishable from real iOS 18!
-     */
     private fun tryRenderNativeIosSystemIcon(
         packageName: String,
         label: String,
-        sizePx: Int
+        sizePx: Int,
+        isDarkMode: Boolean
     ): Bitmap? {
         val pkg = packageName.lowercase(Locale.ROOT)
         val lbl = label.lowercase(Locale.ROOT)
 
-        // Never override TMS OS own rainbow icon
         if (pkg == "com.tms.os.launcher") return null
-        // Never override third-party giants like WhatsApp, Google Photos, Chrome, YouTube, Gmail, Maps
         if (pkg.contains("whatsapp") || pkg.contains("chrome") || pkg.contains("youtube") ||
             pkg.contains("gm") || pkg.contains("maps") || pkg.contains("vending") ||
             pkg.contains("photos") || pkg.contains("edgegallery") || pkg.contains("microg")
@@ -242,15 +320,11 @@ object IconEngine {
         val s = sizePx.toFloat()
         val bmp = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bmp)
-        val squircle = createAppleSquirclePath(s)
-        canvas.clipPath(squircle)
-
         val p = Paint(Paint.ANTI_ALIAS_FLAG)
 
         when (kind) {
             "calendar" -> {
-                // Real iOS Live Calendar Icon (White background, Red weekday, Bold Black date number)
-                canvas.drawColor(Color.WHITE)
+                canvas.drawColor(if (isDarkMode) Color.rgb(24, 24, 28) else Color.WHITE)
                 val now = Date()
                 val dayName = SimpleDateFormat("EEE", Locale.GERMAN)
                     .format(now)
@@ -258,26 +332,24 @@ object IconEngine {
                     .trimEnd('.')
                 val dayNum = SimpleDateFormat("d", Locale.GERMAN).format(now)
 
-                p.color = Color.rgb(255, 59, 48) // iOS Red
+                p.color = Color.rgb(255, 69, 58)
                 p.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                 p.textAlign = Paint.Align.CENTER
                 p.textSize = s * 0.19f
                 canvas.drawText(dayName, s * 0.5f, s * 0.31f, p)
 
-                p.color = Color.rgb(20, 20, 22)
+                p.color = if (isDarkMode) Color.WHITE else Color.rgb(20, 20, 22)
                 p.typeface = Typeface.create("sans-serif-light", Typeface.NORMAL)
                 p.textSize = s * 0.54f
                 canvas.drawText(dayNum, s * 0.5f, s * 0.81f, p)
             }
 
             "clock" -> {
-                // Real iOS Clock Icon (Black background, white circular dial, numbers & orange second hand)
-                canvas.drawColor(Color.rgb(28, 28, 30))
-                p.color = Color.WHITE
+                canvas.drawColor(Color.rgb(24, 24, 26))
+                p.color = if (isDarkMode) Color.rgb(42, 42, 46) else Color.WHITE
                 canvas.drawCircle(s * 0.5f, s * 0.5f, s * 0.41f, p)
 
-                // Hour ticks
-                p.color = Color.rgb(20, 20, 22)
+                p.color = if (isDarkMode) Color.WHITE else Color.rgb(20, 20, 22)
                 p.strokeWidth = s * 0.022f
                 for (i in 0 until 12) {
                     val angle = Math.toRadians((i * 30 - 90).toDouble())
@@ -291,13 +363,11 @@ object IconEngine {
                         p
                     )
                 }
-                // Hands (10:10 iOS classic pose)
                 p.strokeCap = Paint.Cap.ROUND
                 p.strokeWidth = s * 0.042f
-                canvas.drawLine(s * 0.5f, s * 0.5f, s * 0.33f, s * 0.38f, p) // Hour
+                canvas.drawLine(s * 0.5f, s * 0.5f, s * 0.33f, s * 0.38f, p)
                 p.strokeWidth = s * 0.034f
-                canvas.drawLine(s * 0.5f, s * 0.5f, s * 0.68f, s * 0.32f, p) // Minute
-                // Orange second hand
+                canvas.drawLine(s * 0.5f, s * 0.5f, s * 0.68f, s * 0.32f, p)
                 p.color = Color.rgb(255, 149, 0)
                 p.strokeWidth = s * 0.018f
                 canvas.drawLine(s * 0.5f, s * 0.5f, s * 0.5f, s * 0.78f, p)
@@ -305,26 +375,22 @@ object IconEngine {
             }
 
             "camera" -> {
-                // iOS Metallic Camera Icon
                 p.shader = LinearGradient(
                     0f, 0f, 0f, s,
-                    Color.rgb(218, 220, 224),
-                    Color.rgb(154, 158, 166),
+                    if (isDarkMode) Color.rgb(46, 46, 52) else Color.rgb(218, 220, 224),
+                    if (isDarkMode) Color.rgb(26, 26, 30) else Color.rgb(154, 158, 166),
                     Shader.TileMode.CLAMP
                 )
                 canvas.drawRect(0f, 0f, s, s, p)
                 p.shader = null
 
-                // Camera Body
-                p.color = Color.rgb(44, 44, 46)
+                p.color = if (isDarkMode) Color.rgb(74, 74, 80) else Color.rgb(44, 44, 46)
                 val bodyRect = RectF(s * 0.14f, s * 0.28f, s * 0.86f, s * 0.78f)
                 canvas.drawRoundRect(bodyRect, s * 0.10f, s * 0.10f, p)
 
-                // Top hump
                 val humpRect = RectF(s * 0.34f, s * 0.20f, s * 0.66f, s * 0.34f)
                 canvas.drawRoundRect(humpRect, s * 0.05f, s * 0.05f, p)
 
-                // Lens ring
                 p.color = Color.rgb(180, 184, 190)
                 canvas.drawCircle(s * 0.5f, s * 0.53f, s * 0.19f, p)
                 p.color = Color.rgb(20, 24, 34)
@@ -332,23 +398,21 @@ object IconEngine {
                 p.color = Color.rgb(50, 130, 240)
                 canvas.drawCircle(s * 0.46f, s * 0.49f, s * 0.035f, p)
 
-                // Yellow indicator dot
                 p.color = Color.rgb(255, 204, 0)
                 canvas.drawCircle(s * 0.73f, s * 0.36f, s * 0.025f, p)
             }
 
             "photos" -> {
-                // iOS Photos 8-petal colorful flower on crisp white background
-                canvas.drawColor(Color.WHITE)
+                canvas.drawColor(if (isDarkMode) Color.rgb(24, 24, 28) else Color.WHITE)
                 val petalColors = intArrayOf(
-                    Color.argb(210, 255, 59, 48),
-                    Color.argb(210, 255, 149, 0),
-                    Color.argb(210, 255, 204, 0),
-                    Color.argb(210, 52, 199, 89),
-                    Color.argb(210, 90, 200, 250),
-                    Color.argb(210, 0, 122, 255),
-                    Color.argb(210, 88, 86, 214),
-                    Color.argb(210, 255, 45, 85)
+                    Color.argb(215, 255, 59, 48),
+                    Color.argb(215, 255, 149, 0),
+                    Color.argb(215, 255, 204, 0),
+                    Color.argb(215, 52, 199, 89),
+                    Color.argb(215, 90, 200, 250),
+                    Color.argb(215, 0, 122, 255),
+                    Color.argb(215, 88, 86, 214),
+                    Color.argb(215, 255, 45, 85)
                 )
                 for (i in 0 until 8) {
                     canvas.save()
@@ -361,17 +425,16 @@ object IconEngine {
             }
 
             "phone" -> {
-                // iOS Vibrant Green Phone Icon
                 p.shader = LinearGradient(
                     0f, 0f, 0f, s,
-                    Color.rgb(101, 229, 118),
-                    Color.rgb(42, 193, 78),
+                    if (isDarkMode) Color.rgb(24, 30, 26) else Color.rgb(101, 229, 118),
+                    if (isDarkMode) Color.rgb(18, 22, 20) else Color.rgb(42, 193, 78),
                     Shader.TileMode.CLAMP
                 )
                 canvas.drawRect(0f, 0f, s, s, p)
                 p.shader = null
 
-                p.color = Color.WHITE
+                p.color = if (isDarkMode) Color.rgb(48, 209, 88) else Color.WHITE
                 p.style = Paint.Style.STROKE
                 p.strokeWidth = s * 0.12f
                 p.strokeCap = Paint.Cap.ROUND
@@ -383,17 +446,16 @@ object IconEngine {
             }
 
             "messages" -> {
-                // iOS Green Messages Bubble Icon
                 p.shader = LinearGradient(
                     0f, 0f, 0f, s,
-                    Color.rgb(101, 229, 118),
-                    Color.rgb(42, 193, 78),
+                    if (isDarkMode) Color.rgb(24, 30, 26) else Color.rgb(101, 229, 118),
+                    if (isDarkMode) Color.rgb(18, 22, 20) else Color.rgb(42, 193, 78),
                     Shader.TileMode.CLAMP
                 )
                 canvas.drawRect(0f, 0f, s, s, p)
                 p.shader = null
 
-                p.color = Color.WHITE
+                p.color = if (isDarkMode) Color.rgb(48, 209, 88) else Color.WHITE
                 val bubble = RectF(s * 0.18f, s * 0.22f, s * 0.82f, s * 0.72f)
                 canvas.drawOval(bubble, p)
                 val tail = Path().apply {
@@ -406,17 +468,15 @@ object IconEngine {
             }
 
             "settings" -> {
-                // iOS Metallic Gear Settings Icon
                 p.shader = LinearGradient(
                     0f, 0f, 0f, s,
-                    Color.rgb(168, 174, 184),
-                    Color.rgb(108, 112, 120),
+                    if (isDarkMode) Color.rgb(38, 40, 44) else Color.rgb(168, 174, 184),
+                    if (isDarkMode) Color.rgb(22, 24, 28) else Color.rgb(108, 112, 120),
                     Shader.TileMode.CLAMP
                 )
                 canvas.drawRect(0f, 0f, s, s, p)
                 p.shader = null
 
-                // Outer gear teeth
                 p.color = Color.rgb(54, 56, 60)
                 canvas.drawCircle(s * 0.5f, s * 0.5f, s * 0.36f, p)
 
@@ -455,10 +515,10 @@ object IconEngine {
             }
 
             "notes" -> {
-                canvas.drawColor(Color.WHITE)
+                canvas.drawColor(if (isDarkMode) Color.rgb(28, 28, 30) else Color.WHITE)
                 p.color = Color.rgb(255, 204, 0)
                 canvas.drawRect(0f, 0f, s, s * 0.28f, p)
-                p.color = Color.rgb(220, 220, 225)
+                p.color = if (isDarkMode) Color.rgb(68, 68, 72) else Color.rgb(220, 220, 225)
                 p.strokeWidth = s * 0.015f
                 canvas.drawLine(0f, s * 0.46f, s, s * 0.46f, p)
                 canvas.drawLine(0f, s * 0.64f, s, s * 0.64f, p)

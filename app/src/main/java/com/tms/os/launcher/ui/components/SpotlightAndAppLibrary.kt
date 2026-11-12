@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -34,7 +35,9 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Calculate
+import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Search
@@ -76,6 +79,8 @@ import androidx.compose.ui.unit.sp
 import com.tms.os.launcher.model.AppCategory
 import com.tms.os.launcher.model.AppInfo
 import com.tms.os.launcher.model.AppLanguage
+import com.tms.os.launcher.model.AppShortcutItem
+import com.tms.os.launcher.model.ContactItem
 import kotlinx.coroutines.launch
 import java.util.Locale
 
@@ -83,12 +88,16 @@ import java.util.Locale
 fun SpotlightSearchOverlay(
     query: String,
     results: List<AppInfo>,
+    shortcuts: List<AppShortcutItem> = emptyList(),
+    contacts: List<ContactItem> = emptyList(),
     mathResult: String?,
     autoOpenKeyboard: Boolean = true,
     showWebSearch: Boolean = true,
+    searchBarAtBottom: Boolean = true,
     onQueryChange: (String) -> Unit,
     onAppClick: (AppInfo) -> Unit,
     onAppLongClick: (AppInfo) -> Unit,
+    onContactClick: (ContactItem) -> Unit = {},
     onWebSearchClick: (String, String) -> Unit,
     onClose: () -> Unit
 ) {
@@ -112,6 +121,7 @@ fun SpotlightSearchOverlay(
 
     // Outer full-screen backdrop: Tapping ANYWHERE on the background or swiping UP closes Spotlight!
     Box(
+        contentAlignment = if (searchBarAtBottom) Alignment.BottomCenter else Alignment.TopCenter,
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0x9908080C))
@@ -133,116 +143,32 @@ fun SpotlightSearchOverlay(
                 indication = null,
                 onClick = dismissSpotlight
             )
-            .padding(top = 46.dp, start = 16.dp, end = 16.dp, bottom = 16.dp)
+            .imePadding()
+            .padding(top = 42.dp, start = 16.dp, end = 16.dp, bottom = 14.dp)
     ) {
-        // NOTE: This Column wraps only its content height so any tap below the cards hits the backdrop and closes Spotlight!
+        // NOTE: This Column wraps only its content height so any tap outside the cards hits the backdrop and closes Spotlight!
         Column(
             modifier = Modifier.fillMaxWidth()
         ) {
-            // Top iOS 18 Frosted Spotlight Search Pill
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = {} // Consume taps inside the search bar row
-                    )
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(48.dp)
-                        .shadow(12.dp, RoundedCornerShape(16.dp), clip = false)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(Color(0xEE343438), Color(0xEE26262A))
-                            )
-                        )
-                        .border(0.8.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(16.dp))
-                        .padding(horizontal = 14.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = null,
-                        tint = Color.White.copy(alpha = 0.65f),
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Box(modifier = Modifier.weight(1f)) {
-                        if (query.isEmpty()) {
-                            Text(
-                                text = "Apps, Kategorien oder Rechnung suchen…",
-                                color = Color.White.copy(alpha = 0.48f),
-                                fontSize = 15.sp
-                            )
-                        }
-                        BasicTextField(
-                            value = query,
-                            onValueChange = onQueryChange,
-                            singleLine = true,
-                            textStyle = TextStyle(
-                                color = Color.White,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Medium
-                            ),
-                            cursorBrush = SolidColor(Color(0xFF0A84FF)),
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-                            keyboardActions = KeyboardActions(
-                                onGo = {
-                                    results.firstOrNull()?.let { onAppClick(it) }
-                                }
-                            ),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .focusRequester(focusRequester)
-                        )
-                    }
-                    if (query.isNotEmpty()) {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .size(22.dp)
-                                .clip(CircleShape)
-                                .background(Color.White.copy(alpha = 0.22f))
-                                .clickable { onQueryChange("") }
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Löschen",
-                                tint = Color.White,
-                                modifier = Modifier.size(14.dp)
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.width(12.dp))
-
-                Text(
-                    text = "Abbrechen",
-                    color = Color.White,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier
-                        .clickable { dismissSpotlight() }
-                        .padding(horizontal = 4.dp, vertical = 8.dp)
+            if (!searchBarAtBottom) {
+                SpotlightSearchPillRow(
+                    query = query,
+                    focusRequester = focusRequester,
+                    onQueryChange = onQueryChange,
+                    onGo = { results.firstOrNull()?.let { onAppClick(it) } },
+                    onDismiss = dismissSpotlight
                 )
+                Spacer(modifier = Modifier.height(12.dp))
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // Instant Math / Calculator Card if query is an arithmetic expression
+            // Instant Math / Currency / Unit Conversion Card
             if (mathResult != null) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 12.dp)
+                        .padding(bottom = 10.dp)
                         .clip(RoundedCornerShape(22.dp))
                         .background(
                             Brush.horizontalGradient(
@@ -255,13 +181,13 @@ fun SpotlightSearchOverlay(
                             indication = null,
                             onClick = {}
                         )
-                        .padding(16.dp)
+                        .padding(14.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
                             contentAlignment = Alignment.Center,
                             modifier = Modifier
-                                .size(44.dp)
+                                .size(42.dp)
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(Color(0xFFFF9F0A))
                         ) {
@@ -269,20 +195,20 @@ fun SpotlightSearchOverlay(
                                 imageVector = Icons.Default.Calculate,
                                 contentDescription = null,
                                 tint = Color.White,
-                                modifier = Modifier.size(26.dp)
+                                modifier = Modifier.size(24.dp)
                             )
                         }
-                        Spacer(modifier = Modifier.width(14.dp))
+                        Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text(
                                 text = "$query =",
                                 color = Color.White.copy(alpha = 0.65f),
-                                fontSize = 13.sp
+                                fontSize = 12.5.sp
                             )
                             Text(
                                 text = mathResult,
                                 color = Color.White,
-                                fontSize = 26.sp,
+                                fontSize = 23.sp,
                                 fontWeight = FontWeight.Bold
                             )
                         }
@@ -290,13 +216,133 @@ fun SpotlightSearchOverlay(
                     Text(
                         text = "Sofort-Rechner",
                         color = Color(0xFFFF9F0A),
-                        fontSize = 12.sp,
+                        fontSize = 11.5.sp,
                         fontWeight = FontWeight.SemiBold
                     )
                 }
             }
 
-            // Frosted Siri Suggestions / App Results Card (Compact height so area below remains clickable to dismiss!)
+            // Quick App Shortcuts Card (when typing matching action/app)
+            if (shortcuts.isNotEmpty() && query.isNotBlank()) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 10.dp)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = {}
+                        )
+                ) {
+                    shortcuts.take(2).forEach { sc ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(Color(0xE628282C))
+                                .border(0.75.dp, Color(0xFF0A84FF).copy(alpha = 0.45f), RoundedCornerShape(16.dp))
+                                .clickable {
+                                    results.firstOrNull { it.packageName == sc.packageName }?.let { onAppClick(it) }
+                                }
+                                .padding(horizontal = 12.dp, vertical = 10.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Bolt,
+                                contentDescription = null,
+                                tint = Color(0xFFFFD60A),
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    text = sc.shortLabel,
+                                    color = Color.White,
+                                    fontSize = 12.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = sc.appLabel,
+                                    color = Color.White.copy(alpha = 0.55f),
+                                    fontSize = 10.5.sp,
+                                    maxLines = 1
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Contacts Direct-Call Results Card (if contacts found)
+            if (contacts.isNotEmpty() && query.isNotBlank()) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 10.dp)
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(Color(0xE6252529))
+                        .border(0.75.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(20.dp))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = {}
+                        )
+                        .padding(12.dp)
+                ) {
+                    Text(
+                        text = "KONTAKTE DIREKTWAHL",
+                        color = Color.White.copy(alpha = 0.55f),
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.6.sp
+                    )
+                    contacts.take(3).forEach { contact ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable { onContactClick(contact) }
+                                .padding(vertical = 6.dp, horizontal = 4.dp)
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = contact.name,
+                                    color = Color.White,
+                                    fontSize = 14.5.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = contact.phoneNumber,
+                                    color = Color.White.copy(alpha = 0.6f),
+                                    fontSize = 12.sp
+                                )
+                            }
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF30D158))
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Call,
+                                    contentDescription = "Anrufen",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Frosted Siri Suggestions / App Results Card
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -367,7 +413,7 @@ fun SpotlightSearchOverlay(
                                         if (app != null) {
                                             IosAppIconView(
                                                 app = app,
-                                                iconSize = 58.dp,
+                                                iconSize = 56.dp,
                                                 showLabel = true,
                                                 showBadges = true,
                                                 isJiggleMode = false,
@@ -423,20 +469,132 @@ fun SpotlightSearchOverlay(
                 }
             }
 
-            // Hint text on empty space below card
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 14.dp)
-            ) {
-                Text(
-                    text = "Tippe auf den freien Hintergrund oder wische nach oben zum Schließen",
-                    color = Color.White.copy(alpha = 0.42f),
-                    fontSize = 11.5.sp
+            if (searchBarAtBottom) {
+                Spacer(modifier = Modifier.height(12.dp))
+                // iOS 18 One-Handed Bottom Frosted Spotlight Search Pill (right above keyboard!)
+                SpotlightSearchPillRow(
+                    query = query,
+                    focusRequester = focusRequester,
+                    onQueryChange = onQueryChange,
+                    onGo = { results.firstOrNull()?.let { onAppClick(it) } },
+                    onDismiss = dismissSpotlight
                 )
+            } else {
+                // Hint text on empty space below card
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp)
+                ) {
+                    Text(
+                        text = "Tippe auf den freien Hintergrund oder wische nach oben zum Schließen",
+                        color = Color.White.copy(alpha = 0.42f),
+                        fontSize = 11.5.sp
+                    )
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun SpotlightSearchPillRow(
+    query: String,
+    focusRequester: FocusRequester,
+    onQueryChange: (String) -> Unit,
+    onGo: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = {} // Consume taps inside the search bar row
+            )
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .weight(1f)
+                .height(48.dp)
+                .shadow(14.dp, RoundedCornerShape(16.dp), clip = false)
+                .clip(RoundedCornerShape(16.dp))
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color(0xF036363A), Color(0xF026262A))
+                    )
+                )
+                .border(0.85.dp, Color.White.copy(alpha = 0.24f), RoundedCornerShape(16.dp))
+                .padding(horizontal = 14.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Search,
+                contentDescription = null,
+                tint = Color.White.copy(alpha = 0.65f),
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Box(modifier = Modifier.weight(1f)) {
+                if (query.isEmpty()) {
+                    Text(
+                        text = "Apps, Kontakte, 500 AED in EUR…",
+                        color = Color.White.copy(alpha = 0.48f),
+                        fontSize = 14.5.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                BasicTextField(
+                    value = query,
+                    onValueChange = onQueryChange,
+                    singleLine = true,
+                    textStyle = TextStyle(
+                        color = Color.White,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Medium
+                    ),
+                    cursorBrush = SolidColor(Color(0xFF0A84FF)),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+                    keyboardActions = KeyboardActions(onGo = { onGo() }),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(focusRequester)
+                )
+            }
+            if (query.isNotEmpty()) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(22.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.22f))
+                        .clickable { onQueryChange("") }
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Löschen",
+                        tint = Color.White,
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.width(12.dp))
+
+        Text(
+            text = "Abbrechen",
+            color = Color.White,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier
+                .clickable { onDismiss() }
+                .padding(horizontal = 4.dp, vertical = 8.dp)
+        )
     }
 }
 

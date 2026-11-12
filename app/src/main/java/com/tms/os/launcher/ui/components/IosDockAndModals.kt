@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -51,9 +52,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -159,6 +163,7 @@ fun IosFrostedDock(
 fun IosExpandedFolderModal(
     folder: HomeGridItem.FolderItem,
     appMap: Map<String, AppInfo>,
+    originNormalized: Offset = Offset(0.5f, 0.5f),
     onAppClick: (AppInfo) -> Unit,
     onAppLongClick: (AppInfo) -> Unit,
     onRenameFolder: (String) -> Unit,
@@ -199,6 +204,9 @@ fun IosExpandedFolderModal(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier
                 .widthIn(max = 420.dp)
+                .graphicsLayer {
+                    transformOrigin = TransformOrigin(originNormalized.x, originNormalized.y)
+                }
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
@@ -389,9 +397,11 @@ fun IosCategoryExpandedModal(
 fun IosHapticTouchContextMenu(
     app: AppInfo,
     isPinnedInDock: Boolean,
+    isPinnedOnPageOne: Boolean = false,
     existingFolders: List<HomeGridItem.FolderItem>,
     onLaunchApp: () -> Unit,
     onToggleDockPin: () -> Unit,
+    onTogglePinPageOne: () -> Unit = {},
     onMovePositionLeft: () -> Unit,
     onMovePositionRight: () -> Unit,
     onEnterJiggleMode: () -> Unit,
@@ -505,6 +515,14 @@ fun IosHapticTouchContextMenu(
                             title = "Home-Bildschirm bearbeiten",
                             icon = Icons.Default.Edit,
                             onClick = onEnterJiggleMode
+                        )
+                        MenuDivider()
+
+                        ContextMenuRow(
+                            title = if (isPinnedOnPageOne) "Von Seite 1 lösen (Auto)" else "Auf Seite 1 anheften (Einzel-App)",
+                            icon = Icons.Default.Star,
+                            textColor = if (isPinnedOnPageOne) Color(0xFFFFD60A) else Color.White,
+                            onClick = onTogglePinPageOne
                         )
                         MenuDivider()
 

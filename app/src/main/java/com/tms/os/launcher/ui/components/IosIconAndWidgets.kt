@@ -16,6 +16,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -32,10 +34,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -53,11 +60,17 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -66,9 +79,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.tms.os.launcher.data.SystemStorageRamInfo
 import com.tms.os.launcher.model.AppInfo
 import com.tms.os.launcher.model.HomeGridItem
 import com.tms.os.launcher.model.LeftWidgetType
+import com.tms.os.launcher.model.RightWidgetType
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -85,6 +100,7 @@ fun IosAppIconView(
     showLabel: Boolean = true,
     showBadges: Boolean = true,
     isJiggleMode: Boolean = false,
+    isHighlightedTarget: Boolean = false,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onDeleteOrMenuClick: (() -> Unit)? = null,
@@ -95,7 +111,11 @@ fun IosAppIconView(
     val isPressed by interactionSource.collectIsPressedAsState()
 
     val pressScale by animateFloatAsState(
-        targetValue = if (isPressed) 0.89f else 1.0f,
+        targetValue = when {
+            isHighlightedTarget -> 1.12f
+            isPressed -> 0.89f
+            else -> 1.0f
+        },
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioNoBouncy,
             stiffness = Spring.StiffnessHigh
@@ -103,7 +123,6 @@ fun IosAppIconView(
         label = "iconPressScale"
     )
 
-    // Organic per-icon jiggle duration so icons don't wobble in robotic lockstep
     val durationOffset = remember(app.packageName) { (abs(app.packageName.hashCode()) % 35) }
     val infiniteTransition = rememberInfiniteTransition(label = "jiggle")
     val rotation by if (isJiggleMode) {
@@ -146,7 +165,15 @@ fun IosAppIconView(
             contentAlignment = Alignment.Center,
             modifier = Modifier.size(iconSize + 8.dp)
         ) {
-            // Render the full-bleed Apple Squircle bitmap directly without any dark wrapper box!
+            if (isHighlightedTarget) {
+                Box(
+                    modifier = Modifier
+                        .size(iconSize + 10.dp)
+                        .clip(RoundedCornerShape(cornerRadius + 4.dp))
+                        .background(Color.White.copy(alpha = 0.28f))
+                )
+            }
+
             Box(
                 modifier = Modifier
                     .size(iconSize)
@@ -184,7 +211,6 @@ fun IosAppIconView(
                 }
             }
 
-            // Authentic iOS Notification Badge (top-right red pill)
             if (showBadges && app.badgeCount > 0 && !isJiggleMode) {
                 val badgeText = if (app.badgeCount > 99) "99+" else app.badgeCount.toString()
                 Box(
@@ -206,7 +232,6 @@ fun IosAppIconView(
                 }
             }
 
-            // Jiggle Mode "-" remove/edit button (top-left frosted grey pill like iOS 18)
             if (isJiggleMode && onDeleteOrMenuClick != null) {
                 Box(
                     contentAlignment = Alignment.Center,
@@ -263,16 +288,28 @@ fun IosFolderGridIconView(
     showLabel: Boolean = true,
     showBadges: Boolean = true,
     isJiggleMode: Boolean = false,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit,
+    isHighlightedTarget: Boolean = false,
+    onClickWithOrigin: (Offset) -> Unit,
+    onLongClickWithOrigin: (Offset) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val haptic = LocalHapticFeedback.current
+    val config = LocalConfiguration.current
+    val density = LocalDensity.current
+    val screenW = with(density) { config.screenWidthDp.dp.toPx().coerceAtLeast(1f) }
+    val screenH = with(density) { config.screenHeightDp.dp.toPx().coerceAtLeast(1f) }
+
+    var centerInRoot by remember { mutableStateOf(Offset(0.5f, 0.5f)) }
+
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
 
     val pressScale by animateFloatAsState(
-        targetValue = if (isPressed) 0.89f else 1.0f,
+        targetValue = when {
+            isHighlightedTarget -> 1.14f
+            isPressed -> 0.89f
+            else -> 1.0f
+        },
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioNoBouncy,
             stiffness = Spring.StiffnessHigh
@@ -308,6 +345,12 @@ fun IosFolderGridIconView(
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = modifier
+            .onGloballyPositioned { coords ->
+                val pos = coords.positionInRoot()
+                val cx = ((pos.x + coords.size.width / 2f) / screenW).coerceIn(0.1f, 0.9f)
+                val cy = ((pos.y + coords.size.height / 2f) / screenH).coerceIn(0.1f, 0.9f)
+                centerInRoot = Offset(cx, cy)
+            }
             .graphicsLayer {
                 rotationZ = rotation
                 scaleX = pressScale
@@ -316,10 +359,10 @@ fun IosFolderGridIconView(
             .combinedClickable(
                 interactionSource = interactionSource,
                 indication = null,
-                onClick = onClick,
+                onClick = { onClickWithOrigin(centerInRoot) },
                 onLongClick = {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onLongClick()
+                    onLongClickWithOrigin(centerInRoot)
                 }
             )
             .padding(vertical = 2.dp, horizontal = 2.dp)
@@ -328,7 +371,6 @@ fun IosFolderGridIconView(
             contentAlignment = Alignment.Center,
             modifier = Modifier.size(iconSize + 8.dp)
         ) {
-            // Frosted iOS Folder Squircle Container with 3x3 Mini Icon Grid
             Box(
                 modifier = Modifier
                     .size(iconSize)
@@ -343,8 +385,8 @@ fun IosFolderGridIconView(
                         )
                     )
                     .border(
-                        width = 0.8.dp,
-                        color = Color.White.copy(alpha = 0.26f),
+                        width = if (isHighlightedTarget) 2.dp else 0.8.dp,
+                        color = if (isHighlightedTarget) Color(0xFF0A84FF) else Color.White.copy(alpha = 0.26f),
                         shape = RoundedCornerShape(cornerRadius)
                     )
                     .padding(6.dp)
@@ -428,7 +470,10 @@ fun IosFolderGridIconView(
 @Composable
 fun IosTopWidgetsHeader(
     leftWidgetType: LeftWidgetType,
+    rightWidgetType: RightWidgetType,
     batteryPercent: Int,
+    storageRamInfo: SystemStorageRamInfo,
+    quickNoteText: String,
     suggestedApps: List<AppInfo>,
     weatherCity: String,
     weatherTempCelsius: Int,
@@ -437,12 +482,18 @@ fun IosTopWidgetsHeader(
     weatherCondition: String,
     useFahrenheit: Boolean,
     isWeatherRefreshing: Boolean,
-    onCycleLeftWidget: () -> Unit,
+    onCycleLeftWidget: (Int) -> Unit,
+    onCycleRightWidget: (Int) -> Unit,
+    onQuickNoteChange: (String) -> Unit,
     onSuggestedAppClick: (AppInfo) -> Unit,
+    onMediaPlayPause: () -> Unit,
+    onMediaNext: () -> Unit,
+    onMediaPrev: () -> Unit,
     onWeatherClick: () -> Unit,
     onRefreshWeatherClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val haptic = LocalHapticFeedback.current
     var currentTime by remember { mutableStateOf(Date()) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -469,12 +520,29 @@ fun IosTopWidgetsHeader(
     val displayLow = if (useFahrenheit) (weatherLowCelsius * 9f / 5f + 32f).roundToInt() else weatherLowCelsius
 
     Row(
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .padding(horizontal = 14.dp, vertical = 4.dp)
     ) {
-        // LEFT WIDGET (Interactive Smart Stack: Calendar/Clock, Battery Ring, or Siri Top-4 Apps)
+        // Left iOS Vertical Smart-Stack Dots
+        Column(
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            LeftWidgetType.entries.forEach { entry ->
+                val active = entry == leftWidgetType
+                Box(
+                    modifier = Modifier
+                        .size(width = 3.5.dp, height = if (active) 9.dp else 3.5.dp)
+                        .clip(CircleShape)
+                        .background(if (active) Color.White else Color.White.copy(alpha = 0.30f))
+                )
+            }
+        }
+
+        // LEFT SMART-STACK WIDGET CARD (Vertically Swipeable!)
         Box(
             modifier = Modifier
                 .weight(1f)
@@ -490,7 +558,29 @@ fun IosTopWidgetsHeader(
                     )
                 )
                 .border(0.8.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(24.dp))
-                .clickable { onCycleLeftWidget() }
+                .pointerInput(leftWidgetType) {
+                    var dy = 0f
+                    detectVerticalDragGestures(
+                        onDragStart = { dy = 0f },
+                        onVerticalDrag = { change, dragAmount ->
+                            change.consume()
+                            dy += dragAmount
+                            if (dy < -36f) {
+                                dy = 0f
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                onCycleLeftWidget(+1)
+                            } else if (dy > 36f) {
+                                dy = 0f
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                onCycleLeftWidget(-1)
+                            }
+                        }
+                    )
+                }
+                .clickable {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onCycleLeftWidget(+1)
+                }
                 .padding(14.dp)
         ) {
             when (leftWidgetType) {
@@ -499,31 +589,19 @@ fun IosTopWidgetsHeader(
                         verticalArrangement = Arrangement.SpaceBetween,
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        Row(
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.Top,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column {
-                                Text(
-                                    text = dayOfWeek,
-                                    color = Color(0xFFFF453A),
-                                    fontSize = 10.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    letterSpacing = 0.6.sp
-                                )
-                                Text(
-                                    text = "$dayNumber. $monthName",
-                                    color = Color.White.copy(alpha = 0.85f),
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-                            Icon(
-                                imageVector = Icons.Default.SwapHoriz,
-                                contentDescription = "Widget wechseln",
-                                tint = Color.White.copy(alpha = 0.35f),
-                                modifier = Modifier.size(16.dp)
+                        Column {
+                            Text(
+                                text = dayOfWeek,
+                                color = Color(0xFFFF453A),
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.6.sp
+                            )
+                            Text(
+                                text = "$dayNumber. $monthName",
+                                color = Color.White.copy(alpha = 0.85f),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold
                             )
                         }
 
@@ -535,25 +613,19 @@ fun IosTopWidgetsHeader(
                             letterSpacing = (-1.2).sp
                         )
 
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(6.dp)
-                                        .clip(CircleShape)
-                                        .background(Color(0xFF30D158))
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "Keine Termine heute",
-                                    color = Color.White.copy(alpha = 0.60f),
-                                    fontSize = 11.sp
-                                )
-                            }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF30D158))
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Smart-Stack • Hochwischen",
+                                color = Color.White.copy(alpha = 0.55f),
+                                fontSize = 10.5.sp
+                            )
                         }
                     }
                 }
@@ -563,53 +635,37 @@ fun IosTopWidgetsHeader(
                         verticalArrangement = Arrangement.SpaceBetween,
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        Row(
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier.size(64.dp)
                         ) {
-                            // iOS Circular Battery Ring Canvas
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier.size(64.dp)
-                            ) {
-                                Canvas(modifier = Modifier.fillMaxSize()) {
-                                    val stroke = 7.dp.toPx()
-                                    drawArc(
-                                        color = Color.White.copy(alpha = 0.14f),
-                                        startAngle = 0f,
-                                        sweepAngle = 360f,
-                                        useCenter = false,
-                                        style = Stroke(width = stroke, cap = StrokeCap.Round)
-                                    )
-                                    val ringColor = when {
-                                        batteryPercent <= 20 -> Color(0xFFFF453A)
-                                        batteryPercent <= 40 -> Color(0xFFFFD60A)
-                                        else -> Color(0xFF30D158)
-                                    }
-                                    drawArc(
-                                        color = ringColor,
-                                        startAngle = -90f,
-                                        sweepAngle = (batteryPercent / 100f) * 360f,
-                                        useCenter = false,
-                                        style = Stroke(width = stroke, cap = StrokeCap.Round)
-                                    )
+                            Canvas(modifier = Modifier.fillMaxSize()) {
+                                val stroke = 7.dp.toPx()
+                                drawArc(
+                                    color = Color.White.copy(alpha = 0.14f),
+                                    startAngle = 0f,
+                                    sweepAngle = 360f,
+                                    useCenter = false,
+                                    style = Stroke(width = stroke, cap = StrokeCap.Round)
+                                )
+                                val ringColor = when {
+                                    batteryPercent <= 20 -> Color(0xFFFF453A)
+                                    batteryPercent <= 40 -> Color(0xFFFFD60A)
+                                    else -> Color(0xFF30D158)
                                 }
-                                Text(
-                                    text = "${batteryPercent}%",
-                                    color = Color.White,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold
+                                drawArc(
+                                    color = ringColor,
+                                    startAngle = -90f,
+                                    sweepAngle = (batteryPercent / 100f) * 360f,
+                                    useCenter = false,
+                                    style = Stroke(width = stroke, cap = StrokeCap.Round)
                                 )
                             }
-
-                            Icon(
-                                imageVector = Icons.Default.SwapHoriz,
-                                contentDescription = "Widget wechseln",
-                                tint = Color.White.copy(alpha = 0.35f),
-                                modifier = Modifier
-                                    .align(Alignment.Top)
-                                    .size(16.dp)
+                            Text(
+                                text = "${batteryPercent}%",
+                                color = Color.White,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold
                             )
                         }
 
@@ -634,25 +690,13 @@ fun IosTopWidgetsHeader(
                         verticalArrangement = Arrangement.SpaceBetween,
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        Row(
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                text = "SIRI-VORSCHLÄGE",
-                                color = Color.White.copy(alpha = 0.55f),
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 0.6.sp
-                            )
-                            Icon(
-                                imageVector = Icons.Default.SwapHoriz,
-                                contentDescription = "Widget wechseln",
-                                tint = Color.White.copy(alpha = 0.35f),
-                                modifier = Modifier.size(15.dp)
-                            )
-                        }
+                        Text(
+                            text = "SIRI-VORSCHLÄGE",
+                            color = Color.White.copy(alpha = 0.55f),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.6.sp
+                        )
 
                         Row(
                             horizontalArrangement = Arrangement.SpaceEvenly,
@@ -699,10 +743,50 @@ fun IosTopWidgetsHeader(
                         }
                     }
                 }
+
+                LeftWidgetType.QUICK_NOTE -> {
+                    var localNote by remember(quickNoteText) { mutableStateOf(quickNoteText) }
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFFFFD60A))
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "NOTIZEN",
+                                color = Color(0xFFFFD60A),
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.6.sp
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        BasicTextField(
+                            value = localNote,
+                            onValueChange = {
+                                localNote = it
+                                onQuickNoteChange(it)
+                            },
+                            textStyle = TextStyle(
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                lineHeight = 17.sp
+                            ),
+                            cursorBrush = SolidColor(Color(0xFFFFD60A)),
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                }
             }
         }
 
-        // RIGHT WIDGET: Authentic iOS 18 Live Weather Widget
+        // RIGHT SMART-STACK WIDGET CARD (Vertically Swipeable: Live Weather, Media Controller, Storage/RAM)
         Box(
             modifier = Modifier
                 .weight(1f)
@@ -710,106 +794,319 @@ fun IosTopWidgetsHeader(
                 .shadow(12.dp, RoundedCornerShape(24.dp), clip = false)
                 .clip(RoundedCornerShape(24.dp))
                 .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color(0xFF145DA0),
-                            Color(0xFF2E8BC0),
-                            Color(0xFF56B4E9)
+                    when (rightWidgetType) {
+                        RightWidgetType.LIVE_WEATHER -> Brush.verticalGradient(
+                            colors = listOf(
+                                Color(0xFF145DA0),
+                                Color(0xFF2E8BC0),
+                                Color(0xFF56B4E9)
+                            )
                         )
-                    )
+                        RightWidgetType.MEDIA_CONTROLLER -> Brush.linearGradient(
+                            colors = listOf(
+                                Color(0xEE8E1B46),
+                                Color(0xEE2B1644)
+                            )
+                        )
+                        RightWidgetType.STORAGE_RAM -> Brush.linearGradient(
+                            colors = listOf(
+                                Color(0xEA1C1C1E),
+                                Color(0xEA28282C)
+                            )
+                        )
+                    }
                 )
-                .border(0.8.dp, Color.White.copy(alpha = 0.28f), RoundedCornerShape(24.dp))
-                .clickable { onWeatherClick() }
+                .border(0.8.dp, Color.White.copy(alpha = 0.26f), RoundedCornerShape(24.dp))
+                .pointerInput(rightWidgetType) {
+                    var dy = 0f
+                    detectVerticalDragGestures(
+                        onDragStart = { dy = 0f },
+                        onVerticalDrag = { change, dragAmount ->
+                            change.consume()
+                            dy += dragAmount
+                            if (dy < -36f) {
+                                dy = 0f
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                onCycleRightWidget(+1)
+                            } else if (dy > 36f) {
+                                dy = 0f
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                onCycleRightWidget(-1)
+                            }
+                        }
+                    )
+                }
+                .clickable {
+                    if (rightWidgetType == RightWidgetType.LIVE_WEATHER) onWeatherClick()
+                    else onCycleRightWidget(+1)
+                }
                 .padding(14.dp)
         ) {
-            Column(
-                verticalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.fillMaxSize()
-            ) {
-                Row(
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.Top,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = weatherCity,
-                                color = Color.White,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                        Text(
-                            text = "${displayTemp}°",
-                            color = Color.White,
-                            fontSize = 38.sp,
-                            fontWeight = FontWeight.Light,
-                            letterSpacing = (-1).sp
-                        )
-                    }
-
-                    // Multi-layered iOS Sun & Cloud Canvas Graphic + Refresh tap
-                    Box(
-                        contentAlignment = Alignment.TopEnd,
-                        modifier = Modifier
-                            .size(44.dp)
-                            .clickable { onRefreshWeatherClick() }
+            when (rightWidgetType) {
+                RightWidgetType.LIVE_WEATHER -> {
+                    Column(
+                        verticalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxSize()
                     ) {
-                        Canvas(modifier = Modifier.size(38.dp)) {
-                            // Sun glow
-                            drawCircle(
-                                color = Color(0x55FFD60A),
-                                radius = size.minDimension * 0.45f,
-                                center = Offset(size.width * 0.42f, size.height * 0.42f)
-                            )
-                            // Sun core
-                            drawCircle(
-                                color = Color(0xFFFFD60A),
-                                radius = size.minDimension * 0.30f,
-                                center = Offset(size.width * 0.42f, size.height * 0.42f)
-                            )
-                            // Soft iOS translucent white cloud in foreground
-                            drawRoundRect(
-                                color = Color.White.copy(alpha = 0.92f),
-                                topLeft = Offset(size.width * 0.22f, size.height * 0.48f),
-                                size = Size(size.width * 0.68f, size.height * 0.32f),
-                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(18f, 18f)
-                            )
-                            drawCircle(
-                                color = Color.White.copy(alpha = 0.95f),
-                                radius = size.minDimension * 0.20f,
-                                center = Offset(size.width * 0.48f, size.height * 0.50f)
-                            )
+                        Row(
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.Top,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = weatherCity,
+                                    color = Color.White,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = "${displayTemp}°",
+                                    color = Color.White,
+                                    fontSize = 38.sp,
+                                    fontWeight = FontWeight.Light,
+                                    letterSpacing = (-1).sp
+                                )
+                            }
+
+                            Box(
+                                contentAlignment = Alignment.TopEnd,
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clickable { onRefreshWeatherClick() }
+                            ) {
+                                Canvas(modifier = Modifier.size(38.dp)) {
+                                    drawCircle(
+                                        color = Color(0x55FFD60A),
+                                        radius = size.minDimension * 0.45f,
+                                        center = Offset(size.width * 0.42f, size.height * 0.42f)
+                                    )
+                                    drawCircle(
+                                        color = Color(0xFFFFD60A),
+                                        radius = size.minDimension * 0.30f,
+                                        center = Offset(size.width * 0.42f, size.height * 0.42f)
+                                    )
+                                    drawRoundRect(
+                                        color = Color.White.copy(alpha = 0.92f),
+                                        topLeft = Offset(size.width * 0.22f, size.height * 0.48f),
+                                        size = Size(size.width * 0.68f, size.height * 0.32f),
+                                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(18f, 18f)
+                                    )
+                                    drawCircle(
+                                        color = Color.White.copy(alpha = 0.95f),
+                                        radius = size.minDimension * 0.20f,
+                                        center = Offset(size.width * 0.48f, size.height * 0.50f)
+                                    )
+                                }
+                                if (isWeatherRefreshing) {
+                                    Icon(
+                                        imageVector = Icons.Default.Refresh,
+                                        contentDescription = null,
+                                        tint = Color.White.copy(alpha = 0.8f),
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                }
+                            }
                         }
-                        if (isWeatherRefreshing) {
-                            Icon(
-                                imageVector = Icons.Default.Refresh,
-                                contentDescription = null,
-                                tint = Color.White.copy(alpha = 0.8f),
-                                modifier = Modifier.size(12.dp)
+
+                        Column {
+                            Text(
+                                text = weatherCondition,
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1
+                            )
+                            Text(
+                                text = "H:${displayHigh}°  T:${displayLow}°",
+                                color = Color.White.copy(alpha = 0.85f),
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Medium
                             )
                         }
                     }
                 }
 
-                Column {
-                    Text(
-                        text = weatherCondition,
-                        color = Color.White,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1
-                    )
-                    Text(
-                        text = "H:${displayHigh}°  T:${displayLow}°",
-                        color = Color.White.copy(alpha = 0.85f),
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.Medium
-                    )
+                RightWidgetType.MEDIA_CONTROLLER -> {
+                    Column(
+                        verticalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(RoundedCornerShape(9.dp))
+                                    .background(Color(0xFFFF2D55))
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.MusicNote,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "Mediensteuerung",
+                                    color = Color.White,
+                                    fontSize = 13.5.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "Spotify / YouTube Music",
+                                    color = Color.White.copy(alpha = 0.65f),
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+
+                        Row(
+                            horizontalArrangement = Arrangement.SpaceEvenly,
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = 0.14f))
+                                    .clickable { onMediaPrev() }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.SkipPrevious,
+                                    contentDescription = "Zurück",
+                                    tint = Color.White
+                                )
+                            }
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White)
+                                    .clickable { onMediaPlayPause() }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.PlayArrow,
+                                    contentDescription = "Play/Pause",
+                                    tint = Color.Black
+                                )
+                            }
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = 0.14f))
+                                    .clickable { onMediaNext() }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.SkipNext,
+                                    contentDescription = "Weiter",
+                                    tint = Color.White
+                                )
+                            }
+                        }
+                    }
                 }
+
+                RightWidgetType.STORAGE_RAM -> {
+                    Column(
+                        verticalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Storage,
+                                contentDescription = null,
+                                tint = Color(0xFF0A84FF),
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "SYSTEM-STATUS",
+                                color = Color(0xFF0A84FF),
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.6.sp
+                            )
+                        }
+
+                        Column {
+                            Text(
+                                text = "RAM: ${String.format(Locale.GERMANY, "%.1f", storageRamInfo.usedRamGb)} / ${String.format(Locale.GERMANY, "%.0f", storageRamInfo.totalRamGb)} GB",
+                                color = Color.White,
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            val ramRatio = (storageRamInfo.usedRamGb / storageRamInfo.totalRamGb.coerceAtLeast(1f)).coerceIn(0.1f, 1f)
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(6.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = 0.15f))
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth(ramRatio)
+                                        .fillMaxHeight()
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF30D158))
+                                )
+                            }
+                        }
+
+                        Column {
+                            Text(
+                                text = "Speicher: ${storageRamInfo.usedStorageGb} / ${storageRamInfo.totalStorageGb} GB",
+                                color = Color.White,
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            val storageRatio = (storageRamInfo.usedStorageGb.toFloat() / storageRamInfo.totalStorageGb.coerceAtLeast(1).toFloat()).coerceIn(0.1f, 1f)
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(6.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = 0.15f))
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth(storageRatio)
+                                        .fillMaxHeight()
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF0A84FF))
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Right iOS Vertical Smart-Stack Dots
+        Column(
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            RightWidgetType.entries.forEach { entry ->
+                val active = entry == rightWidgetType
+                Box(
+                    modifier = Modifier
+                        .size(width = 3.5.dp, height = if (active) 9.dp else 3.5.dp)
+                        .clip(CircleShape)
+                        .background(if (active) Color.White else Color.White.copy(alpha = 0.30f))
+                )
             }
         }
     }
