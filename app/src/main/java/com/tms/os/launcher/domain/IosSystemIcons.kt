@@ -349,25 +349,30 @@ internal object IosSystemIcons {
     /* ------------------------------------------------------------------ */
 
     private fun drawCamera(c: Canvas, dark: Boolean) {
-        c.background(if (dark) 0xFF3D3D42.toInt() else 0xFFE9E9EE.toInt(), if (dark) 0xFF121215.toInt() else 0xFFB9BAC2.toInt())
-        val metal = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            shader = LinearGradient(0.2f, 0.15f, 0.8f, 0.9f,
-                intArrayOf(0xFF9C9FA6.toInt(), 0xFF22242A.toInt(), 0xFF575B67.toInt()), null, Shader.TileMode.CLAMP)
+        // Silver plate, one big lens: dark barrel, black inner ring, glass with
+        // a cool highlight top-left and a warm magenta reflection bottom-right.
+        c.background(if (dark) 0xFF48484C.toInt() else 0xFFE6E6E9.toInt(), if (dark) 0xFF1E1E21.toInt() else 0xFFC2C2C7.toInt())
+        val barrel = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = LinearGradient(0.5f, 0.1f, 0.5f, 0.9f, 0xFF707073.toInt(), 0xFF4A4A4D.toInt(), Shader.TileMode.CLAMP)
         }
-        c.drawCircle(0.5f, 0.5f, 0.385f, metal)
-        c.drawCircle(0.5f, 0.5f, 0.355f, paint(0xFF080A0F.toInt()))
-        c.drawCircle(0.5f, 0.5f, 0.306f, paint(0xFF3E424F.toInt()))
-        c.drawCircle(0.5f, 0.5f, 0.290f, paint(0xFF080B14.toInt()))
-        val glass = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            shader = RadialGradient(0.43f, 0.37f, 0.36f,
-                intArrayOf(0xFF4D6095.toInt(), 0xFF142754.toInt(), 0xFF0B101E.toInt(), 0xFF382C69.toInt()),
-                floatArrayOf(0f, 0.4f, 0.76f, 1f), Shader.TileMode.CLAMP)
+        c.drawCircle(0.5f, 0.5f, 0.405f, barrel)
+        c.drawCircle(0.5f, 0.5f, 0.352f, paint(0x30000000, Paint.Style.STROKE).apply { strokeWidth = 0.012f })
+        c.drawCircle(0.5f, 0.5f, 0.343f, paint(0x22FFFFFF, Paint.Style.STROKE).apply { strokeWidth = 0.006f })
+        c.drawCircle(0.5f, 0.5f, 0.278f, paint(0xFF1B1B1E.toInt()))
+        c.drawCircle(0.5f, 0.5f, 0.212f, paint(0xFF0C0C12.toInt()))
+        c.save()
+        c.clipPath(Path().apply { addCircle(0.5f, 0.5f, 0.205f, Path.Direction.CW) })
+        fun glow(cx: Float, cy: Float, r: Float, vararg colors: Int) {
+            val p = Paint(Paint.ANTI_ALIAS_FLAG)
+            p.shader = RadialGradient(cx, cy, r, colors, null, Shader.TileMode.CLAMP)
+            c.drawCircle(cx, cy, r, p)
         }
-        c.drawCircle(0.5f, 0.5f, 0.266f, glass)
-        c.drawCircle(0.5f, 0.5f, 0.137f, paint(0xFF090C14.toInt()))
-        c.drawOval(RectF(0.365f, 0.294f, 0.49f, 0.36f), paint(0x668EB6FF))
-        c.drawOval(RectF(0.52f, 0.64f, 0.66f, 0.71f), paint(0x445F78F6))
-        c.drawCircle(0.5f, 0.5f, 0.354f, paint(0x448C919F, Paint.Style.STROKE).apply { strokeWidth = 0.008f })
+        glow(0.575f, 0.585f, 0.150f, 0xFFE2408C.toInt(), 0xB08A1D60.toInt(), 0x00501040)
+        glow(0.425f, 0.560f, 0.105f, 0xD0C8524E.toInt(), 0x00C8524E)
+        glow(0.445f, 0.425f, 0.120f, 0xFFE4EEFF.toInt(), 0xE05C9BF0.toInt(), 0x002A5AC0)
+        glow(0.500f, 0.500f, 0.075f, 0xF009090E.toInt(), 0xA009090E.toInt(), 0x0009090E)
+        c.restore()
+        c.drawArc(RectF(0.33f, 0.33f, 0.67f, 0.67f), 40f, 80f, false, paint(0x66FF9AC8, Paint.Style.STROKE).apply { strokeWidth = 0.008f; strokeCap = Paint.Cap.ROUND })
     }
 
     /* ------------------------------------------------------------------ */
@@ -447,29 +452,42 @@ internal object IosSystemIcons {
     /* ------------------------------------------------------------------ */
 
     private fun drawSettings(c: Canvas, dark: Boolean) {
-        c.background(if (dark) 0xFF565961.toInt() else 0xFFD9DCE2.toInt(), if (dark) 0xFF191B22.toInt() else 0xFF949AA5.toInt())
-        c.drawCircle(0.5f, 0.5f, 0.427f, paint(0xFF343842.toInt()))
-        val metal = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            shader = LinearGradient(0.2f, 0.1f, 0.7f, 0.9f,
-                intArrayOf(0xFFF0F1F4.toInt(), 0xFF89909C.toInt(), 0xFFC6CAD1.toInt()), null, Shader.TileMode.CLAMP)
-            style = Paint.Style.STROKE
-            strokeWidth = 0.028f
-        }
-        c.drawCircle(0.5f, 0.5f, 0.406f, metal)
-        for (i in 0 until 28) {
-            c.rotated(i * 360f / 28, 0.5f, 0.5f) {
-                c.drawLine(0.5f, 0.117f, 0.5f, 0.167f, paint(0xFFC4C8CE.toInt(), Paint.Style.STROKE).apply { strokeWidth = 0.019f })
+        // Grey plate, silver gear: toothed outer ring, three thin spokes on a
+        // small hub, and a second, faint gear lying behind them.
+        val top = if (dark) 0xFF57575B.toInt() else 0xFFA6A6AB.toInt()
+        val bottom = if (dark) 0xFF232326.toInt() else 0xFF6A6A6F.toInt()
+        c.background(top, bottom)
+
+        fun gear(teeth: Int, ringR: Float, ringW: Float, tipR: Float, baseDeg: Float, tipDeg: Float, offsetDeg: Float, p: Paint) {
+            val path = Path()
+            val r0 = ringR + ringW * 0.3f
+            for (i in 0 until teeth) {
+                val a = offsetDeg + i * 360f / teeth
+                fun pt(r: Float, deg: Float): Pair<Float, Float> {
+                    val rad = Math.toRadians((a + deg).toDouble())
+                    return (0.5f + sin(rad).toFloat() * r) to (0.5f - cos(rad).toFloat() * r)
+                }
+                val (x0, y0) = pt(r0, -baseDeg); val (x1, y1) = pt(tipR, -tipDeg)
+                val (x2, y2) = pt(tipR, tipDeg); val (x3, y3) = pt(r0, baseDeg)
+                path.moveTo(x0, y0); path.lineTo(x1, y1); path.lineTo(x2, y2); path.lineTo(x3, y3); path.close()
             }
+            val fill = Paint(p).apply { style = Paint.Style.FILL_AND_STROKE; strokeWidth = ringW * 0.32f; strokeJoin = Paint.Join.ROUND }
+            c.drawPath(path, fill)
+            c.drawCircle(0.5f, 0.5f, ringR, Paint(p).apply { style = Paint.Style.STROKE; strokeWidth = ringW })
         }
-        metal.strokeWidth = 0.035f
-        c.drawCircle(0.5f, 0.5f, 0.312f, metal)
-        metal.strokeWidth = 0.016f
-        c.drawCircle(0.5f, 0.5f, 0.264f, metal)
-        for (i in 0..2) c.rotated(i * 120f, 0.5f, 0.5f) {
-            c.drawLine(0.5f, 0.25f, 0.5f, 0.5f, paint(0xFFB5BBC5.toInt(), Paint.Style.STROKE).apply { strokeWidth = 0.065f })
+
+        val ghost = paint(if (dark) 0x30FFFFFF else 0x3DFFFFFF)
+        gear(teeth = 18, ringR = 0.205f, ringW = 0.022f, tipR = 0.256f, baseDeg = 5.2f, tipDeg = 2.0f, offsetDeg = 0f, p = ghost)
+
+        val silver = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = LinearGradient(0.5f, 0.08f, 0.5f, 0.92f, 0xFFF5F5F7.toInt(), 0xFFC6C6CB.toInt(), Shader.TileMode.CLAMP)
         }
-        c.drawCircle(0.5f, 0.5f, 0.115f, paint(0xFFCFD3DA.toInt()))
-        c.drawCircle(0.5f, 0.5f, 0.075f, paint(0xFF525865.toInt()))
+        gear(teeth = 20, ringR = 0.302f, ringW = 0.032f, tipR = 0.400f, baseDeg = 5.0f, tipDeg = 1.4f, offsetDeg = 9f, p = silver)
+        val spoke = Paint(silver).apply { style = Paint.Style.STROKE; strokeWidth = 0.027f; strokeCap = Paint.Cap.BUTT }
+        for (deg in floatArrayOf(270f, 30f, 150f)) c.rotated(deg, 0.5f, 0.5f) { c.drawLine(0.5f, 0.5f, 0.5f, 0.205f, spoke) }
+        c.drawCircle(0.5f, 0.5f, 0.088f, silver)
+        c.drawCircle(0.5f, 0.5f, 0.047f, paint(if (dark) 0xFF3C3C40.toInt() else 0xFF8C8C91.toInt()))
+        c.drawCircle(0.5f, 0.5f, 0.026f, paint(if (dark) 0xFF58585C.toInt() else 0xFFA8A8AD.toInt()))
     }
 
     /* ------------------------------------------------------------------ */
@@ -523,37 +541,19 @@ internal object IosSystemIcons {
     /* ------------------------------------------------------------------ */
 
     private fun drawCalculator(c: Canvas, dark: Boolean) {
-        c.background(0xFF2C2C2E.toInt(), 0xFF0B0B0D.toInt())
-
-        c.rr(0.132f, 0.122f, 0.868f, 0.318f, 0.036f, 0xFF3E3E42.toInt())
-
-        val key = if (dark) 0xFF626267.toInt() else 0xFF5C5C60.toInt()
-        val orange = 0xFFFF9F0A.toInt()
-
-        val startX = 0.132f
-        val startY = 0.360f
-        val endX = 0.868f
-        val endY = 0.880f
-        val gap = 0.028f
-        val keyW = (endX - startX - gap * 3f) / 4f
-        val keyH = (endY - startY - gap * 3f) / 4f
-
-        val zero = paint(0xE6FFFFFF.toInt()).apply {
-            textAlign = Paint.Align.RIGHT
-            typeface = Typeface.create("sans-serif-light", Typeface.NORMAL)
-            textSize = 0.128f
-        }
-        c.normalizedText("0", 0.828f, 0.272f, zero)
-
-        for (row in 0 until 4) {
-            for (col in 0 until 4) {
-                val left = startX + col * (keyW + gap)
-                val top = startY + row * (keyH + gap)
-                c.rr(
-                    left, top, left + keyW, top + keyH, 0.030f,
-                    if (col == 3) orange else key
-                )
-            }
+        // Silver plate with a small dark pocket calculator: display on top,
+        // 3×3 round keys, the right column in orange.
+        c.background(if (dark) 0xFF4A4A4E.toInt() else 0xFFE6E6E8.toInt(), if (dark) 0xFF202023.toInt() else 0xFFBBBBC0.toInt())
+        c.rr(0.243f, 0.121f, 0.763f, 0.893f, 0.066f, 0x33000000)
+        c.rrGradient(0.245f, 0.115f, 0.757f, 0.885f, 0.064f, 0xFF5E5E61.toInt(), 0xFF3A3A3D.toInt())
+        c.rrGradient(0.300f, 0.185f, 0.702f, 0.370f, 0.034f, 0xFF2A2A2D.toInt(), 0xFF3A3A3D.toInt())
+        val grey = 0xFFCDCDCF.toInt()
+        val orange = 0xFFF5990F.toInt()
+        val xs = floatArrayOf(0.357f, 0.501f, 0.645f)
+        val ys = floatArrayOf(0.494f, 0.630f, 0.766f)
+        for (y in ys) for ((i, x) in xs.withIndex()) {
+            c.drawCircle(x, y + 0.006f, 0.052f, paint(0x30000000))
+            c.drawCircle(x, y, 0.052f, paint(if (i == 2) orange else grey))
         }
     }
 

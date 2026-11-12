@@ -259,25 +259,6 @@ class LauncherRepository(private val context: Context) {
      * Reads real 30-day Android foreground usage stats (in minutes) if PACKAGE_USAGE_STATS is granted.
      */
     /**
-     * Apps in "last used" order for the app switcher: UsageStats of the last
-     * 24 h when granted, otherwise the launcher's own launch timestamps.
-     */
-    fun recentAppsForSwitcher(apps: List<AppInfo>, limit: Int = 12): List<AppInfo> {
-        val byPkg = apps.filter { !it.isHidden && it.packageName != context.packageName }.associateBy { it.packageName }
-        val fromUsage = if (isUsageStatsPermissionGranted()) runCatching {
-            val usm = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
-            val end = System.currentTimeMillis()
-            usm.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, end - 24L * 3_600_000L, end)
-                .filter { it.lastTimeUsed > 0 && byPkg.containsKey(it.packageName) }
-                .sortedByDescending { it.lastTimeUsed }
-                .map { it.packageName }
-                .distinct()
-        }.getOrDefault(emptyList()) else emptyList()
-        val fromLaunches = apps.filter { it.lastLaunchedTime > 0 }.sortedByDescending { it.lastLaunchedTime }.map { it.packageName }
-        return (fromUsage + fromLaunches).distinct().mapNotNull { byPkg[it] }.take(limit)
-    }
-
-    /**
      * The app's own shortcuts (e.g. "New Message"), as iOS shows them on top of
      * the Haptic Touch menu. Only the default launcher may read them.
      */
@@ -328,13 +309,6 @@ class LauncherRepository(private val context: Context) {
 
     fun saveSpotlightHistory(packages: List<String>) {
         prefs.edit().putString("spotlight_history", packages.joinToString("|")).apply()
-    }
-
-    /** Ends a background app like swiping its card away; foreground apps are untouched by Android. */
-    fun killBackgroundApp(packageName: String) {
-        runCatching {
-            (context.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager).killBackgroundProcesses(packageName)
-        }
     }
 
     fun getUsageStatsMinutesMap(): Map<String, Int> {

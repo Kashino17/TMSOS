@@ -27,6 +27,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -153,7 +154,9 @@ fun Modifier.homeDragGesture(
     /** (finger-down position, current position), both in root coordinates. */
     onStart: (Offset, Offset) -> Unit,
     onMove: (Offset) -> Unit,
-    onEnd: () -> Unit
+    onEnd: () -> Unit,
+    /** Finger-down position in root coordinates: false leaves the touch to everything else. */
+    canStart: (Offset) -> Boolean = { true }
 ): Modifier = composed {
     var coords by remember { mutableStateOf<LayoutCoordinates?>(null) }
     val start by rememberUpdatedState(onStart)
@@ -163,6 +166,7 @@ fun Modifier.homeDragGesture(
     // them pointerInput keys would cancel the very gesture that is running.
     val jiggleNow by rememberUpdatedState(jiggle)
     val enabledNow by rememberUpdatedState(enabled)
+    val canStartNow by rememberUpdatedState(canStart)
     this
         .onGloballyPositioned { coords = it }
         .pointerInput(key) {
@@ -171,6 +175,7 @@ fun Modifier.homeDragGesture(
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                 if (!enabledNow) return@awaitEachGesture
+                if (coords?.let { canStartNow(it.localToRoot(down.position)) } == false) return@awaitEachGesture
                 if (!jiggleNow) {
                     val interrupted = withTimeoutOrNull(holdMs) {
                         while (true) {
@@ -282,3 +287,62 @@ fun folderHoverScale(active: Boolean): Float {
 }
 
 fun distance(a: Offset, b: Offset) = hypot(a.x - b.x, a.y - b.y)
+
+
+/** Removes [pkg] from every folder (folders left empty disappear, except [keep]). */
+fun List<HomeGridItem>.withoutFolderApp(pkg: String, keep: String? = null): List<HomeGridItem> = mapNotNull { item ->
+    if (item is HomeGridItem.FolderItem && item.appPackages.contains(pkg)) {
+        val rest = item.appPackages - pkg
+        if (rest.isEmpty() && item.folderId != keep) null else item.copy(appPackages = rest)
+    } else item
+}
+
+/** Where the 3×3 app slots of an open folder panel are, in root coordinates. */
+class FolderSlots(val panel: Rect, private val padH: Float, private val padV: Float, val iconPx: Float, private val rowH: Float) {
+    private val left = panel.left + padH
+    private val top = panel.top + padV
+    val cellW = (panel.width - 2 * padH) / 3f
+    val pitch = (panel.height - 2 * padV - rowH) / 2f
+
+    /** Slot (0..8) nearest to [p]. */
+    fun slotAt(p: Offset): Int {
+        val col = ((p.x - left) / cellW).toInt().coerceIn(0, 2)
+        val row = ((p.y - top + (pitch - rowH) / 2f) / pitch).toInt().coerceIn(0, 2)
+        return row * 3 + col
+    }
+
+    fun iconTopLeft(slot: Int) = Offset(left + (slot % 3) * cellW + (cellW - iconPx) / 2f, top + (slot / 3) * pitch)
+    fun iconRect(slot: Int) = Rect(iconTopLeft(slot), androidx.compose.ui.geometry.Size(iconPx, iconPx))
+}
+
+/**
+ * A folder that is open underneath a running drag, as on iOS: either the drag
+ * started inside it, or the app was held over its icon until it sprang open.
+ * While it is open the app is arranged inside the folder; moving out of the
+ * panel closes it and the app is carried on the home screen again.
+ */
+class FolderDragSession {
+    var folderId by mutableStateOf<String?>(null)
+    /** Preview order of the folder's apps, including the carried one. */
+    var order by mutableStateOf<List<String>>(emptyList())
+    var hoverIndex by mutableStateOf(-1)
+    var outside by mutableStateOf(false)
+    /** The finger has been inside the panel (or moved on) since the folder opened. */
+    var armed = false
+    /** The finger has actually been inside the panel. */
+    var entered = false
+    var openedAt = Offset.Zero
+    /** -1 / 1 while the finger rests at the panel's left / right edge. */
+    var edge by mutableStateOf(0)
+
+    val active get() = folderId != null
+
+    fun open(id: String, apps: List<String>, at: Offset, armed: Boolean) {
+        order = apps; hoverIndex = -1; outside = false; this.armed = armed; entered = armed; openedAt = at; edge = 0
+        folderId = id
+    }
+
+    fun clear() {
+        folderId = null; hoverIndex = -1; outside = false; armed = false; entered = false; edge = 0
+    }
+}

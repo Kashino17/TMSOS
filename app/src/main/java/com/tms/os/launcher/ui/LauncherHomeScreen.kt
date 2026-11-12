@@ -103,10 +103,12 @@ import com.tms.os.launcher.ui.home.IosSpotlight
 import com.tms.os.launcher.ui.home.AlertAction
 import com.tms.os.launcher.ui.home.GridGeometry
 import com.tms.os.launcher.ui.home.HomeDragState
+import com.tms.os.launcher.ui.home.FolderDragSession
+import com.tms.os.launcher.ui.home.FolderSlots
+import com.tms.os.launcher.ui.home.withoutFolderApp
 import com.tms.os.launcher.ui.home.HomeGridPage
 import com.tms.os.launcher.ui.home.Hover
 import com.tms.os.launcher.ui.home.IosAlert
-import com.tms.os.launcher.ui.home.IosAppSwitcher
 import com.tms.os.launcher.ui.home.IosAppMenu
 import com.tms.os.launcher.ui.home.IosFolderView
 import com.tms.os.launcher.ui.home.IosEditTopBar
@@ -197,7 +199,8 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
     var showGallery by remember { mutableStateOf(false) }
     var removeTarget by remember { mutableStateOf<HomeGridItem?>(null) }
     var menuAnchor by remember { mutableStateOf<Pair<String, Rect>?>(null) }
-    var folderBounds by remember { mutableStateOf<Rect?>(null) }
+    // Where each open folder grows out of / shrinks back into.
+    val folderOrigins = remember { androidx.compose.runtime.mutableStateMapOf<String, Rect>() }
     /** Category opened from the App Library: title and its apps. */
     var openPod by remember { mutableStateOf<OpenPod?>(null) }
     val podProgress = remember { Animatable(0f) }
@@ -207,9 +210,12 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
     val homeZoom = remember { Animatable(1f) }
     val homeZoomRead = remember { { homeZoom.value } }
     val spotlight = remember { Animatable(0f) }
-    val switcher = remember { Animatable(0f) }
     var leftToApp by remember { mutableStateOf(false) }
     val drag = remember { HomeDragState() }
+    // Folder that is open underneath the running drag (started inside it, or sprung open).
+    val fs = remember { FolderDragSession() }
+    val folderSlots = remember { mutableMapOf<String, Pair<FolderSlots, Int>>() }
+    var sessionFolder by remember { mutableStateOf<HomeGridItem.FolderItem?>(null) }
     // Smart Stacks scroll vertically; a pull-down that starts on one must not open Spotlight.
     val stackRects = remember { androidx.compose.runtime.mutableStateMapOf<String, Rect>() }
 
@@ -238,9 +244,6 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    LaunchedEffect(state.isSwitcherOpen) {
-        switcher.animateTo(if (state.isSwitcherOpen) 1f else 0f, spring(dampingRatio = 0.86f, stiffness = 300f))
-    }
     // Spotlight follows the finger; the committed open/closed state lives in the VM.
     LaunchedEffect(state.isSpotlightOpen) {
         spotlight.animateTo(if (state.isSpotlightOpen) 1f else 0f, spring(dampingRatio = 0.86f, stiffness = 320f))
@@ -339,7 +342,7 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
         // Folder, menu and gallery sit on a frosted home screen. The frost is the
         // home content redrawn at 1/8 size and blurred there (64x fewer pixels than a
         // full-size blur, and nothing is read back from the GPU), then stretched back.
-        val needsFrost = state.activeFolder != null || state.selectedAppForMenu != null || showGallery
+        val needsFrost = state.activeFolder != null || fs.active || state.selectedAppForMenu != null || showGallery
         val frost = animateFloatAsState(if (needsFrost) 1f else 0f, tween(280, easing = IosEase), label = "frost")
         val canFrost = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
         val showFrost by remember { androidx.compose.runtime.derivedStateOf { frost.value > 0.002f } }
@@ -372,7 +375,7 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
         }
 
         fun openFolder(folder: HomeGridItem.FolderItem, bounds: Rect) {
-            folderBounds = bounds
+            folderOrigins[folder.folderId] = bounds
             val width = configuration.screenWidthDp.toFloat().coerceAtLeast(1f)
             val height = configuration.screenHeightDp.toFloat().coerceAtLeast(1f)
             viewModel.openFolder(
@@ -388,7 +391,8 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
         val dockApps = remember(dockPkgs, state.appMap) { dockPkgs.take(dockCount).mapNotNull { state.appMap[it] } }
         var dockRect by remember { mutableStateOf(Rect.Zero) }
         val dockIconRects = remember { androidx.compose.runtime.mutableStateMapOf<String, Rect>() }
-        var folderForDrag by remember { mutableStateOf<HomeGridItem.FolderItem?>(null) }
+        // Folder whose panel owns the running gesture: it must stay composed until the drop.
+        var ownerFolder by remember { mutableStateOf<HomeGridItem.FolderItem?>(null) }
         val recentApps = remember(state.recentPackages, state.appMap) { state.recentPackages.mapNotNull { state.appMap[it] } }
 
         // ------------------------------------------------------------ wallpaper
@@ -404,12 +408,12 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
         backdrop.glass?.let {
             Image(it, null, contentScale = androidx.compose.ui.layout.ContentScale.FillBounds,
                 modifier = Modifier.fillMaxSize().graphicsLayer {
-                    alpha = maxOf(overlayGlass.value, spotlight.value.coerceIn(0f, 1f), edgeFraction(), switcher.value.coerceIn(0f, 1f))
+                    alpha = maxOf(overlayGlass.value, spotlight.value.coerceIn(0f, 1f), edgeFraction())
                 })
         }
         // Today View and App Library also dim the wallpaper a little, like iOS.
         Box(Modifier.fillMaxSize().graphicsLayer {
-            alpha = maxOf(edgeFraction() * 0.62f, spotlight.value.coerceIn(0f, 1f) * 0.72f, overlayGlass.value * 0.45f, switcher.value.coerceIn(0f, 1f) * 0.3f)
+            alpha = maxOf(edgeFraction() * 0.62f, spotlight.value.coerceIn(0f, 1f) * 0.72f, overlayGlass.value * 0.45f)
         }.background(Color.Black))
 
         // ------------------------------------------------------ grid geometry
@@ -486,6 +490,34 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
         fun dragMove(pointer: Offset) {
             val item = drag.item ?: return
             drag.pointer = pointer
+            // A folder is open under the finger: the app is arranged inside it.
+            val sessionId = fs.folderId
+            if (sessionId != null && item is HomeGridItem.AppItem) {
+                drag.edge = 0; drag.hover = null; drag.folderTarget = null
+                if (drag.overDock) {
+                    drag.overDock = false
+                    drag.dockOrder = drag.dockOrder?.filterNot { it == item.packageName }
+                }
+                val (slots, page) = folderSlots[sessionId] ?: return
+                if (slots.panel.inflate(edgePx).contains(pointer)) {
+                    fs.armed = true; fs.entered = true
+                    fs.outside = false
+                    fs.edge = when {
+                        pointer.x < slots.panel.left + edgePx -> -1
+                        pointer.x > slots.panel.right - edgePx -> 1
+                        else -> 0
+                    }
+                    val idx = (page * 9 + slots.slotAt(pointer)).coerceIn(0, (fs.order.size - 1).coerceAtLeast(0))
+                    if (idx != fs.hoverIndex) fs.hoverIndex = idx
+                } else {
+                    // A folder that just sprang open stays until the finger moves on.
+                    if (!fs.armed && distance(pointer, fs.openedAt) > edgePx * 2f) fs.armed = true
+                    fs.edge = 0
+                    fs.hoverIndex = -1
+                    fs.outside = fs.armed
+                }
+                return
+            }
             // Over the dock: apps slot into it (if there is room), the grid closes its gap.
             if (item is HomeGridItem.AppItem && dockRect.contains(pointer)) {
                 val pkg = item.packageName
@@ -545,11 +577,33 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
             var finalOrder = drag.order ?: state.homeGridItems
             drag.edge = 0
             val pkg = (item as? HomeGridItem.AppItem)?.packageName
+            // Dropped inside the open folder: it takes the app at the previewed slot.
+            val sessionId = fs.folderId
+            if (sessionId != null && pkg != null) {
+                val apps = fs.order.let { if (pkg in it) it else it + pkg }
+                val next = finalOrder.filterNot { it.id == item.id }.withoutFolderApp(pkg, keep = sessionId)
+                    .map { if (it is HomeGridItem.FolderItem && it.folderId == sessionId) it.copy(appPackages = apps) else it }
+                val folder = next.firstOrNull { it is HomeGridItem.FolderItem && it.folderId == sessionId } as? HomeGridItem.FolderItem
+                if (state.dockPackages.contains(pkg)) viewModel.setDockOrder(state.dockPackages - pkg)
+                viewModel.commitHomeOrder(next)
+                viewModel.openFolder(folder)
+                scope.launch {
+                    drag.dropping = true
+                    drag.dropAnim.snapTo(drag.pointer - drag.grab)
+                    val idx = apps.indexOf(pkg)
+                    val target = folderSlots[sessionId]?.takeIf { it.second == idx / 9 }?.first?.iconTopLeft(idx % 9)
+                    if (target != null) drag.dropAnim.animateTo(target - Offset((geometry.cellW - geometry.iconPx) / 2f, 0f), spring(0.8f, 400f))
+                    else delay(120)
+                    fs.clear(); sessionFolder = null; ownerFolder = null
+                    drag.clear()
+                }
+                return
+            }
             val intoDock = pkg != null && drag.overDock && drag.dockOrder?.contains(pkg) == true
             if (intoDock) {
                 viewModel.setDockOrder(drag.dockOrder!!)
                 viewModel.commitHomeOrder(finalOrder.filterNot { it.id == item.id })
-                folderForDrag = null
+                ownerFolder = null
                 drag.clear()
                 return
             }
@@ -558,7 +612,7 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                 finalOrder = reorderFor(finalOrder + item, item, Hover(homePageIndex * perScreen, columns - 1, rows - 1, null, false), pages)
             }
             if (pkg != null && state.dockPackages.contains(pkg)) viewModel.setDockOrder(state.dockPackages - pkg)
-            folderForDrag = null
+            ownerFolder = null
             scope.launch {
                 drag.dropping = true
                 drag.dropAnim.snapTo(drag.pointer - drag.grab)
@@ -567,7 +621,11 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                     launch { animateFloat(1f, 0.4f) { drag.dropScale = it } }
                     if (target != null) drag.dropAnim.animateTo(target, spring(0.85f, 420f))
                     if (item is HomeGridItem.WidgetItem) viewModel.mergeWidgets(item.id, folderTarget)
-                    else viewModel.mergeIntoFolder(item.id, folderTarget)
+                    else {
+                        // The preview order first: it no longer lists the app in the folder it came from.
+                        viewModel.commitHomeOrder(finalOrder)
+                        viewModel.mergeIntoFolder(item.id, folderTarget)
+                    }
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 } else {
                     viewModel.commitHomeOrder(finalOrder)
@@ -598,6 +656,30 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
             override fun startExternalDrag(pkg: String, iconTopLeft: Offset, downAt: Offset, at: Offset) = externalDragStart(pkg, iconTopLeft, downAt, at)
             override fun moveDrag(at: Offset) = dragMove(at)
             override fun endDrag() = dragEnd()
+            override fun springFolder(itemId: String) {
+                val app = drag.item as? HomeGridItem.AppItem ?: return
+                val folder = (drag.order ?: state.homeGridItems).firstOrNull { it.id == itemId } as? HomeGridItem.FolderItem ?: return
+                placedOf(itemId)?.let { p ->
+                    rootOfPlaced(p)?.let { tl ->
+                        folderOrigins[folder.folderId] = Rect(
+                            tl + Offset((geometry.cellW - geometry.iconPx) / 2f, 0f),
+                            androidx.compose.ui.geometry.Size(geometry.iconPx, geometry.iconPx)
+                        )
+                    }
+                }
+                sessionFolder = folder
+                fs.open(folder.folderId, folder.appPackages - app.packageName + app.packageName, drag.pointer, armed = false)
+                drag.folderTarget = null; drag.hover = null
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            }
+            override fun leaveFolder() {
+                val id = fs.folderId ?: return
+                val app = drag.item as? HomeGridItem.AppItem ?: return
+                // From here on the app is only carried: no folder lists it any more.
+                drag.order = (drag.order ?: state.homeGridItems).withoutFolderApp(app.packageName)
+                fs.clear()
+                if (state.activeFolder?.folderId == id) viewModel.openFolder(null)
+            }
             override fun spotlight() { viewModel.openSpotlight() }
             override fun pod(title: String, apps: List<AppInfo>, origin: Rect) {
                 openPod = OpenPod(title, apps, origin)
@@ -619,11 +701,34 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                 delay(420)
                 drag.folderTarget = h.overId
                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                // iOS: keep holding an app over a folder and the folder opens, so the
+                // app can be placed inside it.
+                val over = h.overId
+                if (over != null && over.startsWith("folder:") && item is HomeGridItem.AppItem) {
+                    delay(650)
+                    ops.value.springFolder(over)
+                }
             } else {
                 delay(140)
                 val order = drag.order ?: return@LaunchedEffect
                 val next = reorderFor(order, item, h, pages)
                 if (next != order) drag.order = next
+            }
+        }
+        // Inside an open folder: the other apps make room after a short dwell.
+        LaunchedEffect(fs.hoverIndex, fs.folderId) {
+            val i = fs.hoverIndex
+            val pkg = (drag.item as? HomeGridItem.AppItem)?.packageName ?: return@LaunchedEffect
+            if (!fs.active || i < 0) return@LaunchedEffect
+            delay(110)
+            val cur = fs.order
+            if (cur.indexOf(pkg) != i) fs.order = (cur - pkg).toMutableList().apply { add(i.coerceIn(0, size), pkg) }
+        }
+        // Carried out of the panel: the folder closes and the app is back on the home screen.
+        LaunchedEffect(fs.outside, fs.folderId) {
+            if (fs.active && fs.outside) {
+                delay(if (fs.entered) 380L else 900L)
+                ops.value.leaveFolder()
             }
         }
         // Hold at the screen edge to carry the item to the neighbouring page.
@@ -641,7 +746,6 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
 
         // --------------------------------------------------------- root gesture
         val pullPx = with(density) { SpotlightPullDistance.toPx() }
-        val chromeHeightPx = with(density) { chromeHeight.toPx() }
         val shadeZonePx = with(density) { 52.dp.toPx() }
         val homeInteractive = !anyOverlay && !state.isJiggleMode && !isAppLibrary && !isToday && !drag.active
         Box(
@@ -655,9 +759,7 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                         val tracker = VelocityTracker()
                         tracker.addPosition(down.uptimeMillis, down.position)
                         var pulling = false
-                        var lifting = false
                         val onStack = stackRects.values.any { it.contains(down.position) }
-                        val fromDock = down.position.y > size.height - chromeHeightPx
                         while (true) {
                             val ev = awaitPointerEvent(PointerEventPass.Initial)
                             val c = ev.changes.firstOrNull { it.id == down.id } ?: break
@@ -665,13 +767,6 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                             val dx = c.position.x - down.position.x
                             val dy = c.position.y - down.position.y
                             if (!c.pressed) {
-                                if (lifting) {
-                                    val v = tracker.calculateVelocity().y
-                                    // iOS: swipe up and pause (or a deliberate drag) opens the switcher.
-                                    if (switcher.value > 0.3f || v < -900f) {
-                                        if (!viewModel.openSwitcher()) scope.launch { switcher.animateTo(0f, spring(0.9f, 400f)) }
-                                    } else scope.launch { switcher.animateTo(0f, spring(0.9f, 400f)) }
-                                }
                                 if (pulling) {
                                     val v = tracker.calculateVelocity().y
                                     if (spotlight.value > 0.35f || v > 1200f) viewModel.openSpotlight()
@@ -680,17 +775,8 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                                 break
                             }
                             // iOS: hold first, then move = pick up the icon. Leave such
-                            // gestures to the icon/drag handlers instead of Spotlight/switcher.
-                            if (!pulling && !lifting && c.uptimeMillis - down.uptimeMillis > viewConfiguration.longPressTimeoutMillis) break
-                            if (!pulling && !lifting && fromDock && -dy > slop && -dy > abs(dx) * 1.3f) {
-                                lifting = true
-                                viewModel.prepareSwitcher()
-                            }
-                            if (lifting) {
-                                c.consume()
-                                scope.launch { switcher.snapTo(((-dy - slop) / pullPx).coerceIn(0f, 1.15f)) }
-                                continue
-                            }
+                            // gestures to the icon/drag handlers instead of Spotlight.
+                            if (!pulling && c.uptimeMillis - down.uptimeMillis > viewConfiguration.longPressTimeoutMillis) break
                             if (!pulling) {
                                 if (dy > slop && dy > abs(dx) * 1.3f) {
                                     if (down.position.y < shadeZonePx) {
@@ -716,10 +802,9 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                     .fillMaxSize()
                     .graphicsLayer {
                         val z = homeZoom.value
-                        val sw = switcher.value.coerceIn(0f, 1f)
-                        scaleX = homeScale * z * (1f - 0.08f * sw)
-                        scaleY = homeScale * z * (1f - 0.08f * sw)
-                        alpha = (1f - ((z - 1f) / (IOS_ZOOM_OUT - 1f)).coerceIn(0f, 1f)) * (1f - sw)
+                        scaleX = homeScale * z
+                        scaleY = homeScale * z
+                        alpha = 1f - ((z - 1f) / (IOS_ZOOM_OUT - 1f)).coerceIn(0f, 1f)
                     }
             ) {
                 Spacer(Modifier.height(IosMetrics.statusBarHeight))
@@ -920,21 +1005,6 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
         }
 
         // ---------------------------------------------------------- overlays
-        if (state.isSwitcherOpen || switcher.value > 0.002f) {
-            IosAppSwitcher(
-                apps = state.switcherApps,
-                progress = { switcher.value },
-                onOpen = { app ->
-                    leftToApp = true
-                    val opts = ActivityOptions.makeCustomAnimation(context, android.R.anim.fade_in, android.R.anim.fade_out).toBundle()
-                    viewModel.launchApp(app.packageName, opts)
-                    viewModel.closeSwitcher()
-                    scope.launch { switcher.snapTo(0f) }
-                },
-                onDismissApp = { app -> viewModel.dismissFromSwitcher(app.packageName) },
-                onClose = { viewModel.closeSwitcher() }
-            )
-        }
         IosSpotlight(
             visible = state.isSpotlightOpen,
             progress = { spotlight.value },
@@ -956,29 +1026,39 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
             onClose = { viewModel.closeSpotlight() }
         )
 
-        (folderForDrag ?: state.activeFolder)?.let { folder ->
-            IosFolderView(
-                folder = folder,
-                hidden = folderForDrag != null,
-                onDragOutStart = { app, iconTopLeft, downAt, at ->
-                    folderForDrag = folder
-                    viewModel.takeAppOutOfFolder(folder.folderId, app.packageName)
-                    actions.startExternalDrag(app.packageName, iconTopLeft, downAt, at)
-                },
-                onDragMove = actions.moveDrag,
-                onDragEnd = actions.endDrag,
-                zoom = homeZoomRead,
-                appMap = state.appMap,
-                iconBounds = folderBounds,
-                iconSize = if (isUnfolded) 64.dp else minOf(iconSize, 62.dp),
-                labelFontSizeSp = settings.labelFontSizeSp,
-                jiggle = state.isJiggleMode,
-                onAppClick = actions.openApp,
-                onAppLongClick = actions.appMenu,
-                onRename = { name -> viewModel.renameFolder(folder.folderId, name) },
-                onEnterJiggle = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); viewModel.setJiggleMode(true) },
-                onDismiss = { viewModel.openFolder(null) }
-            )
+        val carriedPkg = (drag.item as? HomeGridItem.AppItem)?.packageName
+        listOfNotNull(ownerFolder, sessionFolder, state.activeFolder).distinctBy { it.folderId }.forEach { snap ->
+            androidx.compose.runtime.key(snap.folderId) {
+                val folder = displayOrder.firstOrNull { it is HomeGridItem.FolderItem && it.folderId == snap.folderId } as? HomeGridItem.FolderItem ?: snap
+                val inSession = fs.folderId == folder.folderId
+                IosFolderView(
+                    folder = folder,
+                    order = if (inSession) fs.order else folder.appPackages,
+                    open = inSession || state.activeFolder?.folderId == folder.folderId,
+                    dragPkg = carriedPkg,
+                    dragEdge = if (inSession) fs.edge else 0,
+                    onSlots = { slots, page -> folderSlots[folder.folderId] = slots to page },
+                    onClosed = { if (fs.folderId != folder.folderId && sessionFolder?.folderId == folder.folderId) sessionFolder = null },
+                    onDragStart = { app, iconTopLeft, downAt, at ->
+                        ownerFolder = folder
+                        actions.startExternalDrag(app.packageName, iconTopLeft, downAt, at)
+                        fs.open(folder.folderId, folder.appPackages, at, armed = true)
+                    },
+                    onDragMove = actions.moveDrag,
+                    onDragEnd = actions.endDrag,
+                    zoom = homeZoomRead,
+                    appMap = state.appMap,
+                    iconBounds = folderOrigins[folder.folderId],
+                    iconSize = if (isUnfolded) 64.dp else minOf(iconSize, 62.dp),
+                    labelFontSizeSp = settings.labelFontSizeSp,
+                    jiggle = state.isJiggleMode,
+                    onAppClick = actions.openApp,
+                    onAppLongClick = actions.appMenu,
+                    onRename = { name -> viewModel.renameFolder(folder.folderId, name) },
+                    onEnterJiggle = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); viewModel.setJiggleMode(true) },
+                    onDismiss = { viewModel.openFolder(null) }
+                )
+            }
         }
 
         // App Library category: grows out of its pod to full screen, like iOS.
@@ -1144,14 +1224,16 @@ private fun GridItem(
     actions: HomeActions
 ) {
     val item0 = p.item
-    val dragModifier = if (dragEnabled) Modifier.homeDragGesture(
+    // [dragEnabled] is passed in, not used to add/remove the modifier: a folder that
+    // springs open mid-drag must not tear down the gesture that is running.
+    val dragModifier = if (actions === InertActions) Modifier else Modifier.homeDragGesture(
         key = item0.id,
         jiggle = jiggle,
-        enabled = true,
+        enabled = dragEnabled,
         onStart = { downAt, at -> actions.startDrag(item0, downAt, at) },
         onMove = actions.moveDrag,
         onEnd = actions.endDrag
-    ) else Modifier
+    )
     val onAppClick = actions.openApp
     val onAppLongClick = actions.appMenu
     val onFolderClick = actions.folder
@@ -1364,6 +1446,8 @@ private interface HomeOps {
     fun startExternalDrag(pkg: String, iconTopLeft: Offset, downAt: Offset, at: Offset)
     fun moveDrag(at: Offset)
     fun endDrag()
+    fun springFolder(itemId: String)
+    fun leaveFolder()
     fun spotlight()
     fun pod(title: String, apps: List<AppInfo>, origin: Rect)
     fun dockIconBounds(pkg: String, r: Rect)

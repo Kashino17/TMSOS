@@ -8,6 +8,15 @@ Ein maßgeschneiderter, werbefreier und kostenloser **iOS-Style Homescreen-Launc
 
 ---
 
+## Neu in v5.4.0 – Ordner wie bei iOS
+- **Apps in Ordnern verschieben**: im Ordner per Ziehen umsortieren; aus dem Ordner herausziehen – er klappt zu und die App hängt auf dem Home-Bildschirm am Finger (Seiten wechseln, ablegen, in andere Ordner ziehen).
+- **Ordner springen auf**: eine App länger über einen Ordner halten öffnet ihn, die Position im Ordner lässt sich direkt bestimmen.
+- **App-Mediathek**: nach unten ziehen öffnet die Suche.
+- **Spotlight**: nach oben wischen schließt.
+- **Dialoge** („… entfernen?“): deckender Hintergrund, Beschriftungen vollständig.
+- **Icons** für Rechner, Einstellungen und Kamera neu gezeichnet.
+- **Entfernt**: die eigene App-Übersicht (Wischen vom Dock nach oben) – dafür ist die System-Übersicht da.
+
 ## Neu in v5.3.0 – fließende Übergänge
 - **App-Mediathek**: Kategorien wachsen aus ihrer Kachel heraus und schrumpfen wieder hinein; die Suche gleitet (Feld rückt nach links, „Abbrechen“ schiebt sich herein, Kacheln und Liste blenden ineinander).
 - **Spotlight**: Vorschläge und Treffer blenden weich über, Karten ändern ihre Größe animiert.

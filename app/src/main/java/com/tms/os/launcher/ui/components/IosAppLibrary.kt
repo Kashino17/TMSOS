@@ -6,6 +6,13 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.ui.unit.Velocity
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -161,6 +168,36 @@ fun IosAppLibraryPage(
             .sortedBy { it.displayLabel.lowercase(Locale.getDefault()) }
     }
     var pageTop by remember { mutableStateOf(0f) }
+    // iOS: pull the library down and its search opens, like Spotlight on the home screen.
+    val pull = remember { Animatable(0f) }
+    val pullScope = rememberCoroutineScope()
+    val openSearchPx = with(LocalDensity.current) { 64.dp.toPx() }
+    val searchingNow by rememberUpdatedState(searching)
+    val pullToSearch = remember(openSearchPx) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                // Moving back up first releases the pull.
+                if (pull.value > 0f && available.y < 0f) {
+                    val used = maxOf(available.y, -pull.value / 0.4f)
+                    pullScope.launch { pull.snapTo((pull.value + used * 0.4f).coerceAtLeast(0f)) }
+                    return Offset(0f, used)
+                }
+                return Offset.Zero
+            }
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                if (source != NestedScrollSource.UserInput || available.y <= 0f || searchingNow) return Offset.Zero
+                val next = pull.value + available.y * 0.4f
+                pullScope.launch { pull.snapTo(next) }
+                if (next > openSearchPx * 0.4f) searching = true
+                return available
+            }
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                if (pull.value > 0f) pull.animateTo(0f, spring(dampingRatio = 0.9f, stiffness = 380f))
+                return Velocity.Zero
+            }
+        }
+    }
+    LaunchedEffect(searching) { if (pull.value > 0f) pull.animateTo(0f, spring(dampingRatio = 0.9f, stiffness = 380f)) }
     // 0 = pods, 1 = alphabetical search list. One spring drives pill, button and content.
     val searchT by animateFloatAsState(if (searching) 1f else 0f, spring(dampingRatio = 0.9f, stiffness = 380f), label = "librarySearch")
 
@@ -254,7 +291,7 @@ fun IosAppLibraryPage(
                 contentPadding = PaddingValues(start = LibrarySideMargin, end = LibrarySideMargin, top = 34.dp, bottom = 48.dp),
                 verticalArrangement = Arrangement.spacedBy(9.dp),
                 horizontalArrangement = Arrangement.spacedBy(PodGap),
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.fillMaxSize().nestedScroll(pullToSearch).graphicsLayer { translationY = pull.value }
             ) {
                 items(pods, key = { it.id }) { pod ->
                     LibraryCategoryPod(

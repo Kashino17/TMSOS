@@ -2,6 +2,13 @@ package com.tms.os.launcher.ui.home
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.ui.unit.Velocity
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateContentSize
@@ -142,6 +149,27 @@ fun IosSpotlight(
     }
     if (visible) BackHandler(onBack = onClose)
 
+    // The result list is a scroll container and would swallow the swipe. Whatever
+    // upward drag it cannot use (list at its end, or nothing to scroll) closes Spotlight.
+    val closeNow by rememberUpdatedState(onClose)
+    val dismissPx = with(LocalDensity.current) { 52.dp.toPx() }
+    val swipeUpToClose = remember(dismissPx) {
+        object : NestedScrollConnection {
+            var pulled = 0f
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                if (source != NestedScrollSource.UserInput) return Offset.Zero
+                if (available.y < 0f) {
+                    pulled -= available.y
+                    if (pulled > dismissPx) { pulled = 0f; closeNow() }
+                    return available
+                }
+                pulled = 0f
+                return Offset.Zero
+            }
+            override suspend fun onPreFling(available: Velocity): Velocity { pulled = 0f; return Velocity.Zero }
+        }
+    }
+
     val q = query.trim()
     val top = results.firstOrNull()
     var moreSuggestions by remember { mutableStateOf(false) }
@@ -171,6 +199,7 @@ fun IosSpotlight(
                     .widthIn(max = 620.dp)
                     .fillMaxWidth()
                     .graphicsLayer { translationY = (1f - progress().coerceIn(0f, 1f)) * -40.dp.toPx() }
+                    .nestedScroll(swipeUpToClose)
                     .verticalScroll(rememberScrollState())
                     .padding(top = 62.dp, bottom = 12.dp)
                     .clickable(remember { MutableInteractionSource() }, null, onClick = onClose)

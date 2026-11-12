@@ -52,13 +52,11 @@ data class LauncherUiState(
     val activeCategoryModal: AppCategory? = null,
     val selectedAppForMenu: AppInfo? = null,
     val todayWidgets: List<HomeGridItem.WidgetItem> = emptyList(),
-    val isSwitcherOpen: Boolean = false,
     val menuQuickActions: List<com.tms.os.launcher.model.AppQuickAction> = emptyList(),
     /** Real shortcuts of Spotlight's top hit ("New Tab" for Chrome, …). */
     val spotlightTopActions: List<com.tms.os.launcher.model.AppQuickAction> = emptyList(),
     /** Packages recently opened from Spotlight, newest first ("Verlauf"). */
     val spotlightHistory: List<String> = emptyList(),
-    val switcherApps: List<AppInfo> = emptyList(),
     val weatherForecast: com.tms.os.launcher.domain.WeatherForecast? = null,
     val isDefaultLauncher: Boolean = false,
     val isBadgeServiceEnabled: Boolean = false,
@@ -68,7 +66,7 @@ data class LauncherUiState(
     val isWeatherRefreshing: Boolean = false
 ) {
     val isAnyOverlayOpen: Boolean
-        get() = isSwitcherOpen || isSpotlightOpen || activeFolder != null || activeCategoryModal != null || selectedAppForMenu != null
+        get() = isSpotlightOpen || activeFolder != null || activeCategoryModal != null || selectedAppForMenu != null
 }
 
 class LauncherViewModel(application: Application) : AndroidViewModel(application) {
@@ -381,30 +379,6 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     fun setJiggleMode(enabled: Boolean) {
         _uiState.update { it.copy(isJiggleMode = enabled, selectedAppForMenu = null) }
-    }
-
-    /** Loads the recent-app cards as soon as the swipe-up starts, so they follow the finger. */
-    fun prepareSwitcher() {
-        val apps = repository.recentAppsForSwitcher(_uiState.value.allApps)
-        _uiState.update { it.copy(switcherApps = apps) }
-    }
-
-    /** Commits the switcher; returns false when there is nothing to show. */
-    fun openSwitcher(): Boolean {
-        if (_uiState.value.switcherApps.isEmpty()) prepareSwitcher()
-        if (_uiState.value.switcherApps.isEmpty()) return false
-        _uiState.update { it.copy(isSwitcherOpen = true, selectedAppForMenu = null) }
-        return true
-    }
-
-    fun closeSwitcher() {
-        _uiState.update { it.copy(isSwitcherOpen = false) }
-    }
-
-    fun dismissFromSwitcher(packageName: String) {
-        repository.killBackgroundApp(packageName)
-        val rest = _uiState.value.switcherApps.filterNot { it.packageName == packageName }
-        _uiState.update { it.copy(switcherApps = rest, isSwitcherOpen = rest.isNotEmpty()) }
     }
 
     /** Opens an app from Spotlight and remembers it in the search history. */
@@ -736,15 +710,6 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         _uiState.update { it.copy(dockPackages = dock) }
     }
 
-    /** iOS: dragging an app out of an open folder. The app is then carried on the home screen. */
-    fun takeAppOutOfFolder(folderId: String, packageName: String) {
-        val list = _uiState.value.homeGridItems.map { item ->
-            if (item is HomeGridItem.FolderItem && item.folderId == folderId) item.copy(appPackages = item.appPackages - packageName) else item
-        }.filterNot { it is HomeGridItem.FolderItem && it.appPackages.isEmpty() }
-        _uiState.update { it.copy(homeGridItems = list, activeFolder = null) }
-        repository.saveHomeGridItems(list)
-    }
-
     fun togglePinToDock(packageName: String) {
         val maxDock = _uiState.value.settings.dockIconCount.coerceIn(3, 6)
         val currentDock = _uiState.value.dockPackages.toMutableList()
@@ -814,10 +779,6 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun handleBackOrHomePress(): Boolean {
         val state = _uiState.value
         return when {
-            state.isSwitcherOpen -> {
-                _uiState.update { it.copy(isSwitcherOpen = false) }
-                true
-            }
             state.selectedAppForMenu != null -> {
                 _uiState.update { it.copy(selectedAppForMenu = null) }
                 true

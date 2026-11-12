@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -212,7 +213,7 @@ fun IosAlert(visible: Boolean, title: String, message: String, actions: List<Ale
     AnimatedVisibility(visible, enter = fadeIn(tween(160)), exit = fadeOut(tween(160))) {
         BackHandler(onBack = onDismiss)
         Box(
-            Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.32f))
+            Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.46f))
                 .clickable(remember { MutableInteractionSource() }, null) {},
             contentAlignment = Alignment.Center
         ) {
@@ -220,11 +221,14 @@ fun IosAlert(visible: Boolean, title: String, message: String, actions: List<Ale
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
                     .animateEnterExit(enter = scaleIn(spring(0.75f, 420f), initialScale = 1.15f), exit = scaleOut(targetScale = 0.95f))
-                    .widthIn(max = 300.dp)
-                    .fillMaxWidth(0.78f)
+                    // Screen width minus margins, but never wider than an iOS alert.
+                    .padding(horizontal = 36.dp)
+                    .widthIn(max = 310.dp)
+                    .fillMaxWidth()
                     .shadow(30.dp, RoundedCornerShape(30.dp), ambientColor = Color.Black.copy(alpha = 0.3f))
-                    .wallpaperGlass(RoundedCornerShape(30.dp), tint = IosMaterial.menu)
-                    .padding(start = 20.dp, end = 20.dp, top = 22.dp, bottom = 16.dp)
+                    // Nearly opaque: icons behind the alert must not shine through the text.
+                    .wallpaperGlass(RoundedCornerShape(30.dp), tint = Color(0xF52A2A2D))
+                    .padding(start = 18.dp, end = 18.dp, top = 22.dp, bottom = 16.dp)
             ) {
                 Text(title, style = IosText.headline.copy(color = Color.White, textAlign = TextAlign.Center))
                 if (message.isNotEmpty()) {
@@ -232,7 +236,8 @@ fun IosAlert(visible: Boolean, title: String, message: String, actions: List<Ale
                     Text(message, style = IosText.footnote.copy(color = Color.White.copy(alpha = 0.85f), textAlign = TextAlign.Center))
                 }
                 Spacer(Modifier.height(18.dp))
-                val horizontal = actions.size == 2
+                // Side by side only when both labels are short; long ones get a full row each.
+                val horizontal = actions.size == 2 && actions.all { it.title.length <= 11 }
                 if (horizontal) Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     actions.forEach { AlertButton(it, Modifier.weight(1f)) }
                 } else Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -248,18 +253,23 @@ private fun AlertButton(action: AlertAction, modifier: Modifier) {
     Box(
         contentAlignment = Alignment.Center,
         modifier = modifier
-            .height(46.dp)
-            .clip(CircleShape)
+            .heightIn(min = 46.dp)
+            .clip(RoundedCornerShape(23.dp))
             .background(if (!action.cancel && !action.destructive) Color.White.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.10f))
             .clickable(onClick = action.onClick)
+            .padding(horizontal = 12.dp, vertical = 8.dp)
     ) {
+        // Long labels wrap onto a second line instead of being cut off.
         Text(
             action.title,
             style = IosText.body.copy(
                 color = if (action.destructive) IosRed else Color.White,
-                fontWeight = if (action.cancel) FontWeight.Normal else FontWeight.SemiBold
+                fontWeight = if (action.cancel) FontWeight.Normal else FontWeight.SemiBold,
+                fontSize = if (action.title.length > 20) 15.sp else 17.sp,
+                lineHeight = 20.sp,
+                textAlign = TextAlign.Center
             ),
-            maxLines = 1
+            maxLines = 2
         )
     }
 }

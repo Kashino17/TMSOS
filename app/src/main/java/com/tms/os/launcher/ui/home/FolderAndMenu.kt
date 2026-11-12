@@ -62,6 +62,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -122,6 +124,10 @@ private fun lerp(a: Float, b: Float, t: Float) = a + (b - a) * t
  * page), the title floats above it, nothing else. Tapping outside shrinks the
  * panel back into the icon. In edit mode the title becomes an editable field
  * and the apps jiggle.
+ *
+ * While an app is being dragged the home screen drives the folder: [order] is
+ * the preview arrangement, [dragPkg] leaves its slot empty (the app hangs on
+ * the finger) and [open] closes the panel when the app is carried out.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -137,29 +143,50 @@ fun IosFolderView(
     onRename: (String) -> Unit,
     onEnterJiggle: () -> Unit,
     onDismiss: () -> Unit,
-    /** True while one of its apps is being carried on the home screen: stay alive, invisible. */
-    hidden: Boolean = false,
-    onDragOutStart: (AppInfo, Offset, Offset, Offset) -> Unit = { _, _, _, _ -> },
+    order: List<String> = folder.appPackages,
+    open: Boolean = true,
+    dragPkg: String? = null,
+    /** -1 / 1: the carried app rests at the panel edge, turn the folder page. */
+    dragEdge: Int = 0,
+    onSlots: (FolderSlots, Int) -> Unit = { _, _ -> },
+    onClosed: () -> Unit = {},
+    onDragStart: (AppInfo, Offset, Offset, Offset) -> Unit = { _, _, _, _ -> },
     onDragMove: (Offset) -> Unit = {},
     onDragEnd: () -> Unit = {},
     /** Home-screen launch zoom (1 = rest): the open folder zooms away with it. */
     zoom: () -> Float = { 1f }
 ) {
     val progress = remember(folder.folderId) { Animatable(0f) }
-    val iconRects = remember { androidx.compose.runtime.mutableStateMapOf<String, Rect>() }
     val scope = rememberCoroutineScope()
-    val apps = remember(folder.appPackages, appMap) { folder.appPackages.mapNotNull { appMap[it] } }
+    val apps = remember(order, appMap) { order.mapNotNull { appMap[it] } }
     val pagesOfApps = remember(apps) { apps.chunked(9).ifEmpty { listOf(emptyList()) } }
     val pager = rememberPagerState { pagesOfApps.size }
     var title by remember(folder.folderId) { mutableStateOf(folder.title) }
     var closing by remember { mutableStateOf(false) }
     val focus = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
+    val closed by rememberUpdatedState(onClosed)
 
-    LaunchedEffect(folder.folderId) { progress.animateTo(1f, spring(dampingRatio = 0.82f, stiffness = 300f)) }
+    LaunchedEffect(folder.folderId, open) {
+        if (open) {
+            closing = false
+            progress.animateTo(1f, spring(dampingRatio = 0.82f, stiffness = 300f))
+        } else {
+            progress.animateTo(0f, spring(dampingRatio = 1f, stiffness = 420f))
+            closed()
+        }
+    }
+    LaunchedEffect(dragEdge) {
+        while (dragEdge != 0) {
+            delay(650)
+            val target = (pager.currentPage + dragEdge).coerceIn(0, pagesOfApps.size - 1)
+            if (target == pager.currentPage) break
+            pager.animateScrollToPage(target)
+        }
+    }
 
     fun close(then: () -> Unit = {}) {
-        if (closing) return
+        if (closing || !open) return
         closing = true
         focus.clearFocus(); keyboard?.hide()
         if (title.isNotBlank() && title.trim() != folder.title) onRename(title.trim())
@@ -168,17 +195,50 @@ fun IosFolderView(
             onDismiss(); then()
         }
     }
-    BackHandler { close() }
+    BackHandler(enabled = open) { close() }
 
-    BoxWithConstraints(Modifier.fillMaxSize().graphicsLayer {
-        val z = zoom()
-        scaleX = z; scaleY = z
-        alpha = if (hidden) 0f else (1f - (z - 1f) / 0.14f).coerceIn(0f, 1f)
-    }) {
-        val density = LocalDensity.current
+    val density = LocalDensity.current
+    var panelBounds by remember { mutableStateOf(Rect.Zero) }
+    val padH = 10.dp
+    val padV = 22.dp
+    // One row: icon, gap, one line of label.
+    val rowH = iconSize + 5.dp + with(density) { (labelFontSizeSp * 1.35f).sp.toDp() }
+    val slots = remember(panelBounds, iconSize, rowH) {
+        with(density) { FolderSlots(panelBounds, padH.toPx(), padV.toPx(), iconSize.toPx(), rowH.toPx()) }
+    }
+    val slotsNow by rememberUpdatedState(slots)
+    val pageApps by rememberUpdatedState(pagesOfApps.getOrElse(pager.currentPage) { emptyList() })
+    LaunchedEffect(slots, pager.currentPage) { if (panelBounds.width > 0f) onSlots(slots, pager.currentPage) }
+    fun appAt(p: Offset): Pair<AppInfo, Int>? {
+        val slot = slotsNow.slotAt(p)
+        val app = pageApps.getOrNull(slot) ?: return null
+        return if (slotsNow.iconRect(slot).inflate(slotsNow.iconPx * 0.2f).contains(p)) app to slot else null
+    }
+
+    BoxWithConstraints(
+        Modifier
+            .fillMaxSize()
+            .graphicsLayer {
+                val z = zoom()
+                scaleX = z; scaleY = z
+                alpha = (1f - (z - 1f) / 0.14f).coerceIn(0f, 1f)
+            }
+            // iOS: long-press an app and move it – inside the folder or out of it.
+            // The gesture lives on this full-screen layer, not on the panel: the panel
+            // shrinks away when the app is carried out, and a running gesture does not
+            // survive on a node that is being transformed and rebuilt.
+            .homeDragGesture(
+                key = folder.folderId,
+                jiggle = jiggle,
+                enabled = open,
+                canStart = { downAt -> appAt(downAt) != null },
+                onStart = { downAt, at -> appAt(downAt)?.let { (app, slot) -> onDragStart(app, slotsNow.iconTopLeft(slot), downAt, at) } },
+                onMove = onDragMove,
+                onEnd = onDragEnd
+            )
+    ) {
         val panelW = min(maxWidth.value - 2 * 26f, 340f).dp
         val panelH = panelW + 6.dp
-        var panelBounds by remember { mutableStateOf(Rect.Zero) }
 
         // Dim + tap outside
         Box(
@@ -186,7 +246,7 @@ fun IosFolderView(
                 .fillMaxSize()
                 .graphicsLayer { alpha = progress.value.coerceIn(0f, 1f) }
                 .background(Color.Black.copy(alpha = 0.18f))
-                .clickable(remember { MutableInteractionSource() }, null) { close() }
+                .clickable(remember { MutableInteractionSource() }, null, enabled = open) { close() }
         )
 
         Column(
@@ -205,7 +265,7 @@ fun IosFolderView(
                     .padding(bottom = 18.dp),
                 contentAlignment = Alignment.Center
             ) {
-                if (jiggle) {
+                if (jiggle && dragPkg == null) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
@@ -264,55 +324,39 @@ fun IosFolderView(
                     .size(panelW, panelH)
                     .shadow(30.dp, RoundedCornerShape(36.dp), ambientColor = Color.Black.copy(alpha = 0.15f), spotColor = Color.Black.copy(alpha = 0.25f))
                     .wallpaperGlass(RoundedCornerShape(36.dp), tint = IosMaterial.folder)
-                    .clickable(remember { MutableInteractionSource() }, null) {}
-                    .combinedClickable(remember { MutableInteractionSource() }, null, onClick = {}, onLongClick = onEnterJiggle)
-                    // iOS: long-press an app and drag it out of the folder onto the home screen.
-                    .homeDragGesture(
-                        key = folder.folderId,
-                        jiggle = jiggle,
-                        enabled = true,
-                        onStart = { downAt, at ->
-                            iconRects.entries.firstOrNull { it.value.contains(downAt) }?.let { (pkg, r) ->
-                                apps.firstOrNull { it.packageName == pkg }?.let { app -> onDragOutStart(app, r.topLeft, downAt, at) }
-                            }
-                        },
-                        onMove = onDragMove,
-                        onEnd = onDragEnd
-                    )
+                    .combinedClickable(remember { MutableInteractionSource() }, null, enabled = open, onClick = {}, onLongClick = onEnterJiggle)
             ) {
-                HorizontalPager(pager, Modifier.fillMaxSize()) { page ->
-                    Column(
+                HorizontalPager(pager, Modifier.fillMaxSize(), userScrollEnabled = dragPkg == null) { page ->
+                    BoxWithConstraints(
                         Modifier
                             .fillMaxSize()
-                            .padding(horizontal = 10.dp, vertical = 22.dp)
-                            .graphicsLayer { alpha = ((progress.value - 0.45f) / 0.55f).coerceIn(0f, 1f) },
-                        verticalArrangement = Arrangement.SpaceBetween
+                            .padding(horizontal = padH, vertical = padV)
+                            .graphicsLayer { alpha = ((progress.value - 0.45f) / 0.55f).coerceIn(0f, 1f) }
                     ) {
-                        repeat(3) { row ->
-                            Row(Modifier.fillMaxWidth()) {
-                                repeat(3) { col ->
-                                    val app = pagesOfApps[page].getOrNull(row * 3 + col)
-                                    Box(
-                                        Modifier.weight(1f).then(
-                                            if (app != null) Modifier.onGloballyPositioned { c ->
-                                                val b = c.boundsInRoot()
-                                                val px = with(density) { iconSize.toPx() }
-                                                iconRects[app.packageName] = Rect(b.center.x - px / 2, b.top, b.center.x + px / 2, b.top + px)
-                                            } else Modifier
-                                        ),
-                                        contentAlignment = Alignment.TopCenter
-                                    ) {
-                                        if (app != null) IosAppIcon(
-                                            app = app,
-                                            iconSize = iconSize,
-                                            labelFontSizeSp = labelFontSizeSp,
-                                            isJiggleMode = jiggle,
-                                            onClick = { onAppClick(app, Rect.Zero) },
-                                            onClickWithBounds = { b -> onAppClick(app, b) },
-                                            onLongClick = { onAppLongClick(app, Rect.Zero) },
-                                            onLongClickWithBounds = { b -> onAppLongClick(app, b) }
-                                        ) else Spacer(Modifier.size(iconSize))
-                                    }
+                        val cellW = maxWidth / 3
+                        val pitch = (maxHeight - rowH) / 2
+                        pagesOfApps[page].forEachIndexed { i, app ->
+                            androidx.compose.runtime.key(app.packageName) {
+                                // Apps glide to their new slot when the arrangement changes.
+                                val target = with(density) { IntOffset((cellW * (i % 3)).roundToPx(), (pitch * (i / 3)).roundToPx()) }
+                                val pos by androidx.compose.animation.core.animateIntOffsetAsState(target, spring(dampingRatio = 0.8f, stiffness = 340f), label = "slot")
+                                Box(
+                                    Modifier
+                                        .offset { pos }
+                                        .width(cellW)
+                                        .graphicsLayer { alpha = if (app.packageName == dragPkg) 0f else 1f },
+                                    contentAlignment = Alignment.TopCenter
+                                ) {
+                                    IosAppIcon(
+                                        app = app,
+                                        iconSize = iconSize,
+                                        labelFontSizeSp = labelFontSizeSp,
+                                        isJiggleMode = jiggle,
+                                        onClick = { onAppClick(app, Rect.Zero) },
+                                        onClickWithBounds = { b -> onAppClick(app, b) },
+                                        onLongClick = { onAppLongClick(app, Rect.Zero) },
+                                        onLongClickWithBounds = { b -> onAppLongClick(app, b) }
+                                    )
                                 }
                             }
                         }
