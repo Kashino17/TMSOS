@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Permission to list and launch all installed apps on Android 11+ -->
+    <uses-permission
+        android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.EXPAND_STATUS_BAR" />
+
+    <application
+        android:allowBackup="true"
+        android:icon="@drawable/ic_launcher_os"
+        android:label="TMS OS"
+        android:roundIcon="@drawable/ic_launcher_os"
+        android:supportsRtl="false"
+        android:hardwareAccelerated="true"
+        android:theme="@style/Theme.TMSOSLauncher">
+
+        <!-- Main Home Screen Launcher Activity -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:clearTaskOnLaunch="true"
+            android:stateNotNeeded="true"
+            android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|uiMode|keyboardHidden"
+            android:theme="@style/Theme.TMSOSLauncher.Home">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.MONKEY" />
+            </intent-filter>
+        </activity>
+
+        <!-- Command Center Settings Activity (visible in app drawer / launcher as "TMS OS") -->
+        <activity
+            android:name=".SettingsActivity"
+            android:exported="true"
+            android:label="TMS OS Einstellungen"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|uiMode"
+            android:theme="@style/Theme.TMSOSLauncher">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Notification Badge Listener Service -->
+        <service
+            android:name=".service.BadgeNotificationService"
+            android:exported="true"
+            android:label="TMS OS Badge-Benachrichtigungen"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+    </application>
+
+</manifest>
