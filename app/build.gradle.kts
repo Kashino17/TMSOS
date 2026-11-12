@@ -12,8 +12,8 @@ android {
         applicationId = "com.tms.os.launcher"
         minSdk = 28
         targetSdk = 35
-        versionCode = 4
-        versionName = "4.0.0-Reference"
+        versionCode = 5
+        versionName = "4.1.0"
     }
 
     buildTypes {
@@ -42,6 +42,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
