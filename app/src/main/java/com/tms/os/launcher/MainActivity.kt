@@ -10,8 +10,6 @@ import androidx.activity.viewModels
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
-import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
 import com.tms.os.launcher.ui.LauncherHomeScreen
 import com.tms.os.launcher.viewmodel.LauncherViewModel
 
@@ -22,7 +20,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        hideSystemStatusBar()
 
         onBackPressedDispatcher.addCallback(
             this,
@@ -57,19 +54,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        hideSystemStatusBar()
         viewModel.refreshSystemStatus()
-    }
-
-    /**
-     * The launcher paints its own iOS status bar. Keeping the Android one
-     * visible would draw the clock and battery twice.
-     */
-    private fun hideSystemStatusBar() {
-        WindowInsetsControllerCompat(window, window.decorView).apply {
-            hide(WindowInsetsCompat.Type.statusBars())
-            systemBarsBehavior =
-                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        }
     }
 }

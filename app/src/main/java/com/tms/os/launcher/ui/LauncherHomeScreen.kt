@@ -95,7 +95,6 @@ import com.tms.os.launcher.ui.components.IosFolderIcon
 import com.tms.os.launcher.ui.components.IosPageDots
 import com.tms.os.launcher.ui.components.IosSearchButton
 import com.tms.os.launcher.ui.home.IosSpotlight
-import com.tms.os.launcher.ui.components.IosStatusBar
 import com.tms.os.launcher.ui.home.AlertAction
 import com.tms.os.launcher.ui.home.GridGeometry
 import com.tms.os.launcher.ui.home.HomeDragState
@@ -1051,13 +1050,19 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
         }
         IosAlert(visible = target != null, title = alertTitle, message = alertMessage, actions = alertActions, onDismiss = { removeTarget = null })
 
-        // Status bar on top of everything; in edit mode the Edit/Done pills take its place.
-        val statusAlpha by animateFloatAsState(if (state.isJiggleMode && !isAppLibrary) 0f else 1f, tween(180), label = "status")
-        IosStatusBar(
-            lightContent = if (settings.useSystemWallpaper) statusBarLightContent else true,
-            language = settings.appLanguage,
-            modifier = Modifier.align(Alignment.TopCenter).graphicsLayer { alpha = statusAlpha }
-        )
+        // The real system status bar stays visible (clock, network, notifications).
+        // Only in edit mode it steps aside so the Edit/Done pills can take its place,
+        // as on iOS. Icon colour follows the wallpaper behind it.
+        val hideStatusBar = state.isJiggleMode && !isAppLibrary
+        val lightStatusContent = if (settings.useSystemWallpaper && !anyOverlay && !isToday && !isAppLibrary) statusBarLightContent else true
+        LaunchedEffect(hideStatusBar, lightStatusContent) {
+            val window = (view.context as? android.app.Activity)?.window ?: return@LaunchedEffect
+            androidx.core.view.WindowInsetsControllerCompat(window, view).apply {
+                if (hideStatusBar) hide(androidx.core.view.WindowInsetsCompat.Type.statusBars())
+                else show(androidx.core.view.WindowInsetsCompat.Type.statusBars())
+                isAppearanceLightStatusBars = !lightStatusContent
+            }
+        }
         IosEditTopBar(
             visible = state.isJiggleMode && !isAppLibrary && !showGallery,
             strings = hs,

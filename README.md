@@ -8,6 +8,12 @@ Ein maßgeschneiderter, werbefreier und kostenloser **iOS-Style Homescreen-Launc
 
 ---
 
+## Neu in v5.2.0 – Icons füllen die Fläche
+- **App-Symbole ausgefüllt**: Android-Icons werden jetzt korrekt auf den sichtbaren Ausschnitt zugeschnitten, kleine Logos zusätzlich zentriert vergrößert – wie bei iOS füllt das Motiv das Icon.
+- **Icon-Stil „Dunkel"** neu: nur helle Hintergrundplatten werden dunkel, Motive behalten ihre Farbe.
+- **Icon-Stil „Getönt"** neu: dunkler Grund, Motiv in der Akzentfarbe.
+- **Echte Statusleiste** bleibt sichtbar (Netz, VPN, Benachrichtigungen); nur im Bearbeiten-Modus weicht sie den Knöpfen.
+
 ## Neu in v5.1.0 – ruhiges, neutrales Design
 - **Neutrales dunkles Material** statt buntem Glas: Dock, Such-Pille, Mediathek-Kacheln, Menüs und Karten in einem einheitlichen Grau mit Haarlinie.
 - **Kompaktes Raster**: quadratische Zellen, oben ausgerichtet; Dock über dem Navigationsbalken, Dock-Icons exakt in den Rasterspalten.

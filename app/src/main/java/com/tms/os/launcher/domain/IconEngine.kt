@@ -23,14 +23,23 @@ import kotlin.math.roundToInt
  * Renders Android app icons as edge-to-edge squares that are later clipped by
  * the real iOS superellipse in Compose.
  *
- * The important part: adaptive icons are drawn at their *native* scale. Blowing
- * them up by 20 % (which the previous implementation did) destroys the optical
- * balance that the app designers built into the 108 dp adaptive canvas.
+ * Adaptive icons are cropped to the 72 dp viewport like every launcher does
+ * (the layers are 108 dp), and small free-standing logos are enlarged so the
+ * artwork fills the icon as on iOS.
  */
 object IconEngine {
 
     private const val ICON_PX = 256
-    private const val RENDER_VERSION = 5
+    private const val RENDER_VERSION = 6
+
+    /** 108 dp layers vs. 72 dp visible viewport: 18 dp (25 % of the icon) hidden per side. */
+    private const val ADAPTIVE_OVERSCAN = 0.25f
+    /** Artwork smaller than this share of the icon gets enlarged … */
+    private const val FIT_THRESHOLD = 0.64f
+    /** … to this share, */
+    private const val FIT_TARGET = 0.70f
+    /** but never by more than this factor. */
+    private const val MAX_FIT_ZOOM = 1.34f
 
     fun renderIosIconBitmap(
         packageName: String,
@@ -43,7 +52,7 @@ object IconEngine {
         tintAccent: TintAccentColor = TintAccentColor.IOS_BLUE,
         locale: java.util.Locale = java.util.Locale.getDefault()
     ): ImageBitmap {
-        val isDark = themeMode == IconThemeMode.IOS_DARK
+        val isDark = themeMode != IconThemeMode.STANDARD
         val nativeIos = if (useIosSystemIcons) {
             IosSystemIcons.render(sizePx, packageName, label, isDark, locale)
         } else {
@@ -89,17 +98,27 @@ object IconEngine {
             // system mask, so every pixel can reach our iOS squircle.
             val background = drawable.background
             val foreground = drawable.foreground
-            val expand = 1
+            val fit = measureForegroundFit(foreground)
+            canvas.save()
+            // Bring the artwork's centre to the icon centre and enlarge it so it
+            // fills the icon the way iOS app icons do.
+            canvas.translate(size / 2f, size / 2f)
+            canvas.scale(fit.zoom, fit.zoom)
+            canvas.translate(-fit.centerX * size, -fit.centerY * size)
+            // A launcher shows only the central 72 dp of the 108 dp layers, i.e.
+            // the layers extend 25 % beyond the visible icon on every side.
+            val over = (size * ADAPTIVE_OVERSCAN).roundToInt()
             if (background != null) {
-                background.setBounds(-expand, -expand, size + expand, size + expand)
+                background.setBounds(-over, -over, size + over, size + over)
                 background.draw(canvas)
             } else {
                 canvas.drawColor(Color.WHITE)
             }
             if (foreground != null) {
-                foreground.setBounds(0, 0, size, size)
+                foreground.setBounds(-over, -over, size + over, size + over)
                 foreground.draw(canvas)
             }
+            canvas.restore()
             return output
         }
 
@@ -117,6 +136,50 @@ object IconEngine {
         } catch (_: Exception) {
             drawLetterFallback(canvas, size, label.ifBlank { packageName }, packageName)
             output
+        }
+    }
+
+    private class ForegroundFit(val zoom: Float, val centerX: Float, val centerY: Float)
+
+    /**
+     * Looks at the foreground layer inside the visible viewport. Android logos
+     * usually cover only about half of the icon; iOS icons fill roughly 70 %.
+     * Small, free-standing artwork is therefore centred and enlarged up to
+     * [MAX_FIT_ZOOM]; foregrounds that already reach the edges are left alone.
+     */
+    private fun measureForegroundFit(foreground: Drawable?): ForegroundFit {
+        val none = ForegroundFit(1f, 0.5f, 0.5f)
+        if (foreground == null) return none
+        return try {
+            val p = 96
+            val probe = Bitmap.createBitmap(p, p, Bitmap.Config.ARGB_8888)
+            val over = (p * ADAPTIVE_OVERSCAN).roundToInt()
+            foreground.setBounds(-over, -over, p + over, p + over)
+            foreground.draw(Canvas(probe))
+            val pixels = IntArray(p * p)
+            probe.getPixels(pixels, 0, p, 0, 0, p, p)
+            probe.recycle()
+            var minX = p; var minY = p; var maxX = -1; var maxY = -1
+            for (y in 0 until p) {
+                val row = y * p
+                for (x in 0 until p) {
+                    if (((pixels[row + x] ushr 24) and 0xFF) > 64) {
+                        if (x < minX) minX = x
+                        if (x > maxX) maxX = x
+                        if (y < minY) minY = y
+                        if (y > maxY) maxY = y
+                    }
+                }
+            }
+            if (maxX < 0) return none
+            // Touching the viewport edge = full-bleed artwork: keep as designed.
+            if (minX <= 1 || minY <= 1 || maxX >= p - 2 || maxY >= p - 2) return none
+            val fraction = max(maxX - minX + 1, maxY - minY + 1) / p.toFloat()
+            if (fraction >= FIT_THRESHOLD) return none
+            val zoom = (FIT_TARGET / fraction).coerceIn(1f, MAX_FIT_ZOOM)
+            ForegroundFit(zoom, (minX + maxX + 1) / 2f / p, (minY + maxY + 1) / 2f / p)
+        } catch (_: Exception) {
+            none
         }
     }
 
@@ -201,74 +264,173 @@ object IconEngine {
         return Color.WHITE
     }
 
+    /**
+     * The icon's background: every pixel reachable from the corners through
+     * gradual colour changes (flat plates and gradients), stopping at the crisp
+     * edge of the artwork. Whites enclosed by the artwork are not part of it.
+     */
+    private fun backgroundMask(pixels: IntArray, w: Int, h: Int): BooleanArray {
+        val mask = BooleanArray(w * h)
+        val queue = IntArray(w * h)
+        var head = 0
+        var tail = 0
+        fun seed(i: Int) { if (!mask[i]) { mask[i] = true; queue[tail++] = i } }
+        // Start from the four corners only: they lie outside the rounded icon shape
+        // and are always background, whereas artwork may touch an edge (a figure
+        // standing on the bottom, for example).
+        seed(0); seed(w - 1); seed((h - 1) * w); seed(h * w - 1)
+        while (head < tail) {
+            val i = queue[head++]
+            val c = pixels[i]
+            val r = (c ushr 16) and 0xFF; val g = (c ushr 8) and 0xFF; val b = c and 0xFF
+            val x = i % w
+            fun visit(n: Int) {
+                if (mask[n]) return
+                val d = pixels[n]
+                val delta = kotlin.math.abs(((d ushr 16) and 0xFF) - r) + kotlin.math.abs(((d ushr 8) and 0xFF) - g) + kotlin.math.abs((d and 0xFF) - b)
+                if (delta <= 22) { mask[n] = true; queue[tail++] = n }
+            }
+            if (x > 0) visit(i - 1)
+            if (x < w - 1) visit(i + 1)
+            if (i >= w) visit(i - w)
+            if (i < w * (h - 1)) visit(i + w)
+        }
+        return mask
+    }
+
+    /** iOS dark icon ground: a soft anthracite gradient. */
+    private fun darkGround(y: Int, h: Int): Int {
+        val t = y.toFloat() / (h - 1).coerceAtLeast(1)
+        val v = (46 - t * 24).roundToInt()
+        return Color.rgb(v, v, v + 2)
+    }
+
+    /**
+     * iOS "Dark" icons: a light plate becomes anthracite, the artwork keeps its
+     * colours. Icons that already have a coloured or dark background, and any
+     * white that belongs to the artwork itself, are left untouched.
+     */
     private fun applyDarkThemeInPlace(bmp: Bitmap) {
         val w = bmp.width
         val h = bmp.height
         val pixels = IntArray(w * h)
         bmp.getPixels(pixels, 0, w, 0, 0, w, h)
+        val mask = backgroundMask(pixels, w, h)
         val hsv = FloatArray(3)
 
-        for (i in pixels.indices) {
-            val c = pixels[i]
-            val a = (c ushr 24) and 0xFF
-            if (a < 12) continue
-            val r = (c ushr 16) and 0xFF
-            val g = (c ushr 8) and 0xFF
-            val b = c and 0xFF
-            Color.RGBToHSV(r, g, b, hsv)
-            val sat = hsv[1]
-            val value = hsv[2]
-
-            if (sat < 0.14f && value > 0.70f) {
-                // Neutral bright surfaces become the iOS dark icon anthracite.
-                val v = (28 + ((1f - value) * 18f)).roundToInt().coerceIn(26, 46)
-                pixels[i] = Color.argb(a, v, v, (v + 3).coerceAtMost(255))
-            } else if (sat >= 0.14f) {
-                hsv[1] = (sat * 1.06f).coerceAtMost(1f)
-                hsv[2] = (value * 0.93f).coerceIn(0.18f, 1f)
-                pixels[i] = Color.HSVToColor(a, hsv)
-            } else if (value in 0.18f..0.70f) {
-                hsv[2] = (value * 0.82f).coerceAtLeast(0.12f)
-                pixels[i] = Color.HSVToColor(a, hsv)
-            }
+        fun isLightNeutral(c: Int): Boolean {
+            Color.RGBToHSV((c ushr 16) and 0xFF, (c ushr 8) and 0xFF, c and 0xFF, hsv)
+            return hsv[1] < 0.16f && hsv[2] > 0.72f
         }
-        bmp.setPixels(pixels, 0, w, 0, 0, w, h)
+        // Only act when the plate really is light (sampled along the border).
+        var light = 0; var total = 0
+        for (x in 0 until w step 4) { total += 2; if (isLightNeutral(pixels[x])) light++; if (isLightNeutral(pixels[(h - 1) * w + x])) light++ }
+        for (y in 0 until h step 4) { total += 2; if (isLightNeutral(pixels[y * w])) light++; if (isLightNeutral(pixels[y * w + w - 1])) light++ }
+        if (light < total * 0.6f) return
+
+        val out = pixels.copyOf()
+        for (i in pixels.indices) {
+            val y = i / w
+            if (mask[i]) {
+                if (isLightNeutral(pixels[i])) out[i] = darkGround(y, h)
+                continue
+            }
+            // Anti-aliased rim of the artwork: swap the white that is mixed in for the dark ground.
+            val x = i % w
+            var nearPlate = false
+            loop@ for (dy in -3..3) for (dx in -3..3) {
+                val nx = x + dx; val ny = y + dy
+                if (nx in 0 until w && ny in 0 until h && mask[ny * w + nx]) { nearPlate = true; break@loop }
+            }
+            if (!nearPlate) continue
+            val c = pixels[i]
+            val r = (c ushr 16) and 0xFF; val g = (c ushr 8) and 0xFF; val b = c and 0xFF
+            val white = minOf(r, g, b) / 255f
+            if (white < 0.22f) continue
+            val ground = darkGround(y, h)
+            val sub = white
+            out[i] = Color.argb(
+                (c ushr 24) and 0xFF,
+                (r - sub * (255 - Color.red(ground))).roundToInt().coerceIn(0, 255),
+                (g - sub * (255 - Color.green(ground))).roundToInt().coerceIn(0, 255),
+                (b - sub * (255 - Color.blue(ground))).roundToInt().coerceIn(0, 255)
+            )
+        }
+        bmp.setPixels(out, 0, w, 0, 0, w, h)
     }
 
+    /**
+     * iOS "Tinted" icons: dark ground, the artwork drawn in the accent colour
+     * with its own light/dark structure preserved.
+     */
     private fun applyTintedThemeInPlace(bmp: Bitmap, accent: TintAccentColor) {
         val w = bmp.width
         val h = bmp.height
         val pixels = IntArray(w * h)
         bmp.getPixels(pixels, 0, w, 0, 0, w, h)
+        val mask = backgroundMask(pixels, w, h)
 
         val accentInt = accent.colorHex.toInt()
         val ar = (accentInt ushr 16) and 0xFF
         val ag = (accentInt ushr 8) and 0xFF
         val ab = accentInt and 0xFF
 
-        for (i in pixels.indices) {
-            val c = pixels[i]
-            val a = (c ushr 24) and 0xFF
-            if (a < 12) continue
-            val y = i / w
-            val r = (c ushr 16) and 0xFF
-            val g = (c ushr 8) and 0xFF
-            val b = c and 0xFF
-            val lum = (0.299f * r + 0.587f * g + 0.114f * b) / 255f
+        fun lum(c: Int) = (0.299f * ((c ushr 16) and 0xFF) + 0.587f * ((c ushr 8) and 0xFF) + 0.114f * (c and 0xFF)) / 255f
 
-            // Apple's tinted mode is two-tone: deep accent shadows and a
-            // brighter accent for highlights, with a gentle vertical gradient.
-            val gradient = 0.82f + (y.toFloat() / h) * 0.30f
-            val shadowAmount = (1f - lum).coerceIn(0f, 1f)
-            val base = 0.16f * shadowAmount * gradient
-            val highlight = lum * 0.92f
-            val intensity = (base + highlight).coerceIn(0.10f, 1.18f)
-
-            val nr = (ar * intensity).roundToInt().coerceIn(0, 255)
-            val ng = (ag * intensity).roundToInt().coerceIn(0, 255)
-            val nb = (ab * intensity).roundToInt().coerceIn(0, 255)
-            pixels[i] = Color.argb(a, nr, ng, nb)
+        // Rings around the artwork: 1 = touches the background, 2 = next to ring 1.
+        // Those anti-aliased pixels are a blend with the old plate colour, so they
+        // borrow the brightness of the artwork's interior instead of their own.
+        val ring = ByteArray(w * h)
+        var artwork = 0
+        for (i in pixels.indices) if (!mask[i]) artwork++
+        // Photo-like icons have no separable artwork: tint the whole picture instead.
+        val whole = artwork < pixels.size * 0.03f || artwork > pixels.size * 0.97f
+        if (!whole) {
+            for (pass in 1..2) for (i in pixels.indices) {
+                if (mask[i] || ring[i].toInt() != 0) continue
+                val x = i % w
+                fun edge(n: Int) = if (pass == 1) mask[n] else ring[n].toInt() == 1
+                if ((x > 0 && edge(i - 1)) || (x < w - 1 && edge(i + 1)) || (i >= w && edge(i - w)) || (i < w * (h - 1) && edge(i + w))) ring[i] = pass.toByte()
+            }
         }
+        // Brightness scale from the artwork's interior only; the washed-out rim
+        // pixels would otherwise make every solid glyph look dark.
+        var minL = 1f; var maxL = 0f; var interior = 0
+        for (i in pixels.indices) {
+            if (!whole && (mask[i] || ring[i].toInt() != 0)) continue
+            interior++
+            val l = lum(pixels[i]); if (l < minL) minL = l; if (l > maxL) maxL = l
+        }
+        if (interior == 0) { minL = 0f; maxL = 0f }
+        val range = maxL - minL
+        fun tone(c: Int): Float = if (range < 0.08f) 1f else ((lum(c) - minL) / range).coerceIn(0f, 1f)
+
+        val out = IntArray(w * h)
+        for (i in pixels.indices) {
+            val y = i / w
+            val ground = darkGround(y, h)
+            if (!whole && mask[i]) { out[i] = ground; continue }
+            var t = tone(pixels[i])
+            val r = ring[i].toInt()
+            if (r != 0) {
+                val x = i % w
+                var found = false
+                search@ for (dy in -3..3) for (dx in -3..3) {
+                    val nx = x + dx; val ny = y + dy
+                    if (nx !in 0 until w || ny !in 0 until h) continue
+                    val n = ny * w + nx
+                    if (!mask[n] && ring[n].toInt() == 0) { t = tone(pixels[n]); found = true; break@search }
+                }
+                if (!found) t = 1f
+            }
+            val k = if (whole) 0.12f + 0.88f * t else 0.52f + 0.48f * t
+            var cr = ar * k; var cg = ag * k; var cb = ab * k
+            if (r == 1) {
+                cr = (cr + Color.red(ground)) / 2f; cg = (cg + Color.green(ground)) / 2f; cb = (cb + Color.blue(ground)) / 2f
+            }
+            out[i] = Color.rgb(cr.roundToInt(), cg.roundToInt(), cb.roundToInt())
+        }
+        System.arraycopy(out, 0, pixels, 0, out.size)
         bmp.setPixels(pixels, 0, w, 0, 0, w, h)
     }
 

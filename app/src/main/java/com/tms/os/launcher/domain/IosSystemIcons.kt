@@ -376,8 +376,9 @@ internal object IosSystemIcons {
 
     private fun drawClock(c: Canvas, dark: Boolean) {
         c.background(0xFF161619.toInt(), 0xFF030304.toInt())
-        c.drawCircle(0.5f, 0.5f, 0.441f, paint(WHITE))
-        val ink = 0xFF151518.toInt()
+        // Dark appearance: the face turns dark and the numerals white, like iOS.
+        c.drawCircle(0.5f, 0.5f, 0.441f, paint(if (dark) 0xFF2C2C2E.toInt() else WHITE))
+        val ink = if (dark) WHITE else 0xFF151518.toInt()
         val numeral = paint(ink).apply {
             textAlign = Paint.Align.CENTER
             typeface = Typeface.create("sans-serif", Typeface.NORMAL)
