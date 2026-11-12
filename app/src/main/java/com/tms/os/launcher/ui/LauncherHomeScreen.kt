@@ -89,12 +89,11 @@ import com.tms.os.launcher.model.HomeGridItem
 import com.tms.os.launcher.model.WidgetKind
 import com.tms.os.launcher.ui.components.IosAppIcon
 import com.tms.os.launcher.ui.components.IosAppLibraryPage
-import com.tms.os.launcher.ui.components.IosCategoryExpandedView
 import com.tms.os.launcher.ui.components.IosCustomizeSheet
 import com.tms.os.launcher.ui.components.IosFolderIcon
 import com.tms.os.launcher.ui.components.IosPageDots
 import com.tms.os.launcher.ui.components.IosSearchButton
-import com.tms.os.launcher.ui.components.IosSpotlightOverlay
+import com.tms.os.launcher.ui.home.IosSpotlight
 import com.tms.os.launcher.ui.components.IosStatusBar
 import com.tms.os.launcher.ui.home.AlertAction
 import com.tms.os.launcher.ui.home.GridGeometry
@@ -887,20 +886,21 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                 onClose = { viewModel.closeSwitcher() }
             )
         }
-        IosSpotlightOverlay(
+        IosSpotlight(
             visible = state.isSpotlightOpen,
             progress = { spotlight.value },
             query = state.spotlightQuery,
             results = state.spotlightResults,
-            shortcuts = state.spotlightShortcuts,
             contacts = state.spotlightContacts,
             mathResult = state.spotlightMathResult,
-            allApps = state.allApps,
+            topActions = state.spotlightTopActions,
             settings = settings,
             strings = strings,
+            hs = hs,
             onQueryChange = viewModel::updateSpotlightQuery,
-            onAppClick = { app -> viewModel.launchApp(app.packageName) },
+            onAppClick = { app -> leftToApp = true; viewModel.launchApp(app.packageName) },
             onAppLongClick = { app -> viewModel.selectAppForContextMenu(app) },
+            onQuickAction = { a -> leftToApp = true; viewModel.closeSpotlight(); viewModel.runQuickAction(a) },
             onContactClick = { contact -> viewModel.dialContact(contact.phoneNumber) },
             onWebSearch = { query, engine -> viewModel.searchWeb(query, engine) },
             onClose = { viewModel.closeSpotlight() }
@@ -930,15 +930,22 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
             )
         }
 
+        // App Library category: opens exactly like a folder on iOS.
         state.activeCategoryModal?.let { category ->
-            IosCategoryExpandedView(
-                visible = true,
-                category = category,
-                apps = state.categorizedApps[category].orEmpty(),
-                strings = strings,
-                settings = settings,
-                onAppClick = { app -> viewModel.launchApp(app.packageName) },
-                onAppLongClick = { app -> viewModel.selectAppForContextMenu(app) },
+            val apps = state.categorizedApps[category].orEmpty()
+            IosFolderView(
+                folder = remember(category, apps) {
+                    HomeGridItem.FolderItem("category_${category.name}", category.localizedTitle(settings.appLanguage), apps.map { it.packageName })
+                },
+                appMap = state.appMap,
+                iconBounds = null,
+                iconSize = if (isUnfolded) 64.dp else minOf(iconSize, 62.dp),
+                labelFontSizeSp = settings.labelFontSizeSp,
+                jiggle = false,
+                onAppClick = { app, bounds -> openAppWithAnimation(app, bounds) },
+                onAppLongClick = { app, bounds -> menuAnchor = app.packageName to bounds; viewModel.selectAppForContextMenu(app) },
+                onRename = {},
+                onEnterJiggle = {},
                 onDismiss = { viewModel.openCategoryModal(null) }
             )
         }

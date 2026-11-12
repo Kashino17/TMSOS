@@ -344,7 +344,7 @@ private fun LibraryCategoryPod(
                                 Column(
                                     verticalArrangement = Arrangement.spacedBy(5.dp),
                                     modifier = Modifier
-                                        .fillMaxWidth()
+                                        .fillMaxSize()
                                         .clickable(
                                             interactionSource = remember { MutableInteractionSource() },
                                             indication = null,
@@ -361,11 +361,14 @@ private fun LibraryCategoryPod(
                                                     contentAlignment = Alignment.Center,
                                                     modifier = Modifier.weight(1f)
                                                 ) {
+                                                    // iOS: the small icons are not buttons; the
+                                                    // whole cluster opens the category.
                                                     LibraryAppIcon(
                                                         app = extras.getOrNull(row * 2 + col),
                                                         size = miniIcon,
                                                         onAppClick = onAppClick,
-                                                        onAppLongClick = onAppLongClick
+                                                        onAppLongClick = onAppLongClick,
+                                                        interactive = false
                                                     )
                                                 }
                                             }
@@ -397,7 +400,8 @@ private fun LibraryAppIcon(
     app: AppInfo?,
     size: Dp,
     onAppClick: (AppInfo) -> Unit,
-    onAppLongClick: (AppInfo) -> Unit
+    onAppLongClick: (AppInfo) -> Unit,
+    interactive: Boolean = true
 ) {
     if (app == null) {
         Spacer(Modifier.size(size))
@@ -409,11 +413,13 @@ private fun LibraryAppIcon(
         modifier = Modifier
             .size(size)
             .clip(IosSquircle)
-            .combinedClickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = { onAppClick(app) },
-                onLongClick = { onAppLongClick(app) }
+            .then(
+                if (interactive) Modifier.combinedClickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = { onAppClick(app) },
+                    onLongClick = { onAppLongClick(app) }
+                ) else Modifier
             )
     ) {
         if (app.iconBitmap != null) {

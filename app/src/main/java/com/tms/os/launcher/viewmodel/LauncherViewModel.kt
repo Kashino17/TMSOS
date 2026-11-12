@@ -54,6 +54,8 @@ data class LauncherUiState(
     val todayWidgets: List<HomeGridItem.WidgetItem> = emptyList(),
     val isSwitcherOpen: Boolean = false,
     val menuQuickActions: List<com.tms.os.launcher.model.AppQuickAction> = emptyList(),
+    /** Real shortcuts of Spotlight's top hit ("New Tab" for Chrome, …). */
+    val spotlightTopActions: List<com.tms.os.launcher.model.AppQuickAction> = emptyList(),
     val switcherApps: List<AppInfo> = emptyList(),
     val weatherForecast: com.tms.os.launcher.domain.WeatherForecast? = null,
     val isDefaultLauncher: Boolean = false,
@@ -437,8 +439,14 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 spotlightResults = results,
                 spotlightShortcuts = shortcuts,
                 spotlightContacts = contacts,
-                spotlightMathResult = mathResult
+                spotlightMathResult = mathResult,
+                spotlightTopActions = if (results.firstOrNull()?.packageName == it.spotlightResults.firstOrNull()?.packageName && query.isNotBlank()) it.spotlightTopActions else emptyList()
             )
+        }
+        val top = results.firstOrNull()
+        if (top != null && query.isNotBlank()) viewModelScope.launch {
+            val actions = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { repository.quickActions(top.packageName, limit = 3) }
+            _uiState.update { s -> if (s.spotlightResults.firstOrNull()?.packageName == top.packageName) s.copy(spotlightTopActions = actions) else s }
         }
 
         if (state.settings.instantLaunchSingleSearchResult &&

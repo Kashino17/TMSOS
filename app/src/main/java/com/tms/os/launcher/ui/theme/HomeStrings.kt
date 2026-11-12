@@ -29,6 +29,11 @@ data class HomeStrings(
     val local: String,
     val today: String,
     val shareApp: String,
+    val topHit: String,
+    val open: String,
+    val searchInApp: String,
+    val searchWith: String,
+    val shortcuts: String,
     val widgetName: (WidgetKind) -> String,
     val widgetDescription: (WidgetKind) -> String
 )
@@ -58,6 +63,11 @@ private val DE = HomeStrings(
     local = "Lokal",
     today = "Heute",
     shareApp = "App teilen",
+    topHit = "Top-Treffer",
+    open = "Öffnen",
+    searchInApp = "In App suchen",
+    searchWith = "Mit %s suchen",
+    shortcuts = "Kurzbefehle",
     widgetName = {
         when (it) {
             WidgetKind.WEATHER -> "Wetter"
@@ -105,6 +115,11 @@ private val EN = DE.copy(
     local = "Local",
     today = "Today",
     shareApp = "Share App",
+    topHit = "Top Hit",
+    open = "Open",
+    searchInApp = "Search in App",
+    searchWith = "Search %s",
+    shortcuts = "Shortcuts",
     widgetName = {
         when (it) {
             WidgetKind.WEATHER -> "Weather"
@@ -152,6 +167,11 @@ private val TR = DE.copy(
     local = "Yerel",
     today = "Bugün",
     shareApp = "Uygulamayı Paylaş",
+    topHit = "En İyi Sonuç",
+    open = "Aç",
+    searchInApp = "Uygulamada Ara",
+    searchWith = "%s ile Ara",
+    shortcuts = "Kestirmeler",
     widgetName = {
         when (it) {
             WidgetKind.WEATHER -> "Hava Durumu"

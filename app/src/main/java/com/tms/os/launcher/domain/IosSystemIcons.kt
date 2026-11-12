@@ -83,7 +83,9 @@ internal object IosSystemIcons {
         "com.google.android.googlequicksearchbox",
         "com.android.vending",
         "com.whatsapp",
-        "com.tms.os.launcher"
+        "com.tms.os.launcher",
+        // Third-party apps whose localized name collides with an Apple app ("Fotos").
+        "com.google.android.apps.photos"
     )
 
     private fun kindFor(packageName: String, rawLabel: String): Kind? {

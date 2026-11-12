@@ -613,8 +613,9 @@ private fun SuggestionsWidget(size: WidgetSize, env: WidgetEnv) {
         Modifier
             .fillMaxSize()
             .wallpaperGlass(RoundedCornerShape(WidgetCorner), tint = Color.White.copy(alpha = 0.08f), rim = 0.4f)
-            .padding(horizontal = 12.dp, vertical = 12.dp)
+            .padding(horizontal = 10.dp, vertical = 10.dp)
     ) {
+        // 2 rows in 158 pt need breathing room between a label and the next icon.
         Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceEvenly) {
             for (r in 0 until rows) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                 for (c in 0 until 4) {
@@ -625,11 +626,11 @@ private fun SuggestionsWidget(size: WidgetSize, env: WidgetEnv) {
                             if (app != null) Modifier.pointerTap { env.onAppClick(app) } else Modifier
                         )
                     ) {
-                        Box(Modifier.size(50.dp).clip(IosSquircle)) {
+                        Box(Modifier.size(44.dp).clip(IosSquircle)) {
                             app?.iconBitmap?.let { Image(it, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
                         }
-                        Spacer(Modifier.height(4.dp))
-                        Text(app?.displayLabel.orEmpty(), style = ts(11.sp, FontWeight.Normal, Color.White, (-0.1).sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Spacer(Modifier.height(3.dp))
+                        Text(app?.displayLabel.orEmpty(), style = ts(10.sp, FontWeight.Normal, Color.White, (-0.1).sp).copy(lineHeight = 12.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }
