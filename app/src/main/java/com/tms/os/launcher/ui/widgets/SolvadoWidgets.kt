@@ -36,7 +36,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -136,39 +135,52 @@ internal fun ShopTile(shop: SolvadoShop?, name: String, size: Dp, modifier: Modi
     }
 }
 
-/** Circular arrow; turns while figures are being fetched. Tapping it fetches, nothing else does it on its own. */
+/**
+ * Refresh: a thin open circle with a small arrowhead in the muted text colour,
+ * like SF Symbols' arrow.clockwise. Turns while figures are fetched.
+ * Its own tap target; nothing else refreshes on its own accord.
+ */
 @Composable
 private fun RefreshButton(busy: Boolean, onClick: () -> Unit) {
     val angle = if (busy) {
-        val spin by rememberInfiniteTransition(label = "refresh").animateFloat(0f, 360f, infiniteRepeatable(tween(900, easing = LinearEasing)), label = "angle")
+        val spin by rememberInfiniteTransition(label = "refresh").animateFloat(0f, 360f, infiniteRepeatable(tween(1000, easing = LinearEasing)), label = "angle")
         spin
     } else 0f
     Box(
-        Modifier
-            .size(30.dp)
-            // Its own tap target: the rest of the widget opens the settings.
-            .pointerInput(Unit) { detectTapGestures(onTap = { onClick() }) },
+        Modifier.size(28.dp).pointerInput(Unit) { detectTapGestures(onTap = { onClick() }) },
         contentAlignment = Alignment.Center
     ) {
-        Canvas(Modifier.size(15.dp).graphicsLayer { rotationZ = angle }) {
-            val stroke = size.minDimension * 0.13f
-            val inset = stroke / 2f
+        Canvas(Modifier.size(13.dp).graphicsLayer { rotationZ = angle; alpha = if (busy) 0.9f else 0.55f }) {
+            val stroke = 1.3.dp.toPx()
+            val r = size.minDimension / 2f - stroke
+            val c = Offset(size.width / 2f, size.height / 2f)
+            // Open at the top; the arc ends just left of it and the arrowhead there points
+            // along the turn (to the right), like SF Symbols' arrow.clockwise.
             drawArc(
-                SolvadoColors.muted, startAngle = -50f, sweepAngle = 290f, useCenter = false,
-                topLeft = Offset(inset, inset), size = Size(size.width - stroke, size.height - stroke),
+                SolvadoColors.ink, startAngle = -50f, sweepAngle = 310f, useCenter = false,
+                topLeft = Offset(c.x - r, c.y - r), size = Size(r * 2, r * 2),
                 style = Stroke(stroke, cap = StrokeCap.Round)
             )
-            // Arrow head at the open end of the arc.
-            rotate(-50f) {
-                val tip = Offset(size.width - inset, size.height / 2f)
-                val head = size.minDimension * 0.30f
-                drawPath(Path().apply {
-                    moveTo(tip.x - head * 0.75f, tip.y - head * 0.05f)
-                    lineTo(tip.x + head * 0.75f, tip.y - head * 0.05f)
-                    lineTo(tip.x, tip.y + head * 0.95f)
-                    close()
-                }, SolvadoColors.muted)
+            val end = Math.toRadians(260.0)
+            val tip = Offset(c.x + r * kotlin.math.cos(end).toFloat(), c.y + r * kotlin.math.sin(end).toFloat())
+            // Direction of travel at the end of a clockwise arc.
+            val dx = -kotlin.math.sin(end).toFloat()
+            val dy = kotlin.math.cos(end).toFloat()
+            val arm = size.minDimension * 0.36f
+            // An arm: the reversed direction of travel, turned by ±deg.
+            fun back(deg: Double): Offset {
+                val t = Math.toRadians(deg)
+                val vx = -dx; val vy = -dy
+                val bx = vx * kotlin.math.cos(t).toFloat() - vy * kotlin.math.sin(t).toFloat()
+                val by = vx * kotlin.math.sin(t).toFloat() + vy * kotlin.math.cos(t).toFloat()
+                return Offset(tip.x + bx * arm, tip.y + by * arm)
             }
+            val path = Path().apply {
+                moveTo(back(42.0).x, back(42.0).y)
+                lineTo(tip.x, tip.y)
+                lineTo(back(-42.0).x, back(-42.0).y)
+            }
+            drawPath(path, SolvadoColors.ink, style = Stroke(stroke, cap = StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round))
         }
     }
 }

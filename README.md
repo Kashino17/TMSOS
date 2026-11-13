@@ -8,6 +8,10 @@ Ein maßgeschneiderter, werbefreier und kostenloser **iOS-Style Homescreen-Launc
 
 ---
 
+## Neu in v5.8.4 – Widget-Einstellungen nur beim Bearbeiten
+- Ein Tipp auf ein Widget öffnet die Einstellungen nur noch im Bearbeiten-Modus; sonst macht der Tipp, was das Widget tut (Wetter → Wetter-App, Solvado → nichts).
+- Solvado-Widget: schlichterer, dünner Aktualisieren-Pfeil.
+
 ## Neu in v5.8.3 – eine Zeile mehr
 - Die Zeilen werden etwas niedriger, wenn dadurch eine weitere über das Dock passt: Apps lassen sich jetzt bis direkt über die Suchleiste setzen. Bisherige Anordnungen bleiben erhalten.
 

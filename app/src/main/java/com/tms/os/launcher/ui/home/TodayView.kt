@@ -43,6 +43,7 @@ fun TodayView(
     strings: HomeStrings,
     jiggle: Boolean,
     onWidgetTap: (HomeGridItem.WidgetItem) -> Unit,
+    onWidgetSettings: (HomeGridItem.WidgetItem) -> Unit = {},
     onRemove: (HomeGridItem.WidgetItem) -> Unit,
     onEnterJiggle: () -> Unit,
     onExitJiggle: () -> Unit
@@ -79,8 +80,8 @@ fun TodayView(
                         Box(Modifier.size(width, height).jiggle(jiggle, w.widgetId.hashCode(), 0.7f)) {
                             val surface = Modifier.fillMaxSize().combinedClickable(
                                 remember { MutableInteractionSource() }, null,
-                                // A configurable widget opens its settings on tap, also while editing (as on iOS).
-                                onClick = { if (!jiggle || w.kind.configurable) onWidgetTap(w) },
+                                // Settings only while editing; otherwise a tap does what the widget does.
+                                onClick = { if (jiggle) { if (w.kind.configurable) onWidgetSettings(w) } else onWidgetTap(w) },
                                 onLongClick = onEnterJiggle
                             )
                             if (w.isStack) IosSmartStack(w.kinds, w.size, env, surface)

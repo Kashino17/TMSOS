@@ -979,6 +979,7 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                                     strings = hs,
                                     jiggle = state.isJiggleMode,
                                     onWidgetTap = actions.todayWidgetTap,
+                                    onWidgetSettings = { w -> actions.widgetSettings(w.widgetId) },
                                     onRemove = actions.remove,
                                     onEnterJiggle = actions.enterJiggle,
                                     onExitJiggle = actions.exitJiggle
@@ -1527,8 +1528,11 @@ private fun GridItem(
                         .combinedClickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
-                            // A configurable widget opens its settings on tap, also while editing (as on iOS).
-                            onClick = { if (item.kind.configurable && !item.isStack) actions.widgetSettings(item.widgetId) else if (!jiggle) onWidgetTap(current) },
+                            // Settings open only in edit mode; otherwise a tap does what the widget does.
+                            onClick = {
+                                if (jiggle) { if (item.kind.configurable && !item.isStack) actions.widgetSettings(item.widgetId) }
+                                else onWidgetTap(current)
+                            },
                             onLongClick = { if (!jiggle) onEnterJiggle() }
                         )
                     if (item.isStack) IosSmartStack(
@@ -1714,7 +1718,7 @@ private class HomeActions(ops: androidx.compose.runtime.State<HomeOps>?) {
     val folder: (HomeGridItem.FolderItem, Rect) -> Unit = { f, r -> ops?.value?.folder(f, r) }
     val widgetTap: (WidgetKind) -> Unit = { k -> ops?.value?.widgetTap(k) }
     val todayWidgetTap: (HomeGridItem.WidgetItem) -> Unit = { w ->
-        if (w.kind.configurable) ops?.value?.widgetSettings(w.widgetId) else ops?.value?.widgetTap(w.kind)
+        ops?.value?.widgetTap(w.kind)
     }
     val widgetSettings: (String) -> Unit = { id -> ops?.value?.widgetSettings(id) }
     val enterJiggle: () -> Unit = { ops?.value?.enterJiggle() }
