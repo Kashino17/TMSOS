@@ -674,6 +674,43 @@ class LauncherRepository(private val context: Context) {
 
     fun hasStoredLayout(): Boolean = prefs.contains(profiled("home_grid_items_v4_json"))
 
+    /** True exactly once per [key] (one-time repairs after an update). */
+    fun once(key: String): Boolean {
+        if (prefs.getBoolean(key, false)) return false
+        prefs.edit().putBoolean(key, true).apply()
+        return true
+    }
+
+    /*
+     * Free placement: the cell of every item, per layout and per grid shape
+     * ("4x6" on the cover screen, "6x5" unfolded), so each screen keeps its own
+     * arrangement. A shape without anchors is laid out in reading order.
+     */
+    private fun anchorKey(shape: String) = profiled("grid_anchors_v1_$shape")
+
+    fun loadAnchors(shape: String): Map<String, com.tms.os.launcher.domain.GridAnchor> = runCatching {
+        val o = JSONObject(prefs.getString(anchorKey(shape), "{}") ?: "{}")
+        o.keys().asSequence().mapNotNull { id ->
+            val p = o.optString(id).split(',').mapNotNull { it.toIntOrNull() }
+            if (p.size == 3) id to com.tms.os.launcher.domain.GridAnchor(p[0], p[1], p[2]) else null
+        }.toMap()
+    }.getOrDefault(emptyMap())
+
+    fun saveAnchors(shape: String, anchors: Map<String, com.tms.os.launcher.domain.GridAnchor>) {
+        val o = JSONObject()
+        anchors.forEach { (id, a) -> o.put(id, "${a.page},${a.col},${a.row}") }
+        prefs.edit().putString(anchorKey(shape), o.toString()).apply()
+    }
+
+    /** Shapes that have anchors in the current layout ("4x6", or "4x6_min" stored for the minimalist one). */
+    fun anchorShapes(): List<String> = prefs.all.keys.mapNotNull { key ->
+        val rest = key.removePrefix("grid_anchors_v1_").takeIf { key.startsWith("grid_anchors_v1_") } ?: return@mapNotNull null
+        when {
+            layoutProfile.isEmpty() -> rest.takeIf { '_' !in it }
+            else -> rest.takeIf { it.endsWith("_$layoutProfile") }?.removeSuffix("_$layoutProfile")
+        }
+    }
+
     fun loadDockPackages(allApps: List<AppInfo>, maxDockSize: Int = 4): List<String> {
         val saved = prefs.getString(profiled("dock_packages_v4_json"), null)
         if (saved != null) {

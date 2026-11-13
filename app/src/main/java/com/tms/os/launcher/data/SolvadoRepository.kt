@@ -57,30 +57,6 @@ class SolvadoRepository(context: Context) {
         if (!f.exists()) null else android.graphics.BitmapFactory.decodeFile(f.path)?.asImageBitmap()?.also { iconMemory[shopId] = it }
     }.getOrNull()
 
-    /**
-     * Downloads the logo tiles that are not on the phone yet. They are small
-     * prepared squares (192 px) and do not change often, so each is fetched once.
-     */
-    fun loadMissingIcons(shopIds: List<String>) {
-        val missing = shopIds.distinct().filter { !iconFile(it).exists() }
-        missing.chunked(40).forEach { chunk ->
-            val icons = call("GET", "/api/widgets/shop-icons?ids=${chunk.joinToString(",")}").optJSONObject("icons") ?: return@forEach
-            chunk.forEach { id ->
-                val url = icons.optString(id).takeIf { it.startsWith("https://") } ?: return@forEach
-                runCatching {
-                    val connection = (URL(url).openConnection() as HttpURLConnection).apply { connectTimeout = 8_000; readTimeout = 15_000 }
-                    try {
-                        if (connection.responseCode == 200) {
-                            val tmp = java.io.File(iconDir, "$id.tmp")
-                            connection.inputStream.use { input -> tmp.outputStream().use { input.copyTo(it) } }
-                            tmp.renameTo(iconFile(id))
-                        }
-                    } finally { connection.disconnect() }
-                }
-            }
-        }
-    }
-
     private fun storeSession(json: JSONObject) {
         val access = json.optString("access_token")
         val refresh = json.optString("refresh_token")
@@ -97,6 +73,35 @@ class SolvadoRepository(context: Context) {
         val fresh = prefs.getLong("expires_at", 0L) - System.currentTimeMillis() > 60_000L
         if (!fresh) storeSession(call("POST", "/api/widgets/refresh", JSONObject().put("refresh_token", refresh), auth = false))
         return prefs.getString("access_token", "").orEmpty()
+    }
+
+    /**
+     * Brings the logo tiles up to date. The server names each tile after what it
+     * shows, so a changed logo has a new address: only new or changed tiles are
+     * downloaded (192 px each), everything else stays as it is.
+     */
+    fun loadMissingIcons(shopIds: List<String>) {
+        val known = JSONObject(prefs.getString("icon_urls", "{}") ?: "{}")
+        shopIds.distinct().chunked(40).forEach { chunk ->
+            val icons = call("GET", "/api/widgets/shop-icons?ids=${chunk.joinToString(",")}").optJSONObject("icons") ?: return@forEach
+            chunk.forEach { id ->
+                val url = icons.optString(id).takeIf { it.startsWith("https://") } ?: return@forEach
+                if (url == known.optString(id) && iconFile(id).exists()) return@forEach
+                runCatching {
+                    val connection = (URL(url).openConnection() as HttpURLConnection).apply { connectTimeout = 8_000; readTimeout = 15_000 }
+                    try {
+                        if (connection.responseCode == 200) {
+                            val tmp = java.io.File(iconDir, "$id.tmp")
+                            connection.inputStream.use { input -> tmp.outputStream().use { input.copyTo(it) } }
+                            tmp.renameTo(iconFile(id))
+                            iconMemory.remove(id)
+                            known.put(id, url)
+                        }
+                    } finally { connection.disconnect() }
+                }
+            }
+        }
+        prefs.edit().putString("icon_urls", known.toString()).apply()
     }
 
     /* ------------------------------------------------------------- figures */

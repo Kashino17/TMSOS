@@ -67,14 +67,13 @@ import java.util.Locale
 /*       TMS Solvado widgets, in the colours of the Solvado dashboard         */
 /* ========================================================================== */
 
-/** The dark theme of the Solvado web app (zinc surfaces, violet primary, the orange of the mark). */
+/** The dark theme of the Solvado web app: zinc surfaces and the orange of the Solvado mark as the one accent. */
 internal object SolvadoColors {
     val surfaceTop = Color(0xFF1B1B20)
     val surfaceBottom = Color(0xFF0C0C0F)
     val ink = Color(0xFFFAFAFA)
     val muted = Color(0xFFA1A1AA)
     val line = Color(0xFF27272A)
-    val violet = Color(0xFF8B5CF6)
     val orange = Color(0xFFF26B21)
     val good = Color(0xFF34D399)
     val bad = Color(0xFFF87171)
@@ -123,13 +122,13 @@ internal fun SolvadoMark(size: Dp, modifier: Modifier = Modifier) {
     )
 }
 
-/** A shop's logo tile; until it is loaded (or if it has none) its initial on violet. */
+/** A shop's logo tile; until it is loaded (or if it has none) its initial on Solvado orange. */
 @Composable
 internal fun ShopTile(shop: SolvadoShop?, name: String, size: Dp, modifier: Modifier = Modifier) {
     val shape = RoundedCornerShape(size * 0.24f)
     val icon = shop?.icon
     if (icon != null) Image(icon, null, contentScale = ContentScale.Crop, modifier = modifier.size(size).clip(shape))
-    else Box(modifier.size(size).clip(shape).background(SolvadoColors.violet), contentAlignment = Alignment.Center) {
+    else Box(modifier.size(size).clip(shape).background(SolvadoColors.orange), contentAlignment = Alignment.Center) {
         Text(
             name.trim().take(1).uppercase(Locale.ROOT).ifEmpty { "S" },
             style = TextStyle(fontFamily = SfFamily, fontWeight = FontWeight.Bold, fontSize = (size.value * 0.5f).sp, color = Color.White)
@@ -192,8 +191,8 @@ fun SolvadoWidget(kind: WidgetKind, size: WidgetSize, env: WidgetEnv, configRaw:
         Modifier
             .fillMaxSize()
             .background(Brush.verticalGradient(listOf(SolvadoColors.surfaceTop, SolvadoColors.surfaceBottom)))
-            // The violet of the dashboard, as a soft light from the top corner.
-            .background(Brush.radialGradient(listOf(SolvadoColors.violet.copy(alpha = 0.20f), Color.Transparent), center = Offset(Float.POSITIVE_INFINITY, 0f), radius = 520f))
+            // A faint warm light of the Solvado orange from the top corner.
+            .background(Brush.radialGradient(listOf(SolvadoColors.orange.copy(alpha = 0.13f), Color.Transparent), center = Offset(Float.POSITIVE_INFINITY, 0f), radius = 520f))
     ) {
         Column(Modifier.fillMaxSize().padding(start = 14.dp, end = if (small) 8.dp else 10.dp, top = 12.dp, bottom = 13.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {

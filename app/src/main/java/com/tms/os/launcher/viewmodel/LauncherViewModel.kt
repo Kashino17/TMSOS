@@ -64,6 +64,8 @@ data class LauncherUiState(
     val batteryPercent: Int = 85,
     val screenTime: com.tms.os.launcher.model.ScreenTime = com.tms.os.launcher.model.ScreenTime(),
     val solvado: com.tms.os.launcher.model.SolvadoState = com.tms.os.launcher.model.SolvadoState(),
+    /** Free placement of the shown layout, by grid shape ("4x6"): item id -> cell. */
+    val gridAnchors: Map<String, Map<String, com.tms.os.launcher.domain.GridAnchor>> = emptyMap(),
     val storageRamInfo: SystemStorageRamInfo = SystemStorageRamInfo(6.4f, 12.0f, 128, 512),
     val isWeatherRefreshing: Boolean = false,
     /** The phone's position is being looked up for the weather (only ever on the user's tap). */
@@ -233,6 +235,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             val apps = repository.loadInstalledApps(badges, settings)
             val contacts = repository.loadContactsIfPermitted()
             val appMap = apps.associateBy { it.packageName }
+            restoreMinimalLayoutOnce(settings, apps)
             val dock = repository.loadDockPackages(apps, settings.dockIconCount)
             val grid = repository.loadHomeGridItems(apps, dock)
             val recents = computeRecentPackages(apps, dock)
@@ -249,6 +252,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                     appMap = appMap,
                     allContacts = contacts,
                     homeGridItems = grid,
+                    gridAnchors = loadAnchors(),
                     todayWidgets = repository.loadTodayWidgets(),
                     spotlightHistory = repository.loadSpotlightHistory(),
                     dockPackages = dock,
@@ -469,7 +473,42 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         val apps = _uiState.value.allApps
         val dock = repository.loadDockPackages(apps, _uiState.value.settings.dockIconCount)
         val grid = repository.loadHomeGridItems(apps, dock)
-        _uiState.update { it.copy(dockPackages = dock, homeGridItems = grid, activeFolder = null, isJiggleMode = false) }
+        _uiState.update { it.copy(dockPackages = dock, homeGridItems = grid, gridAnchors = loadAnchors(), activeFolder = null, isJiggleMode = false) }
+    }
+
+    private fun loadAnchors() = repository.anchorShapes().associateWith { repository.loadAnchors(it) }
+
+    /** Saves where every item sits, for one grid shape (after a drag on the home screen). */
+    fun commitAnchors(shape: String, anchors: Map<String, com.tms.os.launcher.domain.GridAnchor>) {
+        repository.saveAnchors(shape, anchors)
+        _uiState.update { it.copy(gridAnchors = it.gridAnchors + (shape to anchors)) }
+    }
+
+    /** A new item takes over another's cell in every shape (a folder made from an app). */
+    private fun moveAnchor(fromId: String, toId: String) {
+        val updated = _uiState.value.gridAnchors.mapValues { (shape, anchors) ->
+            val a = anchors[fromId] ?: return@mapValues anchors
+            (anchors - fromId + (toId to a)).also { repository.saveAnchors(shape, it) }
+        }
+        _uiState.update { it.copy(gridAnchors = updated) }
+    }
+
+    /**
+     * v5.8.0 gave the iOS-style minimalist screen its own storage but did not carry
+     * the apps chosen before over to it, so it came up (nearly) empty after the
+     * update. Once: put every previously chosen app back that is not on it.
+     */
+    private fun restoreMinimalLayoutOnce(settings: LauncherSettings, apps: List<AppInfo>) {
+        if (repository.layoutProfile != "min" || !repository.once("min_layout_restored_v1")) return
+        if (!repository.hasStoredLayout()) { buildMinimalLayout(settings.minimalTemplate, settings.minimalApps); return }
+        val dock = repository.loadDockPackages(apps, settings.dockIconCount)
+        val grid = repository.loadHomeGridItems(apps, dock)
+        val present = (dock + grid.flatMap { if (it is HomeGridItem.AppItem) listOf(it.packageName) else if (it is HomeGridItem.FolderItem) it.appPackages else emptyList() }).toSet()
+        val missing = settings.minimalApps.filter { it !in present }
+        if (missing.isEmpty()) return
+        val room = (settings.dockIconCount.coerceIn(3, 6) - dock.size).coerceAtLeast(0)
+        repository.saveDockPackages(dock + missing.take(room))
+        repository.saveHomeGridItems(grid + missing.drop(room).map { HomeGridItem.AppItem(it) })
     }
 
     /** App picker of the iOS-style minimalist home screen: puts an app on it or takes it off. No limit. */
@@ -797,8 +836,11 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             }
             is HomeGridItem.AppItem -> {
                 val targetApp = _uiState.value.appMap[target.packageName]
+                val folderId = "folder_${UUID.randomUUID()}"
+                // The new folder stands where the app stood.
+                moveAnchor(target.id, "folder:$folderId")
                 current[toIdx] = HomeGridItem.FolderItem(
-                    folderId = "folder_${UUID.randomUUID()}",
+                    folderId = folderId,
                     title = targetApp?.category?.titleDe ?: "Ordner",
                     appPackages = listOf(target.packageName, dragged.packageName).distinct(),
                     page = target.page,

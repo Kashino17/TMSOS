@@ -88,6 +88,8 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.tms.os.launcher.domain.PlacedCell
 import com.tms.os.launcher.domain.calculateHomeLayout
 import com.tms.os.launcher.domain.packIntoPages
+import com.tms.os.launcher.domain.packAnchored
+import com.tms.os.launcher.domain.moveAnchored
 import com.tms.os.launcher.model.AppCategory
 import com.tms.os.launcher.model.AppInfo
 import com.tms.os.launcher.model.HomeGridItem
@@ -340,8 +342,11 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
         // Templates with a dock put the first apps there; the rest go on the page.
         val minimalDock = minimal && settings.minimalTemplate.usesDock
         val displayOrder = if (minimal) emptyList() else drag.order ?: state.homeGridItems
-        val pages = remember(displayOrder, columns, rows) {
-            packIntoPages(displayOrder, columns, { rows }) { it.span() }
+        // Free placement (iOS 18): each grid shape keeps its own cells; none = reading order.
+        val shape = "${columns}x$rows"
+        val displayAnchors = drag.anchors ?: state.gridAnchors[shape].orEmpty()
+        val pages = remember(displayOrder, columns, rows, displayAnchors) {
+            packAnchored(displayOrder, columns, { rows }, { it.span() }) { displayAnchors[it.id] }
         }
         val homePageCount = ((pages.size + perScreen - 1) / perScreen).coerceAtLeast(1)
         // Pager: 0 = Today View, 1..n = home pages, n+1 = App Library.
@@ -635,6 +640,8 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                 return
             }
             val intoDock = pkg != null && drag.overDock && drag.dockOrder?.contains(pkg) == true
+            // Whatever moved aside during the drag stays where it is now.
+            drag.anchors?.let { viewModel.commitAnchors(shape, it - item.id) }
             if (intoDock) {
                 viewModel.setDockOrder(drag.dockOrder!!)
                 viewModel.commitHomeOrder(finalOrder.filterNot { it.id == item.id })
@@ -664,7 +671,9 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 } else {
                     viewModel.commitHomeOrder(finalOrder)
-                    val finalPages = packIntoPages(finalOrder, columns, { rows }) { it.span() }
+                    val finalAnchors = drag.anchors ?: state.gridAnchors[shape].orEmpty()
+                    drag.anchors?.let { viewModel.commitAnchors(shape, it) }
+                    val finalPages = packAnchored(finalOrder, columns, { rows }, { it.span() }) { finalAnchors[it.id] }
                     val p = finalPages.asSequence().flatten().firstOrNull { it.item.id == item.id }
                     val target = p?.let { rootOfPlaced(it) }
                     if (target != null) drag.dropAnim.animateTo(target, spring(0.78f, 380f))
@@ -794,10 +803,14 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                     ops.value.springFolder(over)
                 }
             } else {
-                delay(140)
+                // A beat longer than a passing finger takes, so icons only move where the item rests.
+                delay(260)
                 val order = drag.order ?: return@LaunchedEffect
-                val next = reorderFor(order, item, h, pages)
-                if (next != order) drag.order = next
+                // The item goes exactly to the cell under the finger; whatever stands there makes room.
+                val moved = moveAnchored(pages, { it.id }, item, com.tms.os.launcher.domain.GridAnchor(h.page, h.col, h.row), columns, { rows }) { it.span() }
+                    ?: return@LaunchedEffect
+                if (order.none { it.id == item.id }) drag.order = order + item
+                if (moved != drag.anchors) drag.anchors = moved
             }
         }
         // Minimalist page: the others make room after a short dwell.
@@ -833,7 +846,8 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                 val target = (pagerState.currentPage + drag.edge).coerceIn(1, homePageCount)
                 if (target == pagerState.currentPage) break
                 pagerState.animateScrollToPage(target, animationSpec = spring(dampingRatio = 1f, stiffness = 260f))
-                drag.hover = Hover((target - 1) * perScreen, 0, 0, null, false)
+                // The next finger move picks the cell on the new page.
+                drag.hover = null
                 delay(300)
             }
         }

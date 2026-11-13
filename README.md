@@ -8,6 +8,11 @@ Ein maßgeschneiderter, werbefreier und kostenloser **iOS-Style Homescreen-Launc
 
 ---
 
+## Neu in v5.8.1 – frei positionierbar, Einstellungen wiederhergestellt
+- **Apps und Widgets frei platzieren** wie bei iOS 18: dort ablegen, wo du willst – oben, unten, in der Mitte, Lücken bleiben. Liegt dort schon ein Icon, rückt es eine Zelle weiter. Gilt für den normalen und den minimalistischen Home-Bildschirm; Deckel- und Innendisplay merken sich ihre Anordnung getrennt.
+- **Wiederhergestellt**: Die in v5.8.0 verlorene App-Auswahl des iOS-Minimal-Bildschirms wird einmalig zurückgeholt.
+- **Solvado-Widgets**: Orange statt Lila als Akzent; Shop-Logos werden neu geladen, wenn sich das Logo ändert.
+
 ## Neu in v5.8.0 – Solvado-Widgets im Solvado-Stil, „Widget bearbeiten“ für mehr Widgets, freie iOS-Minimal-Layouts
 - **Solvado-Widgets neu gestaltet**: Farben des Solvado-Dashboards, das echte Solvado-Zeichen, das Logo des jeweiligen Shops. Klein zeigt bis zu 3 Werte, Mittel 6, Groß 10 – ausgewählte Werte erscheinen jetzt auch wirklich.
 - **Aktualisieren-Pfeil im Widget**; automatische Aktualisierung nur beim Blick auf den Home-Bildschirm (höchstens alle 15 Minuten) und abschaltbar. Im Hintergrund wird nie abgefragt.

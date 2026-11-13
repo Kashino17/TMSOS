@@ -237,12 +237,14 @@ class HomeDragState {
     /** Preview dock order while dragging (null = unchanged). */
     var dockOrder by mutableStateOf<List<String>?>(null)
     var overDock by mutableStateOf(false)
+    /** Free placement preview while dragging: every item's cell (null = unchanged). */
+    var anchors by mutableStateOf<Map<String, com.tms.os.launcher.domain.GridAnchor>?>(null)
 
     val active get() = item != null
 
     fun clear() {
         item = null; order = null; folderTarget = null; hover = null; edge = 0; dropping = false; dropScale = 1f
-        external = false; dockOrder = null; overDock = false
+        external = false; dockOrder = null; overDock = false; anchors = null
     }
 }
 
