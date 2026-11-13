@@ -83,10 +83,6 @@ import com.tms.os.launcher.model.AppInfo
 import com.tms.os.launcher.model.AppLanguage
 import com.tms.os.launcher.model.LauncherSettings
 import com.tms.os.launcher.model.MinimalTemplate
-import com.tms.os.launcher.model.WidgetKind
-import com.tms.os.launcher.model.WidgetSize
-import com.tms.os.launcher.ui.widgets.IosWidget
-import androidx.compose.foundation.layout.BoxWithConstraints
 import com.tms.os.launcher.ui.components.IosAppIcon
 import com.tms.os.launcher.ui.theme.HomeStrings
 import com.tms.os.launcher.ui.theme.IosText
@@ -124,8 +120,8 @@ class MinimalEdit(
  *  - [MinimalTemplate.LIST]: the apps as a plain list of names;
  *  - [MinimalTemplate.ICONS]: icons without labels at the bottom;
  *  - [MinimalTemplate.FOCUS]: only the clock (the apps sit in the dock);
- * and three in iOS style (widgets, labelled icons on the grid, dock).
- * Editing works as on the regular home screen: touch and hold, then drag an
+ * (The three iOS-style templates are not drawn here: they are a real,
+ * freely editable home-screen layout.) Editing works as on the regular home screen: touch and hold, then drag an
  * app to a new place; the others make room.
  */
 @OptIn(ExperimentalFoundationApi::class)
@@ -140,12 +136,7 @@ fun MinimalHomePage(
     onAppLongClick: (AppInfo, Rect) -> Unit,
     onClock: () -> Unit,
     onSetup: () -> Unit,
-    /** Home-screen grid of the regular layout, for the iOS-style templates. */
-    columns: Int = 4,
-    sidePadding: Dp = 16.dp,
     labelFontSizeSp: Float = 12f,
-    showLabels: Boolean = true,
-    onWidgetTap: (WidgetKind) -> Unit = {},
     edit: MinimalEdit = MinimalEdit()
 ) {
     // Where each app on this page is, for picking it up.
@@ -210,8 +201,8 @@ fun MinimalHomePage(
                 }
             }
 
-            MinimalTemplate.IOS_WIDGETS, MinimalTemplate.IOS_LARGE, MinimalTemplate.IOS_BOTTOM ->
-                IosStylePage(template, apps, env, iconSize, columns, sidePadding, labelFontSizeSp, showLabels, edit, report, onAppClick, onAppLongClick, onWidgetTap, onSetup)
+            // The iOS-style templates are a real home-screen layout (grid, widgets, dock), not this page.
+            else -> Unit
         }
     }
 }
@@ -250,96 +241,6 @@ private fun AppCell(
             onLongClickWithBounds = { b -> if (!edit.jiggle) onAppLongClick(app, b) },
             onDeleteOrMenuClick = { edit.onRemove(app) }
         )
-    }
-}
-
-/**
- * The iOS-style templates: the regular iPhone home screen, reduced. Same grid
- * cells, same widget plates, same labelled icons as the full layout — only far
- * fewer of them. (The dock with the first apps is drawn by the home screen.)
- */
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun IosStylePage(
-    template: MinimalTemplate,
-    apps: List<AppInfo>,
-    env: WidgetEnv,
-    iconSize: Dp,
-    columns: Int,
-    sidePadding: Dp,
-    labelFontSizeSp: Float,
-    showLabels: Boolean,
-    edit: MinimalEdit,
-    report: (String, Rect) -> Unit,
-    onAppClick: (AppInfo, Rect) -> Unit,
-    onAppLongClick: (AppInfo, Rect) -> Unit,
-    onWidgetTap: (WidgetKind) -> Unit,
-    onSetup: () -> Unit
-) {
-    BoxWithConstraints(Modifier.fillMaxSize().padding(start = sidePadding, end = sidePadding, top = 9.dp, bottom = 4.dp)) {
-        // Square cells, exactly as on the regular home screen.
-        val cell = maxWidth / columns
-        // Five rows must always fit (large widget plus one row of apps), also on wide, low screens.
-        val cellH = minOf(cell, maxHeight / 5)
-        // Widgets span four columns; on wider grids they sit in the middle.
-        val widgetInset = cell * ((columns - 4).coerceAtLeast(0) / 2f)
-
-        @Composable
-        fun Widget(kind: WidgetKind, size: WidgetSize, cols: Int, rows: Int) {
-            // A widget reaches from the first icon's left edge to the last icon's right edge.
-            Column(Modifier.width(cell * cols).height(cellH * rows), horizontalAlignment = Alignment.CenterHorizontally) {
-                IosWidget(
-                    kind, size, env,
-                    Modifier
-                        .size(cell * (cols - 1) + iconSize, cellH * (rows - 1) + iconSize)
-                        .combinedClickable(remember { MutableInteractionSource() }, null, onClick = { onWidgetTap(kind) }, onLongClick = onSetup)
-                )
-                if (showLabels) {
-                    Spacer(Modifier.height(5.dp))
-                    Text(
-                        env.strings.widgetName(kind),
-                        style = TextStyle(fontFamily = SfFamily, fontWeight = FontWeight.Medium, fontSize = labelFontSizeSp.sp, color = Color.White, shadow = MinimalShadow),
-                        maxLines = 1
-                    )
-                }
-            }
-        }
-
-        /** The apps on the home-screen grid; they glide to their new cell when the order changes. */
-        @Composable
-        fun AppGrid(list: List<AppInfo>, bottom: Boolean, modifier: Modifier) {
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(columns),
-                userScrollEnabled = false,
-                verticalArrangement = if (bottom) Arrangement.Bottom else Arrangement.Top,
-                modifier = modifier
-            ) {
-                items(list, key = { it.packageName }) { app ->
-                    Box(
-                        Modifier.height(cellH).animateItem(placementSpec = spring(dampingRatio = 0.8f, stiffness = 380f)),
-                        contentAlignment = Alignment.TopCenter
-                    ) { AppCell(app, iconSize, labelFontSizeSp, showLabels, edit, report, onAppClick, onAppLongClick) }
-                }
-            }
-        }
-
-        Column(Modifier.fillMaxSize()) {
-            when (template) {
-                MinimalTemplate.IOS_WIDGETS -> {
-                    Row(Modifier.padding(start = widgetInset)) {
-                        Widget(WidgetKind.CALENDAR, WidgetSize.SMALL, 2, 2)
-                        Widget(WidgetKind.WEATHER, WidgetSize.SMALL, 2, 2)
-                    }
-                    AppGrid(apps.take(columns * 2), bottom = false, Modifier.weight(1f).fillMaxWidth())
-                }
-                MinimalTemplate.IOS_LARGE -> {
-                    Box(Modifier.padding(start = widgetInset)) { Widget(WidgetKind.WEATHER, WidgetSize.LARGE, 4, 4) }
-                    AppGrid(apps.take(columns), bottom = false, Modifier.weight(1f).fillMaxWidth())
-                }
-                // iOS 18 style: the wallpaper stays free, the apps sit within thumb reach.
-                else -> AppGrid(apps.take(columns * 2), bottom = true, Modifier.weight(1f).fillMaxWidth())
-            }
-        }
     }
 }
 
@@ -448,7 +349,10 @@ fun MinimalSetupSheet(
     allApps: List<AppInfo>,
     strings: HomeStrings,
     onSettingsChange: ((LauncherSettings) -> LauncherSettings) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    /** The apps on the iOS-style minimalist layout while it is shown; null = the plain templates' own list. */
+    layoutApps: List<String>? = null,
+    onToggleLayoutApp: (String) -> Unit = {}
 ) {
     Box(Modifier.fillMaxSize()) {
         AnimatedVisibility(visible, enter = fadeIn(tween(180)), exit = fadeOut(tween(140)), modifier = Modifier.fillMaxSize()) {
@@ -462,7 +366,9 @@ fun MinimalSetupSheet(
         ) {
             BackHandler(onBack = onDismiss)
             var query by remember { mutableStateOf("") }
-            val selected = settings.minimalApps
+            // iOS-style templates: the list shows (and changes) what is on that home screen, without a limit.
+            val live = layoutApps != null
+            val selected = layoutApps ?: settings.minimalApps
             val candidates = remember(allApps) { allApps.filter { !it.isHidden }.sortedBy { it.displayLabel.lowercase(Locale.getDefault()) } }
             val rows = remember(candidates, selected, query) {
                 val q = query.trim()
@@ -540,7 +446,8 @@ fun MinimalSetupSheet(
                             }
                         }
                         Spacer(Modifier.height(24.dp))
-                        SheetHeader(strings.yourApps, String.format(Locale.ROOT, strings.selectedOf, selected.size, MaxMinimalApps))
+                        if (settings.minimalTemplate.ios) Text(strings.minimalIosHint, style = IosText.footnote.copy(color = Secondary), modifier = Modifier.padding(start = 4.dp, end = 4.dp, bottom = 16.dp))
+                        SheetHeader(strings.yourApps, if (live || settings.minimalTemplate.ios) selected.size.toString() else String.format(Locale.ROOT, strings.selectedOf, selected.size, MaxMinimalApps))
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.fillMaxWidth().height(38.dp).clip(RoundedCornerShape(11.dp)).background(Color(0x3D767680)).padding(horizontal = 9.dp)
@@ -565,10 +472,12 @@ fun MinimalSetupSheet(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable(remember { MutableInteractionSource() }, null) {
-                                    onSettingsChange { s ->
+                                    if (live) onToggleLayoutApp(app.packageName)
+                                    else onSettingsChange { s ->
                                         when {
                                             app.packageName in s.minimalApps -> s.copy(minimalApps = s.minimalApps - app.packageName)
-                                            s.minimalApps.size >= MaxMinimalApps -> s
+                                            // Only the plain templates have a fixed number of places.
+                                            !s.minimalTemplate.ios && s.minimalApps.size >= MaxMinimalApps -> s
                                             else -> s.copy(minimalApps = s.minimalApps + app.packageName)
                                         }
                                     }

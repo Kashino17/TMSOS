@@ -70,7 +70,13 @@ data class SolvadoWidgetConfig(
     }
 }
 
-data class SolvadoShop(val id: String, val name: String, val currency: String)
+data class SolvadoShop(
+    val id: String,
+    val name: String,
+    val currency: String,
+    /** The shop's logo tile, once downloaded. */
+    val icon: androidx.compose.ui.graphics.ImageBitmap? = null
+)
 
 /** Figures of one shop for one period; a value that could not be measured is null. */
 data class SolvadoShopStats(

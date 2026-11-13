@@ -23,7 +23,9 @@ data class LiveWeatherData(
     val lowCelsius: Int,
     val weatherCode: Int,
     val conditionDe: String,
-    val forecast: WeatherForecast? = null
+    val forecast: WeatherForecast? = null,
+    val latitude: Double = Double.NaN,
+    val longitude: Double = Double.NaN
 )
 
 object WeatherService {
@@ -33,7 +35,7 @@ object WeatherService {
             val cleanCity = cityQuery.trim().ifEmpty { "Berlin" }
             val encoded = URLEncoder.encode(cleanCity, "UTF-8")
 
-            // 1. Geocode city name via Open-Meteo Geocoding API
+            // Geocode the city name via the Open-Meteo Geocoding API
             val geoUrl = "https://geocoding-api.open-meteo.com/v1/search?name=$encoded&count=1&language=de&format=json"
             val geoJsonStr = httpGet(geoUrl) ?: return@withContext null
             val geoRoot = JSONObject(geoJsonStr)
@@ -41,10 +43,15 @@ object WeatherService {
             if (results.length() == 0) return@withContext null
 
             val firstPlace = results.getJSONObject(0)
-            val lat = firstPlace.getDouble("latitude")
-            val lon = firstPlace.getDouble("longitude")
-            val resolvedName = firstPlace.optString("name", cleanCity)
+            fetchLiveWeatherAt(firstPlace.getDouble("latitude"), firstPlace.getDouble("longitude"), firstPlace.optString("name", cleanCity))
+        } catch (_: Exception) {
+            null
+        }
+    }
 
+    /** Weather for a known position: the place found for a city, or the phone's own location. */
+    suspend fun fetchLiveWeatherAt(lat: Double, lon: Double, resolvedName: String): LiveWeatherData? = withContext(Dispatchers.IO) {
+        try {
             // 2. Fetch current weather & daily high/low from Open-Meteo Forecast API
             val weatherUrl =
                 "https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lon" +
@@ -83,6 +90,8 @@ object WeatherService {
             }.getOrNull()
 
             LiveWeatherData(
+                latitude = lat,
+                longitude = lon,
                 forecast = forecast,
                 resolvedCity = resolvedName,
                 tempCelsius = temp,

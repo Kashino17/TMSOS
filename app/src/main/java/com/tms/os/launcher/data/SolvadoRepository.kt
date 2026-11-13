@@ -1,6 +1,7 @@
 package com.tms.os.launcher.data
 
 import android.content.Context
+import androidx.compose.ui.graphics.asImageBitmap
 import com.tms.os.launcher.model.SolvadoMetric
 import com.tms.os.launcher.model.SolvadoShop
 import com.tms.os.launcher.model.SolvadoShopStats
@@ -22,6 +23,8 @@ import java.net.URL
 class SolvadoRepository(context: Context) {
 
     private val prefs = context.getSharedPreferences("tms_os_solvado", Context.MODE_PRIVATE)
+    private val iconDir = java.io.File(context.filesDir, "solvado_icons").apply { mkdirs() }
+    private val iconMemory = java.util.concurrent.ConcurrentHashMap<String, androidx.compose.ui.graphics.ImageBitmap>()
 
     class ApiError(val status: Int, message: String) : Exception(message)
 
@@ -41,6 +44,41 @@ class SolvadoRepository(context: Context) {
     fun logout() {
         val keep = baseUrl
         prefs.edit().clear().putString("base_url", keep).apply()
+        iconMemory.clear()
+        iconDir.listFiles()?.forEach { it.delete() }
+    }
+
+    /* --------------------------------------------------------------- logos */
+
+    private fun iconFile(shopId: String) = java.io.File(iconDir, "${shopId.replace(Regex("[^A-Za-z0-9_-]"), "_")}.png")
+
+    private fun icon(shopId: String): androidx.compose.ui.graphics.ImageBitmap? = iconMemory[shopId] ?: runCatching {
+        val f = iconFile(shopId)
+        if (!f.exists()) null else android.graphics.BitmapFactory.decodeFile(f.path)?.asImageBitmap()?.also { iconMemory[shopId] = it }
+    }.getOrNull()
+
+    /**
+     * Downloads the logo tiles that are not on the phone yet. They are small
+     * prepared squares (192 px) and do not change often, so each is fetched once.
+     */
+    fun loadMissingIcons(shopIds: List<String>) {
+        val missing = shopIds.distinct().filter { !iconFile(it).exists() }
+        missing.chunked(40).forEach { chunk ->
+            val icons = call("GET", "/api/widgets/shop-icons?ids=${chunk.joinToString(",")}").optJSONObject("icons") ?: return@forEach
+            chunk.forEach { id ->
+                val url = icons.optString(id).takeIf { it.startsWith("https://") } ?: return@forEach
+                runCatching {
+                    val connection = (URL(url).openConnection() as HttpURLConnection).apply { connectTimeout = 8_000; readTimeout = 15_000 }
+                    try {
+                        if (connection.responseCode == 200) {
+                            val tmp = java.io.File(iconDir, "$id.tmp")
+                            connection.inputStream.use { input -> tmp.outputStream().use { input.copyTo(it) } }
+                            tmp.renameTo(iconFile(id))
+                        }
+                    } finally { connection.disconnect() }
+                }
+            }
+        }
     }
 
     private fun storeSession(json: JSONObject) {
@@ -98,7 +136,8 @@ class SolvadoRepository(context: Context) {
         val shops = me?.optJSONArray("shops")?.let { arr ->
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
-                SolvadoShop(o.optString("bundle_id"), o.optString("name"), o.optString("currency", "EUR"))
+                val id = o.optString("bundle_id")
+                SolvadoShop(id, o.optString("name"), o.optString("currency", "EUR"), icon(id))
             }
         }.orEmpty()
         val admin = prefs.getString("cache_admin", null)?.let { runCatching { parseAdmin(JSONObject(it)) }.getOrNull() }

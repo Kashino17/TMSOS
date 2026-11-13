@@ -104,7 +104,11 @@ data class WidgetEnv(
     val screenMinutes: Int? = null,
     val screenTop: List<Pair<AppInfo, Int>> = emptyList(),
     /** TMS Solvado account and the last figures read from it. */
-    val solvado: com.tms.os.launcher.model.SolvadoState = com.tms.os.launcher.model.SolvadoState()
+    val solvado: com.tms.os.launcher.model.SolvadoState = com.tms.os.launcher.model.SolvadoState(),
+    /** The refresh arrow on a Solvado widget. */
+    val onSolvadoRefresh: () -> Unit = {},
+    /** Home-screen edit mode: a spacer shows its outline then. */
+    val editing: Boolean = false
 ) {
     val locale: Locale get() = Locale.forLanguageTag(language.code)
     fun t(c: Int) = if (fahrenheit) c * 9 / 5 + 32 else c
@@ -151,13 +155,13 @@ fun IosWidget(kind: WidgetKind, size: WidgetSize, env: WidgetEnv, modifier: Modi
                     .clip(RoundedCornerShape(WidgetCorner))
                     .then(
                         // The minimal widget is bare text on the wallpaper: no plate, no outline.
-                        if (kind == WidgetKind.MINIMAL) Modifier
+                        if (kind == WidgetKind.MINIMAL || kind == WidgetKind.SPACER) Modifier
                         else Modifier.border(0.6.dp, if (env.dark) Color.White.copy(alpha = 0.14f) else Color.Black.copy(alpha = 0.06f), RoundedCornerShape(WidgetCorner))
                     )
             ) {
                 when (kind) {
                     WidgetKind.WEATHER -> WeatherWidget(size, env)
-                    WidgetKind.CALENDAR -> CalendarWidget(size, env)
+                    WidgetKind.CALENDAR -> CalendarWidget(size, env, monthView = config == "view=month")
                     WidgetKind.CLOCK -> ClockWidget(size, env)
                     WidgetKind.BATTERY -> BatteryWidget(size, env)
                     WidgetKind.SUGGESTIONS -> SuggestionsWidget(size, env)
@@ -168,6 +172,7 @@ fun IosWidget(kind: WidgetKind, size: WidgetSize, env: WidgetEnv, modifier: Modi
                     WidgetKind.SCREENTIME -> ScreenTimeWidget(size, env)
                     WidgetKind.MINIMAL -> MinimalWidget(size, env)
                     WidgetKind.SOLVADO_SHOP, WidgetKind.SOLVADO_ADMIN -> SolvadoWidget(kind, size, env, config)
+                    WidgetKind.SPACER -> SpacerWidget(env)
                 }
             }
         }
@@ -402,7 +407,7 @@ fun WeatherGlyph(code: Int, night: Boolean, modifier: Modifier = Modifier) {
 /* -------------------------------------------------------------------------- */
 
 @Composable
-private fun CalendarWidget(size: WidgetSize, env: WidgetEnv) {
+private fun CalendarWidget(size: WidgetSize, env: WidgetEnv, monthView: Boolean = false) {
     val now = rememberNow(60_000)
     val cal = Calendar.getInstance().apply { timeInMillis = now }
     val weekday = SimpleDateFormat("EEEE", env.locale).format(Date(now)).uppercase(env.locale)
@@ -415,7 +420,8 @@ private fun CalendarWidget(size: WidgetSize, env: WidgetEnv) {
     val noteStyle = ts(14.sp, FontWeight.Normal, fg(dark).copy(alpha = 0.92f)).copy(lineHeight = 18.sp)
     Box(Modifier.fillMaxSize().background(bg(dark)).padding(WidgetPadding)) {
         when (size) {
-            WidgetSize.SMALL -> Column(Modifier.fillMaxSize()) {
+            // "Month" setting: the small widget is the month calendar, as on iOS.
+            WidgetSize.SMALL -> if (monthView) MonthGrid(now, env, Modifier.fillMaxSize(), compact = true) else Column(Modifier.fillMaxSize()) {
                 Text(weekday, style = weekdayStyle, maxLines = 1)
                 Text(day, style = dayStyle)
                 Spacer(Modifier.weight(1f))

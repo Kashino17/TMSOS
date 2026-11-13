@@ -244,8 +244,8 @@ enum class WidgetSize(val id: String, val cols: Int, val rows: Int) {
 }
 
 enum class WidgetKind(val id: String, val sizes: List<WidgetSize>, val configurable: Boolean = false) {
-    WEATHER("weather", listOf(WidgetSize.SMALL, WidgetSize.MEDIUM, WidgetSize.LARGE)),
-    CALENDAR("calendar", listOf(WidgetSize.SMALL, WidgetSize.MEDIUM, WidgetSize.LARGE)),
+    WEATHER("weather", listOf(WidgetSize.SMALL, WidgetSize.MEDIUM, WidgetSize.LARGE), configurable = true),
+    CALENDAR("calendar", listOf(WidgetSize.SMALL, WidgetSize.MEDIUM, WidgetSize.LARGE), configurable = true),
     CLOCK("clock", listOf(WidgetSize.SMALL, WidgetSize.MEDIUM)),
     BATTERY("battery", listOf(WidgetSize.SMALL, WidgetSize.MEDIUM)),
     SUGGESTIONS("suggestions", listOf(WidgetSize.MEDIUM, WidgetSize.LARGE)),
@@ -259,7 +259,9 @@ enum class WidgetKind(val id: String, val sizes: List<WidgetSize>, val configura
     /** TMS Solvado: figures of one shop. What it shows is set per widget. */
     SOLVADO_SHOP("solvado_shop", listOf(WidgetSize.SMALL, WidgetSize.MEDIUM, WidgetSize.LARGE), configurable = true),
     /** TMS Solvado: platform figures, for admin accounts only. */
-    SOLVADO_ADMIN("solvado_admin", listOf(WidgetSize.SMALL, WidgetSize.MEDIUM, WidgetSize.LARGE), configurable = true);
+    SOLVADO_ADMIN("solvado_admin", listOf(WidgetSize.SMALL, WidgetSize.MEDIUM, WidgetSize.LARGE), configurable = true),
+    /** Invisible: keeps cells free, so apps can sit lower on the page (free wallpaper on top). */
+    SPACER("spacer", listOf(WidgetSize.SMALL, WidgetSize.MEDIUM, WidgetSize.LARGE));
 
     companion object {
         fun fromId(id: String): WidgetKind? = entries.find { it.id == id }
@@ -365,7 +367,12 @@ data class LauncherSettings(
     /** Minimalist home screen: one calm page built from [minimalApps] instead of the icon grid. */
     val minimalMode: Boolean = false,
     val minimalTemplate: MinimalTemplate = MinimalTemplate.LIST,
-    val minimalApps: List<String> = emptyList()
+    val minimalApps: List<String> = emptyList(),
+    /** Solvado widgets fetch fresh figures when the home screen is looked at (at most every 15 min); off = only on the refresh button. */
+    val solvadoAutoRefresh: Boolean = true,
+    /** Position the weather is for (set by a city search or by the phone's location); NaN = look the city name up. */
+    val weatherLat: Float = Float.NaN,
+    val weatherLon: Float = Float.NaN
 )
 
 

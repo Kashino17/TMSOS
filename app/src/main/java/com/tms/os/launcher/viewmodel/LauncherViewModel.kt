@@ -65,7 +65,10 @@ data class LauncherUiState(
     val screenTime: com.tms.os.launcher.model.ScreenTime = com.tms.os.launcher.model.ScreenTime(),
     val solvado: com.tms.os.launcher.model.SolvadoState = com.tms.os.launcher.model.SolvadoState(),
     val storageRamInfo: SystemStorageRamInfo = SystemStorageRamInfo(6.4f, 12.0f, 128, 512),
-    val isWeatherRefreshing: Boolean = false
+    val isWeatherRefreshing: Boolean = false,
+    /** The phone's position is being looked up for the weather (only ever on the user's tap). */
+    val weatherLocating: Boolean = false,
+    val weatherLocateError: Boolean = false
 ) {
     val isAnyOverlayOpen: Boolean
         get() = isSpotlightOpen || activeFolder != null || activeCategoryModal != null || selectedAppForMenu != null
@@ -116,6 +119,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             }
         }
 
+        repository.layoutProfile = profileOf(_uiState.value.settings)
         refreshApps()
         refreshLiveWeatherIfNeeded()
         // Solvado widgets show the last known figures at once, fresh ones follow.
@@ -171,18 +175,24 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         val elapsed = System.currentTimeMillis() - s.weatherLastUpdated
         val hasForecast = _uiState.value.weatherForecast != null
         if (!force && hasForecast && elapsed < 20 * 60 * 1000L && s.weatherLastUpdated > 0L) return
-        refreshLiveWeatherForCity(s.weatherCity)
+        // A stored position is used as it is; only a bare city name is looked up again.
+        if (!s.weatherLat.isNaN() && !s.weatherLon.isNaN()) loadWeather { WeatherService.fetchLiveWeatherAt(s.weatherLat.toDouble(), s.weatherLon.toDouble(), s.weatherCity) }
+        else refreshLiveWeatherForCity(s.weatherCity)
     }
 
-    fun refreshLiveWeatherForCity(cityQuery: String) {
+    fun refreshLiveWeatherForCity(cityQuery: String) = loadWeather { WeatherService.fetchLiveWeatherForCity(cityQuery) }
+
+    private fun loadWeather(fetch: suspend () -> com.tms.os.launcher.domain.LiveWeatherData?) {
         viewModelScope.launch {
             _uiState.update { it.copy(isWeatherRefreshing = true) }
-            val data = WeatherService.fetchLiveWeatherForCity(cityQuery)
+            val data = fetch()
             if (data != null) {
                 _uiState.update { it.copy(weatherForecast = data.forecast ?: it.weatherForecast) }
                 updateSettings { current ->
                     current.copy(
                         weatherCity = data.resolvedCity,
+                        weatherLat = data.latitude.toFloat(),
+                        weatherLon = data.longitude.toFloat(),
                         weatherTempCelsius = data.tempCelsius,
                         weatherHighCelsius = data.highCelsius,
                         weatherLowCelsius = data.lowCelsius,
@@ -193,6 +203,26 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 }
             }
             _uiState.update { it.copy(isWeatherRefreshing = false) }
+        }
+    }
+
+    /**
+     * Weather for where the phone is: the position is read once, now, because the
+     * user asked for it. The caller has made sure the location permission is granted.
+     */
+    fun useCurrentLocationForWeather() {
+        if (_uiState.value.weatherLocating) return
+        _uiState.update { it.copy(weatherLocating = true, weatherLocateError = false) }
+        viewModelScope.launch {
+            val place = runCatching { com.tms.os.launcher.data.LocationOnce.find(getApplication()) }.getOrNull()
+            if (place == null) {
+                _uiState.update { it.copy(weatherLocating = false, weatherLocateError = true) }
+                return@launch
+            }
+            val fallback = if (_uiState.value.settings.appLanguage == com.tms.os.launcher.model.AppLanguage.EN) "My Location" else "Mein Standort"
+            val data = WeatherService.fetchLiveWeatherAt(place.latitude, place.longitude, place.name ?: fallback)
+            _uiState.update { it.copy(weatherLocating = false, weatherLocateError = data == null) }
+            if (data != null) loadWeather { data }
         }
     }
 
@@ -378,11 +408,91 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         updateSettings { it.copy(quickNoteText = text) }
     }
 
+    /* ------------------------------------------- minimalist layout (iOS style) */
+
+    /** The iOS-style minimalist home screen is a second, freely editable layout of its own. */
+    private fun profileOf(settings: LauncherSettings) = if (settings.minimalMode && settings.minimalTemplate.ios) "min" else ""
+
+    /** Every app the current layout holds: dock first, then the grid in order (folders opened up). */
+    private fun layoutApps(): List<String> = (_uiState.value.dockPackages + _uiState.value.homeGridItems.flatMap {
+        when (it) {
+            is HomeGridItem.AppItem -> listOf(it.packageName)
+            is HomeGridItem.FolderItem -> it.appPackages
+            else -> emptyList()
+        }
+    }).distinct()
+
+    /**
+     * Lays the minimalist home screen out from a template: its widgets on top,
+     * the first apps in the dock, the others on the grid. From then on it is
+     * edited like any home screen (drag, add widgets, add apps).
+     */
+    private fun buildMinimalLayout(template: com.tms.os.launcher.model.MinimalTemplate, apps: List<String>) {
+        val dockSize = _uiState.value.settings.dockIconCount.coerceIn(3, 6)
+        fun widget(kind: com.tms.os.launcher.model.WidgetKind, size: com.tms.os.launcher.model.WidgetSize) =
+            HomeGridItem.WidgetItem("w_${UUID.randomUUID()}", kind, size)
+        val widgets = when (template) {
+            com.tms.os.launcher.model.MinimalTemplate.IOS_WIDGETS -> listOf(
+                widget(com.tms.os.launcher.model.WidgetKind.CALENDAR, com.tms.os.launcher.model.WidgetSize.SMALL),
+                widget(com.tms.os.launcher.model.WidgetKind.WEATHER, com.tms.os.launcher.model.WidgetSize.SMALL)
+            )
+            com.tms.os.launcher.model.MinimalTemplate.IOS_LARGE -> listOf(widget(com.tms.os.launcher.model.WidgetKind.WEATHER, com.tms.os.launcher.model.WidgetSize.LARGE))
+            // Free wallpaper on top: an invisible spacer keeps the upper rows empty.
+            com.tms.os.launcher.model.MinimalTemplate.IOS_BOTTOM -> listOf(widget(com.tms.os.launcher.model.WidgetKind.SPACER, com.tms.os.launcher.model.WidgetSize.LARGE))
+            else -> emptyList()
+        }
+        repository.saveDockPackages(apps.take(dockSize))
+        repository.saveHomeGridItems(widgets + apps.drop(dockSize).map { HomeGridItem.AppItem(it) })
+    }
+
+    /** Called when a setting changed that decides which layout is shown. */
+    private fun switchLayoutIfNeeded(old: LauncherSettings, new: LauncherSettings) {
+        val target = profileOf(new)
+        val templateChanged = target == "min" && profileOf(old) == "min" && old.minimalTemplate != new.minimalTemplate
+        if (target == repository.layoutProfile && !templateChanged) return
+        // What the minimalist layout starts from: its own apps when switching between its
+        // templates, otherwise the apps chosen for the plain templates, otherwise the most used.
+        val carried = if (templateChanged) layoutApps() else emptyList()
+        repository.layoutProfile = target
+        if (target == "min" && (templateChanged || !repository.hasStoredLayout())) {
+            val apps = carried.ifEmpty { new.minimalApps }.ifEmpty {
+                _uiState.value.allApps.filter { !it.isHidden && !it.packageName.contains("launcher") }
+                    .sortedWith(compareByDescending<AppInfo> { it.effectivePriorityScore }.thenByDescending { it.lastLaunchedTime })
+                    .take(8).map { it.packageName }
+            }
+            buildMinimalLayout(new.minimalTemplate, apps)
+        }
+        reloadLayout()
+    }
+
+    private fun reloadLayout() {
+        val apps = _uiState.value.allApps
+        val dock = repository.loadDockPackages(apps, _uiState.value.settings.dockIconCount)
+        val grid = repository.loadHomeGridItems(apps, dock)
+        _uiState.update { it.copy(dockPackages = dock, homeGridItems = grid, activeFolder = null, isJiggleMode = false) }
+    }
+
+    /** App picker of the iOS-style minimalist home screen: puts an app on it or takes it off. No limit. */
+    fun toggleAppOnMinimalLayout(packageName: String) {
+        val state = _uiState.value
+        if (packageName in layoutApps()) {
+            if (packageName in state.dockPackages) setDockOrder(state.dockPackages - packageName)
+            commitHomeOrder(state.homeGridItems.mapNotNull {
+                when (it) {
+                    is HomeGridItem.AppItem -> if (it.packageName == packageName) null else it
+                    is HomeGridItem.FolderItem -> (it.appPackages - packageName).let { rest -> if (rest.isEmpty()) null else it.copy(appPackages = rest) }
+                    else -> it
+                }
+            })
+        } else commitHomeOrder(state.homeGridItems + HomeGridItem.AppItem(packageName))
+    }
+
     fun updateSettings(transform: (LauncherSettings) -> LauncherSettings) {
         val old = _uiState.value.settings
         val newSettings = transform(old)
         repository.saveSettings(newSettings)
         _uiState.update { it.copy(settings = newSettings) }
+        switchLayoutIfNeeded(old, newSettings)
 
         if (old.useIosSystemIcons != newSettings.useIosSystemIcons ||
             old.fullBleedAdaptiveIcons != newSettings.fullBleedAdaptiveIcons ||
@@ -451,10 +561,6 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             }
             result.onSuccess { account ->
                 _uiState.update { it.copy(solvado = account) }
-                // Admins get the platform widget without having to look for it: once, in the Today view.
-                if (account.isAdmin && repository.takeFirstSolvadoAdminLogin() && solvadoWidgets().none { it.kind == com.tms.os.launcher.model.WidgetKind.SOLVADO_ADMIN }) {
-                    addWidget(com.tms.os.launcher.model.WidgetKind.SOLVADO_ADMIN, com.tms.os.launcher.model.WidgetSize.MEDIUM, toToday = true, index = 0)
-                }
                 // A shop widget placed before signing in gets the first shop.
                 account.shops.firstOrNull()?.let { first ->
                     solvadoWidgets().filter { it.kind == com.tms.os.launcher.model.WidgetKind.SOLVADO_SHOP }.forEach { w ->
@@ -475,11 +581,17 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         _uiState.update { it.copy(solvado = com.tms.os.launcher.model.SolvadoState()) }
     }
 
-    /** Fetches the figures the placed widgets need. Throttled: a widget is glanced at, not polled. */
+    /**
+     * Fetches the figures the placed widgets need.
+     *  - [force] = the refresh button on a widget (or a changed setting): now.
+     *  - otherwise (the home screen came to the front): only if automatic refresh is
+     *    on, and at most every 15 minutes. Nothing ever polls in the background.
+     */
     fun refreshSolvado(force: Boolean = false) {
         if (!solvadoRepo.connected) return
         val now = android.os.SystemClock.elapsedRealtime()
-        if (!force && (solvadoJob?.isActive == true || now - solvadoLoadedAt < 3 * 60_000L)) return
+        if (!force && !_uiState.value.settings.solvadoAutoRefresh) return
+        if (!force && (solvadoJob?.isActive == true || (solvadoLoadedAt != 0L && now - solvadoLoadedAt < 15 * 60_000L))) return
         val widgets = solvadoWidgets()
         if (widgets.isEmpty() && !force) return
         solvadoLoadedAt = now
@@ -489,6 +601,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 runCatching {
                     val account = solvadoRepo.loadAccount()
+                    runCatching { solvadoRepo.loadMissingIcons(account.shops.map { it.id }) }
                     if (account.isAdmin && widgets.any { it.kind == com.tms.os.launcher.model.WidgetKind.SOLVADO_ADMIN }) solvadoRepo.loadAdmin()
                     widgets.filter { it.kind == com.tms.os.launcher.model.WidgetKind.SOLVADO_SHOP }
                         .map { com.tms.os.launcher.model.SolvadoWidgetConfig.decode(it.config, admin = false) }
@@ -514,6 +627,18 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         else -> "Solvado ist gerade nicht erreichbar."
     }
 
+    /** Changes the size of a placed widget (from its "Edit Widget" sheet). */
+    fun setWidgetSize(widgetId: String, size: com.tms.os.launcher.model.WidgetSize) {
+        val today = _uiState.value.todayWidgets
+        if (today.any { it.widgetId == widgetId }) {
+            commitTodayOrder(today.map { if (it.widgetId == widgetId && size in it.kind.sizes) it.copy(size = size) else it })
+        } else {
+            commitHomeOrder(_uiState.value.homeGridItems.map {
+                if (it is HomeGridItem.WidgetItem && it.widgetId == widgetId && size in it.kind.sizes) it.copy(size = size) else it
+            })
+        }
+    }
+
     /** Saves what a configurable widget shows (home screen or Today view). */
     fun setWidgetConfig(widgetId: String, config: String, refresh: Boolean = true) {
         val today = _uiState.value.todayWidgets
@@ -524,7 +649,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 if (it is HomeGridItem.WidgetItem && it.widgetId == widgetId) it.copy(config = config) else it
             })
         }
-        if (refresh) refreshSolvado(force = true)
+        val solvado = solvadoWidgets().any { it.widgetId == widgetId }
+        if (refresh && solvado) refreshSolvado(force = true)
     }
 
     /** Screen Time widget: re-read whenever the home screen comes back to the front. */

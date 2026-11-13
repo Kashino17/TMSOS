@@ -111,7 +111,10 @@ class LauncherRepository(private val context: Context) {
             appLanguage = AppLanguage.fromCode(prefs.getString("appLanguage", AppLanguage.DE.code) ?: "de"),
             minimalMode = prefs.getBoolean("minimalMode", false),
             minimalTemplate = com.tms.os.launcher.model.MinimalTemplate.fromId(prefs.getString("minimalTemplate", null)),
-            minimalApps = prefs.getString("minimalApps", "").orEmpty().split('|').filter { it.isNotBlank() }
+            minimalApps = prefs.getString("minimalApps", "").orEmpty().split('|').filter { it.isNotBlank() },
+            solvadoAutoRefresh = prefs.getBoolean("solvadoAutoRefresh", true),
+            weatherLat = prefs.getFloat("weatherLat", Float.NaN),
+            weatherLon = prefs.getFloat("weatherLon", Float.NaN)
         )
     }
 
@@ -160,6 +163,9 @@ class LauncherRepository(private val context: Context) {
             putBoolean("minimalMode", settings.minimalMode)
             putString("minimalTemplate", settings.minimalTemplate.id)
             putString("minimalApps", settings.minimalApps.joinToString("|"))
+            putBoolean("solvadoAutoRefresh", settings.solvadoAutoRefresh)
+            putFloat("weatherLat", settings.weatherLat)
+            putFloat("weatherLon", settings.weatherLon)
             apply()
         }
     }
@@ -419,13 +425,6 @@ class LauncherRepository(private val context: Context) {
         }
     }
 
-    /** True exactly once: the first time an admin account signs in to Solvado on this phone. */
-    fun takeFirstSolvadoAdminLogin(): Boolean {
-        if (prefs.getBoolean("solvado_admin_widget_added", false)) return false
-        prefs.edit().putBoolean("solvado_admin_widget_added", true).apply()
-        return true
-    }
-
     fun isUsageStatsPermissionGranted(): Boolean {
         return try {
             val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
@@ -665,8 +664,18 @@ class LauncherRepository(private val context: Context) {
         prefs.edit().putString("last_launched_times", obj.toString()).apply()
     }
 
+    /**
+     * Which home layout is in use: "" = the regular home screen, "min" = the
+     * iOS-style minimalist one. Each has its own dock and grid, so switching
+     * back and forth loses nothing.
+     */
+    var layoutProfile: String = ""
+    private fun profiled(key: String) = if (layoutProfile.isEmpty()) key else "${key}_$layoutProfile"
+
+    fun hasStoredLayout(): Boolean = prefs.contains(profiled("home_grid_items_v4_json"))
+
     fun loadDockPackages(allApps: List<AppInfo>, maxDockSize: Int = 4): List<String> {
-        val saved = prefs.getString("dock_packages_v4_json", null)
+        val saved = prefs.getString(profiled("dock_packages_v4_json"), null)
         if (saved != null) {
             try {
                 val arr = JSONArray(saved)
@@ -680,6 +689,8 @@ class LauncherRepository(private val context: Context) {
             } catch (_: Exception) {
             }
         }
+        // The minimalist layout holds only what was put there: no default dock.
+        if (layoutProfile.isNotEmpty()) return emptyList()
 
         // Exact Dock defaults matching Screenshot 3 & 4: Phone, Chrome/Browser, WhatsApp/Messages, Calculator!
         val defaults = mutableListOf<String>()
@@ -708,18 +719,23 @@ class LauncherRepository(private val context: Context) {
     fun saveDockPackages(packages: List<String>) {
         val arr = JSONArray()
         packages.forEach { arr.put(it) }
-        prefs.edit().putString("dock_packages_v4_json", arr.toString()).apply()
+        prefs.edit().putString(profiled("dock_packages_v4_json"), arr.toString()).apply()
     }
 
     fun setAppRemovedFromHome(packageName: String, removed: Boolean) {
+        // "Removed from the home screen" is a note for the regular layout, which otherwise
+        // shows every app. The minimalist layout simply does not list the app.
+        if (layoutProfile.isNotEmpty()) return
         val packages = prefs.getStringSet("removed_from_home", emptySet()).orEmpty().toMutableSet()
         if (removed) packages.add(packageName) else packages.remove(packageName)
         prefs.edit().putStringSet("removed_from_home", packages).apply()
     }
 
     fun loadHomeGridItems(allApps: List<AppInfo>, dockPackages: List<String>): List<HomeGridItem> {
-        val raw = prefs.getString("home_grid_items_v4_json", null)
-        val removed = prefs.getStringSet("removed_from_home", emptySet()).orEmpty()
+        val raw = prefs.getString(profiled("home_grid_items_v4_json"), null)
+        val everything = layoutProfile.isEmpty()
+        if (!everything && raw == null) return emptyList()
+        val removed = if (everything) prefs.getStringSet("removed_from_home", emptySet()).orEmpty() else emptySet()
         val validPackages = allApps.filter { !it.isHidden && it.packageName !in removed }.map { it.packageName }.toSet()
 
         if (raw != null) {
@@ -786,6 +802,8 @@ class LauncherRepository(private val context: Context) {
                     }
                 }
 
+                // The regular home screen shows every app; the minimalist one only what was chosen.
+                if (!everything) return items
                 for (app in allApps) {
                     if (app.packageName in validPackages && !placedPackages.contains(app.packageName)) {
                         items.add(
@@ -1021,7 +1039,7 @@ class LauncherRepository(private val context: Context) {
             }
             arr.put(obj)
         }
-        prefs.edit().putString("home_grid_items_v4_json", arr.toString()).apply()
+        prefs.edit().putString(profiled("home_grid_items_v4_json"), arr.toString()).apply()
     }
 
     fun exportBackupJson(): String {

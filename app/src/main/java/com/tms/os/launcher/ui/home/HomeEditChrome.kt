@@ -545,9 +545,11 @@ fun KindTile(kind: WidgetKind, modifier: Modifier) {
                 drawLine(Color.White, center, Offset(size.width * 0.7f, center.y), strokeWidth = 2.dp.toPx())
             }
         }
-        WidgetKind.SOLVADO_SHOP, WidgetKind.SOLVADO_ADMIN -> Box(modifier.clip(shape).background(Color(0xFF5E5CE6)), contentAlignment = Alignment.Center) {
-            Text("S", style = IosText.title3.copy(color = Color.White, fontWeight = FontWeight.Bold))
-        }
+        WidgetKind.SOLVADO_SHOP, WidgetKind.SOLVADO_ADMIN -> androidx.compose.foundation.Image(
+            androidx.compose.ui.res.painterResource(com.tms.os.launcher.R.drawable.solvado_mark), null,
+            contentScale = androidx.compose.ui.layout.ContentScale.Crop, modifier = modifier.clip(shape)
+        )
+        WidgetKind.SPACER -> Box(modifier.clip(shape).background(Color.White.copy(alpha = 0.10f)))
         WidgetKind.NOTES -> Box(modifier.clip(shape).background(Color.White)) {
             Box(Modifier.fillMaxWidth().height(9.dp).background(Color(0xFFFFCC00)))
             Column(Modifier.offset(y = 13.dp).padding(horizontal = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {

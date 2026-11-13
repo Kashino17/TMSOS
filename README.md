@@ -8,6 +8,15 @@ Ein maßgeschneiderter, werbefreier und kostenloser **iOS-Style Homescreen-Launc
 
 ---
 
+## Neu in v5.8.0 – Solvado-Widgets im Solvado-Stil, „Widget bearbeiten“ für mehr Widgets, freie iOS-Minimal-Layouts
+- **Solvado-Widgets neu gestaltet**: Farben des Solvado-Dashboards, das echte Solvado-Zeichen, das Logo des jeweiligen Shops. Klein zeigt bis zu 3 Werte, Mittel 6, Groß 10 – ausgewählte Werte erscheinen jetzt auch wirklich.
+- **Aktualisieren-Pfeil im Widget**; automatische Aktualisierung nur beim Blick auf den Home-Bildschirm (höchstens alle 15 Minuten) und abschaltbar. Im Hintergrund wird nie abgefragt.
+- **„Widget bearbeiten“ überarbeitet**: Shop-Auswahl als eigene Seite mit Suche und Logos, Größe direkt umstellbar, Werte mit Reihenfolge.
+- **Admin-Widget** wird nicht mehr automatisch gesetzt.
+- **Wetter-Widget bearbeiten**: Standort auf Knopfdruck einmalig ermitteln oder Ort eintragen, °C/°F. **Kalender-Widget**: Tag oder Monat.
+- **Minimalistisch, iOS-Vorlagen**: jetzt ein eigener, frei bearbeitbarer Home-Bildschirm – Widgets aus der Galerie, beliebig viele Apps, Ordner, Verschieben. Die drei schlichten Vorlagen bleiben fest.
+- Neues Widget **Leerraum** (unsichtbar), damit Apps weiter unten sitzen können.
+
 ## Neu in v5.7.0 – TMS-Solvado-Widgets
 - **Solvado Shop**: Umsatz, Gewinn, Conversion, Werbe- und Produktkosten, Bestellungen, Besucher, Ø Bestellwert, ROAS und Marge eines Shops – klein, mittel oder groß; mehrere Widgets für mehrere Shops.
 - **Solvado Admin** (nur für Admin-Konten): Abonnenten, Credit-Umsatz in Euro, neue Accounts, Accounts gesamt, MRR, Credit-Käufe, Testphasen. Erscheint nach der Anmeldung als Admin automatisch einmal in der Heute-Ansicht.

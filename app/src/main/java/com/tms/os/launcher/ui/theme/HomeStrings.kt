@@ -86,7 +86,32 @@ data class HomeStrings(
     val editWidget: String = "Widget bearbeiten",
     val updatedAt: String = "Stand %s",
     val incomplete: String = "* unvollständig gemessen",
-    val noShops: String = "In diesem Konto gibt es noch keinen Shop."
+    val noShops: String = "In diesem Konto gibt es noch keinen Shop.",
+    val size: String = "Größe",
+    val sizeSmall: String = "Klein",
+    val sizeMedium: String = "Mittel",
+    val sizeLarge: String = "Groß",
+    val searchShops: String = "Shop suchen",
+    val figuresFit: String = "Diese Größe zeigt bis zu %d Werte.",
+    val figuresTooMany: String = "Graue Nummern passen nicht mehr – wähle „Groß“ oder nimm Werte heraus.",
+    val refreshing: String = "Aktualisieren",
+    val autoRefresh: String = "Automatisch aktualisieren",
+    val autoRefreshHint: String = "An: beim Blick auf den Home-Bildschirm, höchstens alle 15 Minuten. Aus: nur über den Pfeil im Widget. Im Hintergrund wird nie abgefragt.",
+    val account: String = "Konto",
+    val place: String = "Ort",
+    val currentPlace: String = "Aktuell",
+    val useMyLocation: String = "Meinen Standort verwenden",
+    val locating: String = "Standort wird ermittelt …",
+    val locationHint: String = "Der Standort wird nur jetzt einmal abgefragt, nicht dauerhaft.",
+    val locateFailed: String = "Standort nicht verfügbar. Bitte den Ort unten eintragen.",
+    val typePlace: String = "Ort eintragen",
+    val apply: String = "Übernehmen",
+    val unit: String = "Einheit",
+    val display: String = "Darstellung",
+    val viewDay: String = "Tag",
+    val viewMonth: String = "Monat",
+    val calendarHint: String = "„Monat“ zeigt im kleinen Widget den Monatskalender statt des Tages.",
+    val minimalIosHint: String = "Die iOS-Vorlagen sind ein eigener, frei bearbeitbarer Home-Bildschirm: Apps und Widgets beliebig hinzufügen, verschieben und entfernen. Eine andere Vorlage zu wählen ordnet ihn neu an."
 )
 
 private val DE = HomeStrings(
@@ -141,6 +166,7 @@ private val DE = HomeStrings(
             WidgetKind.MINIMAL -> "Minimal"
             WidgetKind.SOLVADO_SHOP -> "Solvado Shop"
             WidgetKind.SOLVADO_ADMIN -> "Solvado Admin"
+            WidgetKind.SPACER -> "Leerraum"
         }
     },
     widgetDescription = {
@@ -158,11 +184,21 @@ private val DE = HomeStrings(
             WidgetKind.MINIMAL -> "Nur Schrift, kein Hintergrund: Uhrzeit, Datum, Wetter und Akku."
             WidgetKind.SOLVADO_SHOP -> "Umsatz, Gewinn, Conversion und Kosten eines deiner Shops – du wählst, welche Werte."
             WidgetKind.SOLVADO_ADMIN -> "Abonnenten, Credit-Umsatz und neue Accounts der Plattform."
+            WidgetKind.SPACER -> "Unsichtbar: hält Platz frei, damit Apps weiter unten sitzen und das Hintergrundbild frei bleibt."
         }
     }
 )
 
 private val EN = DE.copy(
+    size = "Size", sizeSmall = "Small", sizeMedium = "Medium", sizeLarge = "Large", searchShops = "Search shops",
+    figuresFit = "This size shows up to %d figures.", figuresTooMany = "Grey numbers no longer fit – choose “Large” or remove figures.",
+    refreshing = "Refresh", autoRefresh = "Refresh automatically",
+    autoRefreshHint = "On: when you look at the Home Screen, at most every 15 minutes. Off: only with the arrow on the widget. Nothing is ever fetched in the background.",
+    account = "Account", place = "Place", currentPlace = "Current", useMyLocation = "Use My Location", locating = "Finding location …",
+    locationHint = "The location is read once, now – not continuously.", locateFailed = "Location not available. Please type the place below.",
+    typePlace = "Type a place", apply = "Apply", unit = "Unit", display = "Display", viewDay = "Day", viewMonth = "Month",
+    calendarHint = "“Month” shows the month calendar in the small widget instead of the day.",
+    minimalIosHint = "The iOS templates are a home screen of their own that you edit freely: add, move and remove apps and widgets as you like. Choosing another template rearranges it.",
     solvadoConnect = "Connect Solvado", solvadoConnectHint = "Sign in with your TMS Solvado account. The widget only reads figures, it cannot change anything.",
     solvadoTapToConnect = "Tap to connect Solvado", solvadoTapToChoose = "Tap to choose a shop",
     email = "Email", password = "Password", signIn = "Sign In", signOut = "Sign Out", server = "Server", shop = "Shop",
@@ -225,6 +261,7 @@ private val EN = DE.copy(
             WidgetKind.MINIMAL -> "Minimal"
             WidgetKind.SOLVADO_SHOP -> "Solvado Shop"
             WidgetKind.SOLVADO_ADMIN -> "Solvado Admin"
+            WidgetKind.SPACER -> "Empty Space"
         }
     },
     widgetDescription = {
@@ -242,11 +279,21 @@ private val EN = DE.copy(
             WidgetKind.MINIMAL -> "Text only, no background: time, date, weather and battery."
             WidgetKind.SOLVADO_SHOP -> "Revenue, profit, conversion and costs of one of your shops – you choose the figures."
             WidgetKind.SOLVADO_ADMIN -> "Subscribers, credit revenue and new accounts of the platform."
+            WidgetKind.SPACER -> "Invisible: keeps space free, so apps sit lower and the wallpaper stays clear."
         }
     }
 )
 
 private val TR = DE.copy(
+    size = "Boyut", sizeSmall = "Küçük", sizeMedium = "Orta", sizeLarge = "Büyük", searchShops = "Mağaza ara",
+    figuresFit = "Bu boyut en fazla %d değer gösterir.", figuresTooMany = "Gri numaralar sığmıyor – “Büyük” seçin veya değer çıkarın.",
+    refreshing = "Yenileme", autoRefresh = "Otomatik yenile",
+    autoRefreshHint = "Açık: ana ekrana bakıldığında, en fazla 15 dakikada bir. Kapalı: yalnızca araçtaki okla. Arka planda hiçbir zaman sorgulanmaz.",
+    account = "Hesap", place = "Konum", currentPlace = "Şu an", useMyLocation = "Konumumu Kullan", locating = "Konum bulunuyor …",
+    locationHint = "Konum yalnızca şimdi bir kez okunur, sürekli değil.", locateFailed = "Konum alınamadı. Lütfen yeri aşağıya yazın.",
+    typePlace = "Yer yazın", apply = "Uygula", unit = "Birim", display = "Görünüm", viewDay = "Gün", viewMonth = "Ay",
+    calendarHint = "“Ay”, küçük araçta gün yerine ay takvimini gösterir.",
+    minimalIosHint = "iOS şablonları serbestçe düzenlenen ayrı bir ana ekrandır: uygulama ve araçları dilediğiniz gibi ekleyin, taşıyın, kaldırın. Başka bir şablon seçmek onu yeniden düzenler.",
     solvadoConnect = "Solvado'ya bağlan", solvadoConnectHint = "TMS Solvado hesabınızla giriş yapın. Araç yalnızca rakamları okur, hiçbir şeyi değiştiremez.",
     solvadoTapToConnect = "Solvado'ya bağlanmak için dokunun", solvadoTapToChoose = "Mağaza seçmek için dokunun",
     email = "E-posta", password = "Parola", signIn = "Giriş Yap", signOut = "Çıkış Yap", server = "Sunucu", shop = "Mağaza",
@@ -309,6 +356,7 @@ private val TR = DE.copy(
             WidgetKind.MINIMAL -> "Minimal"
             WidgetKind.SOLVADO_SHOP -> "Solvado Mağaza"
             WidgetKind.SOLVADO_ADMIN -> "Solvado Yönetici"
+            WidgetKind.SPACER -> "Boşluk"
         }
     },
     widgetDescription = {
@@ -326,6 +374,7 @@ private val TR = DE.copy(
             WidgetKind.MINIMAL -> "Yalnızca yazı, arka plan yok: saat, tarih, hava ve pil."
             WidgetKind.SOLVADO_SHOP -> "Mağazalarınızdan birinin cirosu, kârı, dönüşümü ve giderleri – değerleri siz seçersiniz."
             WidgetKind.SOLVADO_ADMIN -> "Platformun aboneleri, kredi cirosu ve yeni hesapları."
+            WidgetKind.SPACER -> "Görünmez: yer açar, böylece uygulamalar aşağıda durur ve duvar kâğıdı açık kalır."
         }
     }
 )

@@ -285,7 +285,9 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
         onAppClick = { viewModel.launchApp(it.packageName) },
         screenMinutes = state.screenTime.takeIf { it.granted }?.totalMinutes,
         screenTop = remember(state.screenTime, state.appMap) { state.screenTime.top.mapNotNull { (pkg, m) -> state.appMap[pkg]?.let { it to m } } },
-        solvado = state.solvado
+        solvado = state.solvado,
+        onSolvadoRefresh = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); viewModel.refreshSolvado(force = true) },
+        editing = state.isJiggleMode
     )
 
     fun appForWidget(kind: WidgetKind): AppInfo? {
@@ -295,7 +297,7 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
             WidgetKind.NOTES -> listOf("keep", "notes", "memo")
             WidgetKind.CLOCK, WidgetKind.DIGITAL, WidgetKind.MINIMAL -> listOf("deskclock", "clock")
             WidgetKind.DATE, WidgetKind.YEAR -> listOf("calendar")
-            WidgetKind.BATTERY, WidgetKind.SUGGESTIONS, WidgetKind.SCREENTIME, WidgetKind.SOLVADO_SHOP, WidgetKind.SOLVADO_ADMIN -> emptyList()
+            WidgetKind.BATTERY, WidgetKind.SUGGESTIONS, WidgetKind.SCREENTIME, WidgetKind.SOLVADO_SHOP, WidgetKind.SOLVADO_ADMIN, WidgetKind.SPACER -> emptyList()
         }
         return keys.firstNotNullOfOrNull { k -> state.allApps.firstOrNull { it.packageName.contains(k) } }
     }
@@ -330,7 +332,9 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
 
         // Minimalist mode: one calm page instead of the icon grid. The grid itself stays
         // stored untouched, so switching back brings everything back.
-        val minimal = settings.minimalMode
+        // The plain templates replace the grid with their own page; the iOS-style ones are a
+        // second, ordinary home-screen layout and need nothing special here.
+        val minimal = settings.minimalMode && !settings.minimalTemplate.ios
         val minimalOrder = md.order ?: settings.minimalApps
         val minimalApps = remember(minimalOrder, state.appMap) { minimalOrder.mapNotNull { state.appMap[it] } }
         // Templates with a dock put the first apps there; the rest go on the page.
@@ -958,11 +962,7 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                                 else -> if (minimal) com.tms.os.launcher.ui.home.MinimalHomePage(
                                     template = settings.minimalTemplate,
                                     apps = if (minimalDock) minimalApps.drop(dockCount) else minimalApps,
-                                    columns = columns,
-                                    sidePadding = sidePadding,
                                     labelFontSizeSp = settings.labelFontSizeSp,
-                                    showLabels = settings.showAppLabels,
-                                    onWidgetTap = actions.widgetTap,
                                     env = widgetEnv,
                                     iconSize = iconSize,
                                     // Without a dock only the search pill is left at the bottom.
@@ -1011,7 +1011,8 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                                                 jiggle = state.isJiggleMode,
                                                 folderTarget = drag.folderTarget == p.item.id,
                                                 env = widgetEnv,
-                                                widgetLabel = (p.item as? HomeGridItem.WidgetItem)?.let { hs.widgetName(it.kind) },
+                                                // A spacer is invisible: it has a name only while editing.
+                                                widgetLabel = (p.item as? HomeGridItem.WidgetItem)?.takeIf { it.kind != WidgetKind.SPACER || state.isJiggleMode }?.let { hs.widgetName(it.kind) },
                                                 dragEnabled = !anyOverlay || state.selectedAppForMenu != null,
                                                 actions = actions
                                             )
@@ -1274,19 +1275,37 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
             onDismiss = { showCustomizeSheet = false }
         )
 
-        com.tms.os.launcher.ui.widgets.SolvadoWidgetSheet(
+        // The position is read once, when the user asks for it in the weather widget's settings.
+        val askLocation = androidx.activity.compose.rememberLauncherForActivityResult(
+            androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+        ) { granted -> if (granted) viewModel.useCurrentLocationForWeather() }
+        com.tms.os.launcher.ui.widgets.WidgetEditSheet(
             widget = solvadoWidgetId?.let { id ->
                 state.todayWidgets.firstOrNull { it.widgetId == id }
                     ?: state.homeGridItems.firstOrNull { it is HomeGridItem.WidgetItem && it.widgetId == id } as? HomeGridItem.WidgetItem
             },
-            state = state.solvado,
+            solvado = state.solvado,
+            settings = settings,
             strings = hs,
-            language = settings.appLanguage,
-            server = viewModel.solvadoServer,
-            onLogin = { email, password, server -> viewModel.solvadoLogin(email, password, server) },
-            onLogout = { viewModel.solvadoLogout() },
-            onConfig = { config -> solvadoWidgetId?.let { viewModel.setWidgetConfig(it, config) } },
-            onDismiss = { solvadoWidgetId = null }
+            solvadoServer = viewModel.solvadoServer,
+            locating = state.weatherLocating,
+            locateFailed = state.weatherLocateError,
+            actions = remember {
+                com.tms.os.launcher.ui.widgets.WidgetEditActions(
+                    onConfig = { config -> solvadoWidgetId?.let { viewModel.setWidgetConfig(it, config) } },
+                    onSize = { size -> solvadoWidgetId?.let { viewModel.setWidgetSize(it, size) } },
+                    onSettings = { transform -> viewModel.updateSettings(transform) },
+                    onSolvadoLogin = { email, password, server -> viewModel.solvadoLogin(email, password, server) },
+                    onSolvadoLogout = { viewModel.solvadoLogout() },
+                    onUseLocation = {
+                        val granted = androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_COARSE_LOCATION) ==
+                            android.content.pm.PackageManager.PERMISSION_GRANTED
+                        if (granted) viewModel.useCurrentLocationForWeather() else askLocation.launch(android.Manifest.permission.ACCESS_COARSE_LOCATION)
+                    },
+                    onCity = { city -> viewModel.refreshLiveWeatherForCity(city) },
+                    onDismiss = { solvadoWidgetId = null }
+                )
+            }
         )
 
         com.tms.os.launcher.ui.home.MinimalSetupSheet(
@@ -1295,7 +1314,17 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
             allApps = state.allApps,
             strings = hs,
             onSettingsChange = { transform -> viewModel.updateSettings(transform) },
-            onDismiss = { showMinimalSetup = false }
+            onDismiss = { showMinimalSetup = false },
+            layoutApps = if (settings.minimalMode && settings.minimalTemplate.ios) remember(state.dockPackages, state.homeGridItems) {
+                (state.dockPackages + state.homeGridItems.flatMap {
+                    when (it) {
+                        is HomeGridItem.AppItem -> listOf(it.packageName)
+                        is HomeGridItem.FolderItem -> it.appPackages
+                        else -> emptyList()
+                    }
+                }).distinct()
+            } else null,
+            onToggleLayoutApp = { pkg -> viewModel.toggleAppOnMinimalLayout(pkg) }
         )
 
         IosWidgetGallery(
