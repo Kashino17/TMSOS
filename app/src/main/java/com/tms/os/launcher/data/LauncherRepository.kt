@@ -578,6 +578,15 @@ class LauncherRepository(private val context: Context) {
         prefs.edit().putString("custom_labels", json.toString()).apply()
     }
 
+    /** Apps that open only after Touch ID or the device code. */
+    fun getSecuredPackages(): Set<String> = prefs.getStringSet("secured_packages", emptySet()).orEmpty()
+
+    fun setAppSecured(packageName: String, secured: Boolean) {
+        val set = getSecuredPackages().toMutableSet()
+        if (secured) set.add(packageName) else set.remove(packageName)
+        prefs.edit().putStringSet("secured_packages", set).apply()
+    }
+
     fun setAppHidden(packageName: String, hidden: Boolean) {
         val set = getHiddenPackages().toMutableSet()
         if (hidden) set.add(packageName) else set.remove(packageName)

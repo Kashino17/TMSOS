@@ -64,6 +64,10 @@ data class LauncherUiState(
     val batteryPercent: Int = 85,
     val screenTime: com.tms.os.launcher.model.ScreenTime = com.tms.os.launcher.model.ScreenTime(),
     val solvado: com.tms.os.launcher.model.SolvadoState = com.tms.os.launcher.model.SolvadoState(),
+    /** Apps that open only after Touch ID or the device code. */
+    val securedApps: Set<String> = emptySet(),
+    /** Something waiting for Touch ID; the screen asks the system and answers [LauncherViewModel.authAnswered]. */
+    val authRequest: AuthRequest? = null,
     /** Free placement of the shown layout, by grid shape ("4x6"): item id -> cell. */
     val gridAnchors: Map<String, Map<String, com.tms.os.launcher.domain.GridAnchor>> = emptyMap(),
     val storageRamInfo: SystemStorageRamInfo = SystemStorageRamInfo(6.4f, 12.0f, 128, 512),
@@ -255,6 +259,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                     appMap = appMap,
                     allContacts = contacts,
                     homeGridItems = grid,
+                    securedApps = repository.getSecuredPackages(),
                     gridAnchors = loadAnchors(),
                     todayWidgets = repository.loadTodayWidgets(),
                     spotlightHistory = repository.loadSpotlightHistory(),
@@ -335,6 +340,15 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun launchApp(packageName: String, options: android.os.Bundle? = null) {
+        // A secured app opens only after Touch ID; the request waits for the answer.
+        if (packageName in _uiState.value.securedApps) {
+            _uiState.update { it.copy(authRequest = AuthRequest.Launch(packageName), selectedAppForMenu = null) }
+            return
+        }
+        launchVerified(packageName, options)
+    }
+
+    private fun launchVerified(packageName: String, options: android.os.Bundle? = null) {
         val ok = repository.launchApp(packageName, options)
         if (ok) {
             _uiState.update { state ->
@@ -778,6 +792,10 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun runQuickAction(action: com.tms.os.launcher.model.AppQuickAction) {
+        if (action.packageName in _uiState.value.securedApps) {
+            _uiState.update { it.copy(authRequest = AuthRequest.QuickAction(action), selectedAppForMenu = null) }
+            return
+        }
         repository.startQuickAction(action)
         _uiState.update { it.copy(selectedAppForMenu = null) }
     }
@@ -1064,6 +1082,38 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         refreshApps()
     }
 
+    /* ------------------------------------------------------- Touch ID */
+
+    fun isSecured(packageName: String) = packageName in _uiState.value.securedApps
+
+    /** Securing and un-securing an app both need Touch ID, so nobody else can switch it off. */
+    fun toggleSecured(packageName: String) {
+        _uiState.update { it.copy(authRequest = AuthRequest.ToggleSecure(packageName), selectedAppForMenu = null) }
+    }
+
+    /** The hidden apps of the App Library are shown only after Touch ID. */
+    fun requestHiddenApps() {
+        _uiState.update { it.copy(authRequest = AuthRequest.ShowHidden) }
+    }
+
+    /** The system's answer to [LauncherUiState.authRequest]. Returns the request on success. */
+    fun authAnswered(ok: Boolean): AuthRequest? {
+        val request = _uiState.value.authRequest ?: return null
+        _uiState.update { it.copy(authRequest = null) }
+        if (!ok) return null
+        when (request) {
+            is AuthRequest.Launch -> launchVerified(request.packageName)
+            is AuthRequest.QuickAction -> repository.startQuickAction(request.action)
+            is AuthRequest.ToggleSecure -> {
+                val now = request.packageName !in _uiState.value.securedApps
+                repository.setAppSecured(request.packageName, now)
+                _uiState.update { it.copy(securedApps = repository.getSecuredPackages()) }
+            }
+            AuthRequest.ShowHidden -> Unit
+        }
+        return request
+    }
+
     fun hideOrUnhideApp(packageName: String, hidden: Boolean) {
         repository.setAppHidden(packageName, hidden)
         refreshApps()
@@ -1130,3 +1180,12 @@ private class SystemStatus(
     val battery: Int,
     val storage: SystemStorageRamInfo
 )
+
+
+/** What is waiting for Touch ID. */
+sealed class AuthRequest {
+    data class Launch(val packageName: String) : AuthRequest()
+    data class QuickAction(val action: com.tms.os.launcher.model.AppQuickAction) : AuthRequest()
+    data class ToggleSecure(val packageName: String) : AuthRequest()
+    data object ShowHidden : AuthRequest()
+}

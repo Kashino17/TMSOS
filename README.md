@@ -8,6 +8,11 @@ Ein maßgeschneiderter, werbefreier und kostenloser **iOS-Style Homescreen-Launc
 
 ---
 
+## Neu in v5.9.0 – Apps sichern, Ausgeblendet-Ordner
+- **Mit Touch ID sichern** (App lange drücken → Mehr): Die App öffnet sich nur nach Fingerabdruck oder Geräte-Code – vom Home-Bildschirm, Dock, Mediathek, Spotlight, Ordnern und Kurzbefehlen. Sichern und Entsichern verlangen ebenfalls Touch ID.
+- **Ausgeblendet** in der App-Mediathek: wirkt immer leer, zeigt die ausgeblendeten Apps erst nach Touch ID. Dort lassen sie sich über langes Drücken wieder einblenden.
+- Behoben: Ein Tipp während eines Seitenwechsels (z. B. direkt nach der Home-Taste) ließ den Home-Bildschirm zwischen zwei Seiten stehen.
+
 ## Neu in v5.8.7
 - App-Mediathek: Wischt man von der geöffneten Suche weg, wird die Suche beendet und die Tastatur geschlossen.
 

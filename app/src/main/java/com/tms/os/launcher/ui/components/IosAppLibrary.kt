@@ -75,6 +75,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
@@ -122,6 +123,7 @@ private data class LibraryPod(
     val all: List<AppInfo>
 )
 
+private const val HiddenPodId = "pod_hidden"
 private val LibrarySideMargin = 33.dp
 private val PodGap = 22.dp
 
@@ -145,7 +147,10 @@ fun IosAppLibraryPage(
     onAppLongClick: (AppInfo, Rect) -> Unit,
     onOpenPod: (String, List<AppInfo>, Rect) -> Unit,
     /** False as soon as the user swipes away from the library (read lazily, no recomposition). */
-    isActive: () -> Boolean = { true }
+    isActive: () -> Boolean = { true },
+    /** Title of the "Hidden" pod; it always looks empty and opens only after Touch ID. */
+    hiddenTitle: String = "",
+    onOpenHidden: (Rect) -> Unit = {}
 ) {
     var searching by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
@@ -169,7 +174,10 @@ fun IosAppLibraryPage(
     }
     val language = settings.appLanguage
 
-    val pods = remember(categorizedApps, allApps, language) { buildLibraryPods(categorizedApps, allApps, strings, language) }
+    val pods = remember(categorizedApps, allApps, language, hiddenTitle) {
+        buildLibraryPods(categorizedApps, allApps, strings, language) +
+            listOfNotNull(hiddenTitle.takeIf { it.isNotEmpty() }?.let { LibraryPod(HiddenPodId, it, emptyList(), emptyList()) })
+    }
     val visibleApps = remember(allApps, query) {
         allApps.filter { !it.isHidden && it.displayLabel.contains(query.trim(), ignoreCase = true) }
             .sortedBy { it.displayLabel.lowercase(Locale.getDefault()) }
@@ -305,7 +313,7 @@ fun IosAppLibraryPage(
                         pod = pod,
                         onAppClick = onAppClick,
                         onAppLongClick = onAppLongClick,
-                        onOpen = { origin -> onOpenPod(pod.title, pod.all, origin) }
+                        onOpen = { origin -> if (pod.id == HiddenPodId) onOpenHidden(origin) else onOpenPod(pod.title, pod.all, origin) }
                     )
                 }
             }
@@ -364,6 +372,15 @@ private fun LibraryCategoryPod(
                     .clickable(remember { MutableInteractionSource() }, null, onClick = open)
                     .padding(12.dp)
             ) {
+                // "Hidden": never shows what is inside, only a closed eye.
+                if (pod.id == HiddenPodId) {
+                    androidx.compose.material3.Icon(
+                        androidx.compose.material.icons.Icons.Rounded.VisibilityOff, null,
+                        tint = Color.White.copy(alpha = 0.55f),
+                        modifier = Modifier.align(Alignment.Center).size(podSize * 0.26f)
+                    )
+                    return@Box
+                }
                 val gap = 12.dp
                 val large = (podSize - 24.dp - gap) / 2
                 val mini = (large - 9.dp) / 2

@@ -111,6 +111,14 @@ data class HomeStrings(
     val viewDay: String = "Tag",
     val viewMonth: String = "Monat",
     val calendarHint: String = "„Monat“ zeigt im kleinen Widget den Monatskalender statt des Tages.",
+    val secureApp: String = "Mit Touch ID sichern",
+    val unsecureApp: String = "Touch ID-Sicherung entfernen",
+    val hidden: String = "Ausgeblendet",
+    val authOpen: String = "%s öffnen",
+    val authSecure: String = "%s sichern",
+    val authUnsecure: String = "Sicherung von %s entfernen",
+    val authHidden: String = "Ausgeblendete Apps anzeigen",
+    val authNoLock: String = "Richte zuerst eine Displaysperre ein (Fingerabdruck oder PIN).",
     val minimalIosHint: String = "Die iOS-Vorlagen sind ein eigener, frei bearbeitbarer Home-Bildschirm: Apps und Widgets beliebig hinzufügen, verschieben und entfernen. Eine andere Vorlage zu wählen ordnet ihn neu an."
 )
 
@@ -198,6 +206,8 @@ private val EN = DE.copy(
     locationHint = "The location is read once, now – not continuously.", locateFailed = "Location not available. Please type the place below.",
     typePlace = "Type a place", apply = "Apply", unit = "Unit", display = "Display", viewDay = "Day", viewMonth = "Month",
     calendarHint = "“Month” shows the month calendar in the small widget instead of the day.",
+    secureApp = "Secure with Touch ID", unsecureApp = "Remove Touch ID", hidden = "Hidden", authOpen = "Open %s", authSecure = "Secure %s",
+    authUnsecure = "Remove security from %s", authHidden = "Show hidden apps", authNoLock = "Set up a screen lock first (fingerprint or PIN).",
     minimalIosHint = "The iOS templates are a home screen of their own that you edit freely: add, move and remove apps and widgets as you like. Choosing another template rearranges it.",
     solvadoConnect = "Connect Solvado", solvadoConnectHint = "Sign in with your TMS Solvado account. The widget only reads figures, it cannot change anything.",
     solvadoTapToConnect = "To connect: Edit, then tap the widget", solvadoTapToChoose = "Choose a shop: Edit, then tap the widget",
@@ -293,6 +303,8 @@ private val TR = DE.copy(
     locationHint = "Konum yalnızca şimdi bir kez okunur, sürekli değil.", locateFailed = "Konum alınamadı. Lütfen yeri aşağıya yazın.",
     typePlace = "Yer yazın", apply = "Uygula", unit = "Birim", display = "Görünüm", viewDay = "Gün", viewMonth = "Ay",
     calendarHint = "“Ay”, küçük araçta gün yerine ay takvimini gösterir.",
+    secureApp = "Touch ID ile koru", unsecureApp = "Touch ID korumasını kaldır", hidden = "Gizli", authOpen = "%s aç", authSecure = "%s koru",
+    authUnsecure = "%s korumasını kaldır", authHidden = "Gizli uygulamaları göster", authNoLock = "Önce bir ekran kilidi ayarlayın (parmak izi veya PIN).",
     minimalIosHint = "iOS şablonları serbestçe düzenlenen ayrı bir ana ekrandır: uygulama ve araçları dilediğiniz gibi ekleyin, taşıyın, kaldırın. Başka bir şablon seçmek onu yeniden düzenler.",
     solvadoConnect = "Solvado'ya bağlan", solvadoConnectHint = "TMS Solvado hesabınızla giriş yapın. Araç yalnızca rakamları okur, hiçbir şeyi değiştiremez.",
     solvadoTapToConnect = "Bağlanmak için: Düzenle, sonra araca dokunun", solvadoTapToChoose = "Mağaza seçmek için: Düzenle, sonra araca dokunun",

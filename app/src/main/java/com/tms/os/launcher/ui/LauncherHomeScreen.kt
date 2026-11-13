@@ -48,6 +48,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -200,6 +201,7 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
     val lifecycleOwner = LocalLifecycleOwner.current
 
     var showCustomizeSheet by remember { mutableStateOf(false) }
+    var hiddenOrigin by remember { mutableStateOf<Rect?>(null) }
     var showMinimalSetup by remember { mutableStateOf(false) }
     // Id of the Solvado widget whose settings are open.
     var solvadoWidgetId by remember { mutableStateOf<String?>(null) }
@@ -362,6 +364,16 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
         val homePageCount = ((pages.size + perScreen - 1) / perScreen).coerceAtLeast(1)
         // Pager: 0 = Today View, 1..n = home pages, n+1 = App Library.
         val pagerState = rememberPagerState(initialPage = 1, pageCount = { homePageCount + 2 })
+        // A touch that interrupts a programmatic page change (Home button, a tap mid-animation)
+        // ends the scroll without a fling, which would leave the pager between two pages.
+        // Whenever scrolling stops off a page boundary, settle on the nearest page.
+        LaunchedEffect(pagerState) {
+            snapshotFlow { pagerState.isScrollInProgress }.collect { scrolling ->
+                if (!scrolling && kotlin.math.abs(pagerState.currentPageOffsetFraction) > 0.001f) {
+                    runCatching { pagerState.animateScrollToPage(pagerState.currentPage) }
+                }
+            }
+        }
         val libraryPage = homePageCount + 1
         // The *settled* page on purpose: reading currentPage here would rebuild this
         // whole screen in the middle of every page swipe. Anything that must follow
@@ -416,7 +428,9 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
         }
 
         val openAppWithAnimation: (AppInfo, Rect) -> Unit = { app, bounds ->
-            if (!state.isJiggleMode) {
+            // A secured app waits for Touch ID first: no zoom-away until it really opens.
+            if (!state.isJiggleMode && app.packageName in state.securedApps) viewModel.launchApp(app.packageName)
+            else if (!state.isJiggleMode) {
                 val options = if (bounds.width > 0 && bounds.height > 0) {
                     ActivityOptions.makeScaleUpAnimation(view, bounds.left.toInt(), bounds.top.toInt(), bounds.width.toInt(), bounds.height.toInt()).toBundle()
                 } else null
@@ -825,6 +839,38 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
         })
         val actions = remember { HomeActions(ops) }
 
+        // Touch ID: whatever waits for it (a secured app, the hidden apps, securing an app)
+        // is answered by the system's own fingerprint sheet with the device code as fallback.
+        LaunchedEffect(state.authRequest) {
+            val request = state.authRequest ?: return@LaunchedEffect
+            val activity = generateSequence(context) { (it as? android.content.ContextWrapper)?.baseContext }
+                .filterIsInstance<android.app.Activity>().firstOrNull()
+            if (activity == null || !com.tms.os.launcher.data.DeviceAuth.available(context)) {
+                viewModel.authAnswered(false)
+                android.widget.Toast.makeText(context, hs.authNoLock, android.widget.Toast.LENGTH_LONG).show()
+                return@LaunchedEffect
+            }
+            val label = { pkg: String -> state.appMap[pkg]?.displayLabel ?: pkg }
+            val title = when (request) {
+                is com.tms.os.launcher.viewmodel.AuthRequest.Launch -> String.format(hs.authOpen, label(request.packageName))
+                is com.tms.os.launcher.viewmodel.AuthRequest.QuickAction -> String.format(hs.authOpen, label(request.action.packageName))
+                is com.tms.os.launcher.viewmodel.AuthRequest.ToggleSecure ->
+                    String.format(if (request.packageName in state.securedApps) hs.authUnsecure else hs.authSecure, label(request.packageName))
+                com.tms.os.launcher.viewmodel.AuthRequest.ShowHidden -> hs.authHidden
+            }
+            com.tms.os.launcher.data.DeviceAuth.authenticate(activity, title, null) { ok ->
+                val done = viewModel.authAnswered(ok)
+                if (done is com.tms.os.launcher.viewmodel.AuthRequest.Launch || done is com.tms.os.launcher.viewmodel.AuthRequest.QuickAction) {
+                    leftToApp = true
+                    scope.launch { homeZoom.animateTo(IOS_ZOOM_OUT, tween(380, easing = IosLaunchEasing)) }
+                } else if (homeZoom.value != 1f) scope.launch { homeZoom.animateTo(1f, spring(0.9f, 300f)) }
+                if (done == com.tms.os.launcher.viewmodel.AuthRequest.ShowHidden) {
+                    val hidden = viewModel.uiState.value.allApps.filter { it.isHidden }.sortedBy { it.displayLabel.lowercase() }
+                    ops.value.pod(hs.hidden, hidden, hiddenOrigin ?: Rect.Zero)
+                }
+            }
+        }
+
         // Dwell before reflowing (iOS waits a beat), longer dwell to form a folder.
         LaunchedEffect(drag.hover) {
             val h = drag.hover ?: return@LaunchedEffect
@@ -1013,7 +1059,9 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                                     onAppClick = actions.openApp,
                                     onAppLongClick = actions.appMenu,
                                     onOpenPod = actions.pod,
-                                    isActive = libraryActive
+                                    isActive = libraryActive,
+                                    hiddenTitle = hs.hidden,
+                                    onOpenHidden = { origin -> hiddenOrigin = origin; viewModel.requestHiddenApps() }
                                 )
                                 else -> if (minimal) com.tms.os.launcher.ui.home.MinimalHomePage(
                                     template = settings.minimalTemplate,
@@ -1319,7 +1367,9 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                 onRemove = { removeTarget = HomeGridItem.AppItem(app.packageName) },
                 onToggleDock = { viewModel.togglePinToDock(app.packageName) },
                 onAppInfo = { viewModel.openAppInfo(app.packageName) },
-                onHide = { viewModel.hideOrUnhideApp(app.packageName, true) },
+                onHide = { viewModel.hideOrUnhideApp(app.packageName, !app.isHidden) },
+                isSecured = app.packageName in state.securedApps,
+                onToggleSecure = { viewModel.toggleSecured(app.packageName) },
                 onRename = { name -> viewModel.renameApp(app.packageName, name) },
                 onChangeCategory = { cat -> viewModel.changeAppCategory(app.packageName, cat) },
                 onMoveToFolder = { folderId -> viewModel.moveAppIntoFolder(app.packageName, folderId) },

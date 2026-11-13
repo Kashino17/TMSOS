@@ -54,6 +54,12 @@ import androidx.compose.material.icons.rounded.Label
 import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.RemoveCircleOutline
 import androidx.compose.material.icons.rounded.VisibilityOff
+import androidx.compose.material.icons.rounded.LockOpen
+import androidx.compose.material.icons.rounded.Fingerprint
+import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.rounded.Fingerprint
+import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material.icons.rounded.Dock
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -408,6 +414,8 @@ fun IosAppMenu(
     onToggleDock: () -> Unit,
     onAppInfo: () -> Unit,
     onHide: () -> Unit,
+    isSecured: Boolean = false,
+    onToggleSecure: () -> Unit = {},
     onRename: (String?) -> Unit,
     onChangeCategory: (AppCategory) -> Unit,
     onMoveToFolder: (String) -> Unit,
@@ -516,7 +524,9 @@ fun IosAppMenu(
                                     MenuRowSpec(strings.rename, Icons.Rounded.Edit) { page = MenuPage.Rename },
                                     MenuRowSpec(strings.changeCategory, Icons.Rounded.Label, chevron = true) { page = MenuPage.Category },
                                     MenuRowSpec(strings.appInfo, Icons.Rounded.Info) { close(onAppInfo) },
-                                    MenuRowSpec(strings.hideApp, Icons.Rounded.VisibilityOff) { close(onHide) }
+                                    MenuRowSpec(if (isSecured) hs.unsecureApp else hs.secureApp, if (isSecured) Icons.Rounded.LockOpen else Icons.Rounded.Fingerprint) { close(onToggleSecure) },
+                                    // A hidden app (opened from "Hidden" in the App Library) is shown again from here.
+                                    MenuRowSpec(if (app.isHidden) strings.unhide else strings.hideApp, if (app.isHidden) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff) { close(onHide) }
                                 ))
                             }
                             MenuPage.Folder -> Column {
