@@ -334,8 +334,11 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
         // space down to the dock must be usable, not a strip below the last row.
         val rows = run {
             val pageHeight = maxHeight - IosMetrics.statusBarHeight - chromeHeight - 9.dp - 4.dp
-            val cell = (maxWidth / perScreen - sidePadding * 2) / columns
-            maxOf(layout.rows, if (cell > 0.dp) (pageHeight / cell).toInt() else layout.rows)
+            // A row needs room for the icon, its label and a little air – it does not have to
+            // be square. Rows get a bit lower when that lets one more fit above the dock.
+            val label = with(density) { (settings.labelFontSizeSp * 1.3f).sp.toDp() }
+            val minRow = iconSize + 5.dp + label + 2.dp
+            maxOf(layout.rows, if (minRow > 0.dp) (pageHeight / minRow).toInt() else layout.rows)
         }
 
         // Minimalist mode: one calm page instead of the icon grid. The grid itself stays
