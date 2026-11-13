@@ -8,6 +8,9 @@ Ein maßgeschneiderter, werbefreier und kostenloser **iOS-Style Homescreen-Launc
 
 ---
 
+## Neu in v5.8.7
+- App-Mediathek: Wischt man von der geöffneten Suche weg, wird die Suche beendet und die Tastatur geschlossen.
+
 ## Neu in v5.8.6 – kein Einfrieren mehr
 - Ein abgebrochenes Herunterziehen (zweiter Finger, Systemgeste, Seitenwechsel) ließ Spotlight unsichtbar halb offen stehen; es fing dann jede Berührung ab und der Home-Bildschirm wirkte eingefroren. Spotlight ist jetzt immer ganz auf oder ganz zu und nimmt Berührungen nur an, wenn es offen ist.
 - Gleiches Muster behoben bei der Kategorie-Ansicht der App-Mediathek und beim Ablegen von Icons: unterbrochene Animationen hinterlassen keinen blockierten Zustand mehr.

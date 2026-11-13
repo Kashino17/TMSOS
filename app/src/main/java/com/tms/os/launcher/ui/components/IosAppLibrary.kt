@@ -143,7 +143,9 @@ fun IosAppLibraryPage(
     podOrigin: Rect?,
     onAppClick: (AppInfo, Rect) -> Unit,
     onAppLongClick: (AppInfo, Rect) -> Unit,
-    onOpenPod: (String, List<AppInfo>, Rect) -> Unit
+    onOpenPod: (String, List<AppInfo>, Rect) -> Unit,
+    /** False as soon as the user swipes away from the library (read lazily, no recomposition). */
+    isActive: () -> Boolean = { true }
 ) {
     var searching by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
@@ -157,6 +159,11 @@ fun IosAppLibraryPage(
         keyboard?.hide()
     }
     BackHandler(enabled = searching) { closeSearch() }
+    // Swiping to another page ends the search and puts the keyboard away, as on iOS.
+    val activeNow by rememberUpdatedState(isActive)
+    LaunchedEffect(searching) {
+        if (searching) androidx.compose.runtime.snapshotFlow { activeNow() }.collect { active -> if (!active) closeSearch() }
+    }
     LaunchedEffect(searching) {
         if (searching) { delay(60); runCatching { fieldFocus.requestFocus() }; keyboard?.show() }
     }

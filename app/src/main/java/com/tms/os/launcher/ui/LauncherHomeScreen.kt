@@ -367,6 +367,8 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
         // whole screen in the middle of every page swipe. Anything that must follow
         // the finger (dots, dock fade) reads the pager inside its own small scope.
         val isAppLibrary = pagerState.settledPage == libraryPage
+        // The library is "active" only while it rests on screen; the first move of a page swipe ends that.
+        val libraryActive = remember(pagerState, libraryPage) { { pagerState.settledPage == libraryPage && !pagerState.isScrollInProgress } }
         val isToday = pagerState.settledPage == 0
         val homePageIndex = (pagerState.settledPage - 1).coerceIn(0, homePageCount - 1)
 
@@ -1010,7 +1012,8 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                                     podOrigin = openPod?.origin,
                                     onAppClick = actions.openApp,
                                     onAppLongClick = actions.appMenu,
-                                    onOpenPod = actions.pod
+                                    onOpenPod = actions.pod,
+                                    isActive = libraryActive
                                 )
                                 else -> if (minimal) com.tms.os.launcher.ui.home.MinimalHomePage(
                                     template = settings.minimalTemplate,
