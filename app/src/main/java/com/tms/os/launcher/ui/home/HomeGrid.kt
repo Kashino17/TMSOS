@@ -346,3 +346,26 @@ class FolderDragSession {
         folderId = null; hoverIndex = -1; outside = false; armed = false; entered = false; edge = 0
     }
 }
+
+
+/**
+ * Dragging an app into a new place on the minimalist home screen. Page and dock
+ * are one ordered list (the first apps sit in the dock), so every move – within
+ * the page, within the dock or between the two – is a change of position in it.
+ */
+class MinimalDragState {
+    var pkg by mutableStateOf<String?>(null)
+    var pointer by mutableStateOf(Offset.Zero)
+    var grab by mutableStateOf(Offset.Zero)
+    /** Preview order while dragging. */
+    var order by mutableStateOf<List<String>?>(null)
+    /** Centre of every position, taken when the drag starts (positions do not move, apps do). */
+    var slots: List<Offset?> = emptyList()
+    var hover by mutableStateOf(-1)
+    var dropping by mutableStateOf(false)
+    val dropAnim = Animatable(Offset.Zero, Offset.VectorConverter)
+
+    val active get() = pkg != null
+
+    fun clear() { pkg = null; order = null; slots = emptyList(); hover = -1; dropping = false }
+}

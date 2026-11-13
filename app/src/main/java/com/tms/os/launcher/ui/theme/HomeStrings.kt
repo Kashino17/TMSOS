@@ -67,7 +67,7 @@ data class HomeStrings(
     val yourApps: String = "Deine Apps",
     val searchApps: String = "Apps suchen",
     val selectedOf: String = "%1\$d von %2\$d",
-    val minimalEmpty: String = "Gedrückt halten, um Apps auszuwählen"
+    val minimalEmpty: String = "Tippen, um Apps auszuwählen"
 )
 
 private val DE = HomeStrings(
@@ -145,7 +145,7 @@ private val EN = DE.copy(
     minimal = "Minimal", minimalToggle = "Minimalist Home Screen",
     minimalHint = "Just the clock and your most important apps. Your regular Home Screen stays saved.",
     template = "Template", templateList = "List", templateIcons = "Icons", templateFocus = "Focus", templatesPlain = "Plain", templatesIos = "iOS Style", templateIosWidgets = "Widgets", templateIosLarge = "Large", templateIosBottom = "Bottom",
-    yourApps = "Your Apps", searchApps = "Search Apps", selectedOf = "%1\$d of %2\$d", minimalEmpty = "Touch and hold to choose apps",
+    yourApps = "Your Apps", searchApps = "Search Apps", selectedOf = "%1\$d of %2\$d", minimalEmpty = "Tap to choose apps",
     edit = "Edit",
     done = "Done",
     addWidget = "Add Widget",
@@ -220,7 +220,7 @@ private val TR = DE.copy(
     minimal = "Minimal", minimalToggle = "Minimalist Ana Ekran",
     minimalHint = "Yalnızca saat ve en önemli uygulamalarınız. Normal ana ekranınız kayıtlı kalır.",
     template = "Şablon", templateList = "Liste", templateIcons = "Simgeler", templateFocus = "Odak", templatesPlain = "Sade", templatesIos = "iOS Tarzı", templateIosWidgets = "Araçlar", templateIosLarge = "Büyük", templateIosBottom = "Alt",
-    yourApps = "Uygulamalarınız", searchApps = "Uygulama ara", selectedOf = "%1\$d / %2\$d", minimalEmpty = "Uygulama seçmek için basılı tutun",
+    yourApps = "Uygulamalarınız", searchApps = "Uygulama ara", selectedOf = "%1\$d / %2\$d", minimalEmpty = "Uygulama seçmek için dokunun",
     edit = "Düzenle",
     done = "Bitti",
     addWidget = "Widget Ekle",

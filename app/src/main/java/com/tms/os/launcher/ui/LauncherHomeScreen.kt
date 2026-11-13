@@ -104,6 +104,8 @@ import com.tms.os.launcher.ui.home.AlertAction
 import com.tms.os.launcher.ui.home.GridGeometry
 import com.tms.os.launcher.ui.home.HomeDragState
 import com.tms.os.launcher.ui.home.FolderDragSession
+import com.tms.os.launcher.ui.home.MinimalDragState
+import com.tms.os.launcher.ui.home.MinimalEdit
 import com.tms.os.launcher.ui.home.FolderSlots
 import com.tms.os.launcher.ui.home.withoutFolderApp
 import com.tms.os.launcher.ui.home.HomeGridPage
@@ -223,6 +225,9 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
     val fs = remember { FolderDragSession() }
     val folderSlots = remember { mutableMapOf<String, Pair<FolderSlots, Int>>() }
     var sessionFolder by remember { mutableStateOf<HomeGridItem.FolderItem?>(null) }
+    // Reordering on the minimalist home screen.
+    val md = remember { MinimalDragState() }
+    val minimalRects = remember { androidx.compose.runtime.mutableStateMapOf<String, Rect>() }
     // Smart Stacks scroll vertically; a pull-down that starts on one must not open Spotlight.
     val stackRects = remember { androidx.compose.runtime.mutableStateMapOf<String, Rect>() }
 
@@ -322,7 +327,8 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
         // Minimalist mode: one calm page instead of the icon grid. The grid itself stays
         // stored untouched, so switching back brings everything back.
         val minimal = settings.minimalMode
-        val minimalApps = remember(settings.minimalApps, state.appMap) { settings.minimalApps.mapNotNull { state.appMap[it] } }
+        val minimalOrder = md.order ?: settings.minimalApps
+        val minimalApps = remember(minimalOrder, state.appMap) { minimalOrder.mapNotNull { state.appMap[it] } }
         // Templates with a dock put the first apps there; the rest go on the page.
         val minimalDock = minimal && settings.minimalTemplate.usesDock
         val displayOrder = if (minimal) emptyList() else drag.order ?: state.homeGridItems
@@ -677,8 +683,49 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
             override fun stackBounds(id: String, r: Rect?) { if (r == null) stackRects.remove(id) else stackRects[id] = r }
             override fun startDrag(item: HomeGridItem, downAt: Offset, at: Offset) = dragStart(item, downAt, at)
             override fun startExternalDrag(pkg: String, iconTopLeft: Offset, downAt: Offset, at: Offset) = externalDragStart(pkg, iconTopLeft, downAt, at)
-            override fun moveDrag(at: Offset) = dragMove(at)
-            override fun endDrag() = dragEnd()
+            override fun moveDrag(at: Offset) {
+                if (!md.active) return dragMove(at)
+                md.pointer = at
+                // The position under the finger is where the app wants to go.
+                val nearest = md.slots.indices.filter { md.slots[it] != null }.minByOrNull { distance(md.slots[it]!!, at) } ?: return
+                if (distance(md.slots[nearest]!!, at) < geometry.cellW * 1.4f && nearest != md.hover) md.hover = nearest
+            }
+            override fun endDrag() {
+                val pkg = md.pkg ?: return dragEnd()
+                val order = md.order ?: settings.minimalApps
+                viewModel.updateSettings { it.copy(minimalApps = order) }
+                scope.launch {
+                    val target = md.slots.getOrNull(order.indexOf(pkg))
+                    if (target != null && settings.minimalTemplate != com.tms.os.launcher.model.MinimalTemplate.LIST) {
+                        md.dropping = true
+                        md.dropAnim.snapTo(md.pointer - md.grab)
+                        md.dropAnim.animateTo(target - Offset(geometry.iconPx / 2f, geometry.iconPx / 2f), spring(0.8f, 400f))
+                    }
+                    md.clear()
+                }
+            }
+            override fun minimalDragStart(pkg: String, topLeft: Offset, downAt: Offset, at: Offset) {
+                if (!state.isJiggleMode) {
+                    viewModel.selectAppForContextMenu(null)
+                    viewModel.setJiggleMode(true)
+                }
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                val order = settings.minimalApps
+                val onPage = if (minimalDock) settings.minimalTemplate.maxApps - dockCount else settings.minimalTemplate.maxApps
+                md.slots = order.mapIndexed { i, p ->
+                    when {
+                        minimalDock && i < dockCount -> dockIconRects[p]?.center
+                        (if (minimalDock) i - dockCount else i) < onPage -> minimalRects[p]?.center
+                        else -> null
+                    }
+                }
+                md.grab = downAt - topLeft
+                md.pointer = at
+                md.order = order
+                md.hover = order.indexOf(pkg)
+                md.pkg = pkg
+            }
+            override fun minimalRemove(pkg: String) { viewModel.updateSettings { it.copy(minimalApps = it.minimalApps - pkg) } }
             override fun springFolder(itemId: String) {
                 val app = drag.item as? HomeGridItem.AppItem ?: return
                 val folder = (drag.order ?: state.homeGridItems).firstOrNull { it.id == itemId } as? HomeGridItem.FolderItem ?: return
@@ -742,6 +789,15 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                 val next = reorderFor(order, item, h, pages)
                 if (next != order) drag.order = next
             }
+        }
+        // Minimalist page: the others make room after a short dwell.
+        LaunchedEffect(md.hover, md.pkg) {
+            val pkg = md.pkg ?: return@LaunchedEffect
+            val order = md.order ?: return@LaunchedEffect
+            if (md.hover < 0 || order.indexOf(pkg) == md.hover) return@LaunchedEffect
+            delay(110)
+            md.order = (order - pkg).toMutableList().apply { add(md.hover.coerceIn(0, size), pkg) }
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
         }
         // Inside an open folder: the other apps make room after a short dwell.
         LaunchedEffect(fs.hoverIndex, fs.folderId) {
@@ -860,7 +916,7 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                     CompositionLocalProvider(LocalOverscrollConfiguration provides null) {
                         HorizontalPager(
                             state = pagerState,
-                            userScrollEnabled = !anyOverlay && !drag.active,
+                            userScrollEnabled = !anyOverlay && !drag.active && !md.active,
                             flingBehavior = PagerDefaults.flingBehavior(state = pagerState, pagerSnapDistance = PagerSnapDistance.atMost(1)),
                             beyondViewportPageCount = 1,
                             modifier = Modifier
@@ -895,7 +951,7 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                                 )
                                 else -> if (minimal) com.tms.os.launcher.ui.home.MinimalHomePage(
                                     template = settings.minimalTemplate,
-                                    apps = if (settings.minimalTemplate.ios) minimalApps.drop(dockCount) else minimalApps,
+                                    apps = if (minimalDock) minimalApps.drop(dockCount) else minimalApps,
                                     columns = columns,
                                     sidePadding = sidePadding,
                                     labelFontSizeSp = settings.labelFontSizeSp,
@@ -908,7 +964,18 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                                     onAppClick = actions.openApp,
                                     onAppLongClick = actions.appMenu,
                                     onClock = actions.clock,
-                                    onSetup = actions.minimalSetup
+                                    onSetup = actions.minimalSetup,
+                                    edit = MinimalEdit(
+                                        jiggle = state.isJiggleMode,
+                                        hiddenPkg = md.pkg,
+                                        onBounds = { pkg, r -> minimalRects[pkg] = r },
+                                        onRemove = actions.minimalRemove,
+                                        onDragStart = actions.minimalDragStart,
+                                        onDragMove = actions.moveDrag,
+                                        onDragEnd = actions.endDrag,
+                                        onEnterJiggle = actions.enterJiggle,
+                                        onExitJiggle = actions.exitJiggle
+                                    )
                                 ) else Row(
                                     Modifier
                                         .fillMaxSize()
@@ -956,17 +1023,19 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                             .homeDragGesture(
                                 key = "dock",
                                 jiggle = state.isJiggleMode,
-                                enabled = !minimal && (!anyOverlay || state.selectedAppForMenu != null),
+                                enabled = !anyOverlay || state.selectedAppForMenu != null,
                                 onStart = { downAt, at ->
-                                    dockIconRects.entries.firstOrNull { it.value.contains(downAt) }?.let { (pkg, r) ->
-                                        actions.startExternalDrag(pkg, r.topLeft, downAt, at)
+                                    dockApps.firstNotNullOfOrNull { a -> dockIconRects[a.packageName]?.takeIf { it.contains(downAt) }?.let { a.packageName to it } }?.let { (pkg, r) ->
+                                        if (minimal) actions.minimalDragStart(pkg, r.topLeft, downAt, at)
+                                        else actions.startExternalDrag(pkg, r.topLeft, downAt, at)
                                     }
                                 },
                                 onMove = actions.moveDrag,
                                 onEnd = actions.endDrag
                             ),
                         onDockIconBounds = actions.dockIconBounds,
-                        hiddenPkg = (drag.item as? HomeGridItem.AppItem)?.packageName?.takeIf { drag.active && !drag.dropping },
+                        hiddenPkg = if (minimal) md.pkg else (drag.item as? HomeGridItem.AppItem)?.packageName?.takeIf { drag.active && !drag.dropping },
+                        onRemove = if (minimal) actions.minimalRemove else null,
                         bottomGap = dockBottomGap,
                         dockMargin = dockMargin,
                         // Dock icons stand in the grid columns when the counts match.
@@ -1016,6 +1085,33 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                         scale(k, k, pivot = Offset.Zero) { drawLayer(frostLayer) }
                     }
             )
+        }
+
+        // ------------------------------------- carried app (minimalist home screen)
+        md.pkg?.let { pkg ->
+            state.appMap[pkg]?.let { app ->
+                val lift by animateFloatAsState(if (md.dropping) 1f else 1.12f, spring(0.7f, 500f), label = "minimalLift")
+                Box(
+                    Modifier
+                        .zIndex(50f)
+                        .offset {
+                            val o = if (md.dropping) md.dropAnim.value else md.pointer - md.grab
+                            IntOffset(o.x.roundToInt(), o.y.roundToInt())
+                        }
+                        .graphicsLayer { scaleX = lift; scaleY = lift }
+                ) {
+                    if (settings.minimalTemplate == com.tms.os.launcher.model.MinimalTemplate.LIST && !(minimalDock && minimalOrder.indexOf(pkg) < dockCount)) {
+                        Text(
+                            app.displayLabel,
+                            style = androidx.compose.ui.text.TextStyle(
+                                fontFamily = com.tms.os.launcher.ui.theme.SfFamily, fontSize = 27.sp, color = Color.White,
+                                shadow = com.tms.os.launcher.ui.widgets.MinimalShadow
+                            ),
+                            maxLines = 1
+                        )
+                    } else app.iconBitmap?.let { Image(it, null, modifier = Modifier.size(iconSize)) }
+                }
+            }
         }
 
         // ------------------------------------------------- carried item (drag)
@@ -1376,6 +1472,7 @@ private fun HomeChrome(
     dockModifier: Modifier,
     onDockIconBounds: (String, Rect) -> Unit,
     hiddenPkg: String?,
+    onRemove: ((AppInfo) -> Unit)?,
     bottomGap: Dp,
     dockMargin: Dp,
     slotWidth: Dp,
@@ -1460,7 +1557,8 @@ private fun HomeChrome(
                                     onClick = { onAppClick(app, Rect.Zero) },
                                     onClickWithBounds = { bounds -> onAppClick(app, bounds) },
                                     onLongClick = { onAppLongClick(app, Rect.Zero) },
-                                    onLongClickWithBounds = { if (!isJiggleMode) onAppLongClick(app, it) }
+                                    onLongClickWithBounds = { if (!isJiggleMode) onAppLongClick(app, it) },
+                                    onDeleteOrMenuClick = onRemove?.let { remove -> { remove(app) } }
                                 )
                             }
                         }
@@ -1505,6 +1603,8 @@ private interface HomeOps {
     fun springFolder(itemId: String)
     fun leaveFolder()
     fun minimalSetup()
+    fun minimalDragStart(pkg: String, topLeft: Offset, downAt: Offset, at: Offset)
+    fun minimalRemove(pkg: String)
     fun spotlight()
     fun pod(title: String, apps: List<AppInfo>, origin: Rect)
     fun dockIconBounds(pkg: String, r: Rect)
@@ -1535,6 +1635,8 @@ private class HomeActions(ops: androidx.compose.runtime.State<HomeOps>?) {
     val endDrag: () -> Unit = { ops?.value?.endDrag() }
     val spotlight: () -> Unit = { ops?.value?.spotlight() }
     val minimalSetup: () -> Unit = { ops?.value?.minimalSetup() }
+    val minimalDragStart: (String, Offset, Offset, Offset) -> Unit = { p, t, d, a -> ops?.value?.minimalDragStart(p, t, d, a) }
+    val minimalRemove: (AppInfo) -> Unit = { a -> ops?.value?.minimalRemove(a.packageName) }
     val clock: () -> Unit = { ops?.value?.widgetTap(WidgetKind.CLOCK) }
     val pod: (String, List<AppInfo>, Rect) -> Unit = { t, a, o -> ops?.value?.pod(t, a, o) }
     val dockIconBounds: (String, Rect) -> Unit = { p, r -> ops?.value?.dockIconBounds(p, r) }

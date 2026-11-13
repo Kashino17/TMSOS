@@ -37,6 +37,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -96,13 +103,30 @@ import java.util.Locale
 /*                         The minimalist home screen                         */
 /* ========================================================================== */
 
+/** Editing hooks of the minimalist page: wiggle mode, removing and dragging apps into a new order. */
+class MinimalEdit(
+    val jiggle: Boolean = false,
+    /** The app hanging on the finger: its slot stays empty. */
+    val hiddenPkg: String? = null,
+    val onBounds: (String, Rect) -> Unit = { _, _ -> },
+    val onRemove: (AppInfo) -> Unit = {},
+    /** (package, top-left of what is picked up, finger-down position, current position) in root coordinates. */
+    val onDragStart: (String, Offset, Offset, Offset) -> Unit = { _, _, _, _ -> },
+    val onDragMove: (Offset) -> Unit = {},
+    val onDragEnd: () -> Unit = {},
+    val onEnterJiggle: () -> Unit = {},
+    val onExitJiggle: () -> Unit = {}
+)
+
 /**
  * One calm page instead of the icon grid: the clock, and only the apps the
- * user picked. Three layouts:
+ * user picked. Plain layouts:
  *  - [MinimalTemplate.LIST]: the apps as a plain list of names;
  *  - [MinimalTemplate.ICONS]: icons without labels at the bottom;
- *  - [MinimalTemplate.FOCUS]: only the clock (the apps sit in the dock).
- * Touch and hold the background to change apps or layout.
+ *  - [MinimalTemplate.FOCUS]: only the clock (the apps sit in the dock);
+ * and three in iOS style (widgets, labelled icons on the grid, dock).
+ * Editing works as on the regular home screen: touch and hold, then drag an
+ * app to a new place; the others make room.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -121,63 +145,111 @@ fun MinimalHomePage(
     sidePadding: Dp = 16.dp,
     labelFontSizeSp: Float = 12f,
     showLabels: Boolean = true,
-    onWidgetTap: (WidgetKind) -> Unit = {}
+    onWidgetTap: (WidgetKind) -> Unit = {},
+    edit: MinimalEdit = MinimalEdit()
 ) {
+    // Where each app on this page is, for picking it up.
+    val rects = remember { mutableStateMapOf<String, Rect>() }
+    val shown by rememberUpdatedState(apps.map { it.packageName })
+    val editNow by rememberUpdatedState(edit)
+    fun appAt(p: Offset): Pair<String, Rect>? =
+        shown.firstNotNullOfOrNull { pkg -> rects[pkg]?.takeIf { it.inflate(it.height * 0.15f).contains(p) }?.let { pkg to it } }
+    val report: (String, Rect) -> Unit = remember { { pkg, r -> rects[pkg] = r; editNow.onBounds(pkg, r) } }
+
     Box(
         Modifier
             .fillMaxSize()
-            .combinedClickable(remember { MutableInteractionSource() }, null, onClick = {}, onLongClick = onSetup)
+            .combinedClickable(remember { MutableInteractionSource() }, null, onClick = { editNow.onExitJiggle() }, onLongClick = { editNow.onEnterJiggle() })
+            // One gesture for the whole page (it never leaves the composition mid-drag).
+            .homeDragGesture(
+                key = "minimal",
+                jiggle = edit.jiggle,
+                enabled = true,
+                canStart = { down -> appAt(down) != null },
+                onStart = { down, at -> appAt(down)?.let { (pkg, r) -> editNow.onDragStart(pkg, r.topLeft, down, at) } },
+                onMove = { editNow.onDragMove(it) },
+                onEnd = { editNow.onDragEnd() }
+            )
             .padding(bottom = bottomInset)
     ) {
         when (template) {
             MinimalTemplate.LIST -> Column(Modifier.fillMaxSize().padding(start = 30.dp, end = 24.dp, top = 30.dp)) {
                 MinimalClock(env, centered = false, timeSize = 84, onClick = onClock)
                 Spacer(Modifier.height(30.dp))
-                Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) {
-                    apps.take(template.maxApps).forEach { app -> MinimalAppName(app, onAppClick, onAppLongClick) }
-                    if (apps.isEmpty()) EmptyHint(env.strings.minimalEmpty, TextAlign.Start)
+                if (apps.isEmpty()) EmptyHint(env.strings.minimalEmpty, TextAlign.Start, onSetup)
+                LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
+                    items(apps.take(template.maxApps), key = { it.packageName }) { app ->
+                        MinimalAppName(app, edit, report, onAppClick, onAppLongClick, Modifier.animateItem(placementSpec = spring(dampingRatio = 0.8f, stiffness = 380f)))
+                    }
                 }
             }
 
             MinimalTemplate.ICONS -> Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
                 Spacer(Modifier.height(44.dp))
                 MinimalClock(env, centered = true, timeSize = 96, onClick = onClock)
-                Spacer(Modifier.weight(1f))
-                if (apps.isEmpty()) EmptyHint(env.strings.minimalEmpty, TextAlign.Center)
-                apps.take(template.maxApps).chunked(4).forEach { row ->
-                    Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 11.dp),
-                        horizontalArrangement = Arrangement.SpaceEvenly
-                    ) {
-                        row.forEach { app ->
-                            IosAppIcon(
-                                app = app,
-                                iconSize = iconSize,
-                                showLabel = false,
-                                showBadges = false,
-                                onClick = { onAppClick(app, Rect.Zero) },
-                                onClickWithBounds = { b -> onAppClick(app, b) },
-                                onLongClick = { onAppLongClick(app, Rect.Zero) },
-                                onLongClickWithBounds = { b -> onAppLongClick(app, b) }
-                            )
+                if (apps.isEmpty()) { Spacer(Modifier.weight(1f)); EmptyHint(env.strings.minimalEmpty, TextAlign.Center, onSetup) }
+                else LazyVerticalGrid(
+                    columns = GridCells.Fixed(4),
+                    userScrollEnabled = false,
+                    verticalArrangement = Arrangement.spacedBy(22.dp, Alignment.Bottom),
+                    contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 12.dp, bottom = 20.dp),
+                    modifier = Modifier.weight(1f).fillMaxWidth()
+                ) {
+                    items(apps.take(template.maxApps), key = { it.packageName }) { app ->
+                        Box(Modifier.animateItem(placementSpec = spring(dampingRatio = 0.8f, stiffness = 380f)), contentAlignment = Alignment.TopCenter) {
+                            AppCell(app, iconSize, labelFontSizeSp, false, edit, report, onAppClick, onAppLongClick)
                         }
-                        // Keep a short last row aligned with the columns above it.
-                        repeat(4 - row.size) { Spacer(Modifier.size(iconSize)) }
                     }
                 }
-                Spacer(Modifier.height(10.dp))
             }
 
             MinimalTemplate.FOCUS -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.offset(y = (-70).dp)) {
                     MinimalClock(env, centered = true, timeSize = 108, onClick = onClock)
-                    if (apps.isEmpty()) { Spacer(Modifier.height(26.dp)); EmptyHint(env.strings.minimalEmpty, TextAlign.Center) }
+                    if (apps.isEmpty()) { Spacer(Modifier.height(26.dp)); EmptyHint(env.strings.minimalEmpty, TextAlign.Center, onSetup) }
                 }
             }
 
             MinimalTemplate.IOS_WIDGETS, MinimalTemplate.IOS_LARGE, MinimalTemplate.IOS_BOTTOM ->
-                IosStylePage(template, apps, env, iconSize, columns, sidePadding, labelFontSizeSp, showLabels, onAppClick, onAppLongClick, onWidgetTap, onSetup)
+                IosStylePage(template, apps, env, iconSize, columns, sidePadding, labelFontSizeSp, showLabels, edit, report, onAppClick, onAppLongClick, onWidgetTap, onSetup)
         }
+    }
+}
+
+/** One app as an icon: reports where it is, wiggles in edit mode, hides while it is being carried. */
+@Composable
+private fun AppCell(
+    app: AppInfo,
+    iconSize: Dp,
+    labelFontSizeSp: Float,
+    showLabel: Boolean,
+    edit: MinimalEdit,
+    report: (String, Rect) -> Unit,
+    onAppClick: (AppInfo, Rect) -> Unit,
+    onAppLongClick: (AppInfo, Rect) -> Unit
+) {
+    val iconPx = with(LocalDensity.current) { iconSize.toPx() }
+    Box(
+        Modifier
+            .onGloballyPositioned { c ->
+                val b = c.boundsInRoot()
+                report(app.packageName, Rect(b.center.x - iconPx / 2f, b.top, b.center.x + iconPx / 2f, b.top + iconPx))
+            }
+            .graphicsLayer { alpha = if (app.packageName == edit.hiddenPkg) 0f else 1f }
+    ) {
+        IosAppIcon(
+            app = app,
+            iconSize = iconSize,
+            labelFontSizeSp = labelFontSizeSp,
+            showLabel = showLabel,
+            showBadges = false,
+            isJiggleMode = edit.jiggle,
+            onClick = { onAppClick(app, Rect.Zero) },
+            onClickWithBounds = { b -> onAppClick(app, b) },
+            onLongClick = { onAppLongClick(app, Rect.Zero) },
+            onLongClickWithBounds = { b -> if (!edit.jiggle) onAppLongClick(app, b) },
+            onDeleteOrMenuClick = { edit.onRemove(app) }
+        )
     }
 }
 
@@ -197,6 +269,8 @@ private fun IosStylePage(
     sidePadding: Dp,
     labelFontSizeSp: Float,
     showLabels: Boolean,
+    edit: MinimalEdit,
+    report: (String, Rect) -> Unit,
     onAppClick: (AppInfo, Rect) -> Unit,
     onAppLongClick: (AppInfo, Rect) -> Unit,
     onWidgetTap: (WidgetKind) -> Unit,
@@ -231,24 +305,20 @@ private fun IosStylePage(
             }
         }
 
+        /** The apps on the home-screen grid; they glide to their new cell when the order changes. */
         @Composable
-        fun AppRows(list: List<AppInfo>) {
-            list.chunked(columns).forEach { row ->
-                Row(Modifier.height(cellH)) {
-                    row.forEach { app ->
-                        Box(Modifier.width(cell), contentAlignment = Alignment.TopCenter) {
-                            IosAppIcon(
-                                app = app,
-                                iconSize = iconSize,
-                                labelFontSizeSp = labelFontSizeSp,
-                                showLabel = showLabels,
-                                onClick = { onAppClick(app, Rect.Zero) },
-                                onClickWithBounds = { b -> onAppClick(app, b) },
-                                onLongClick = { onAppLongClick(app, Rect.Zero) },
-                                onLongClickWithBounds = { b -> onAppLongClick(app, b) }
-                            )
-                        }
-                    }
+        fun AppGrid(list: List<AppInfo>, bottom: Boolean, modifier: Modifier) {
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(columns),
+                userScrollEnabled = false,
+                verticalArrangement = if (bottom) Arrangement.Bottom else Arrangement.Top,
+                modifier = modifier
+            ) {
+                items(list, key = { it.packageName }) { app ->
+                    Box(
+                        Modifier.height(cellH).animateItem(placementSpec = spring(dampingRatio = 0.8f, stiffness = 380f)),
+                        contentAlignment = Alignment.TopCenter
+                    ) { AppCell(app, iconSize, labelFontSizeSp, showLabels, edit, report, onAppClick, onAppLongClick) }
                 }
             }
         }
@@ -260,17 +330,14 @@ private fun IosStylePage(
                         Widget(WidgetKind.CALENDAR, WidgetSize.SMALL, 2, 2)
                         Widget(WidgetKind.WEATHER, WidgetSize.SMALL, 2, 2)
                     }
-                    AppRows(apps.take(columns * 2))
+                    AppGrid(apps.take(columns * 2), bottom = false, Modifier.weight(1f).fillMaxWidth())
                 }
                 MinimalTemplate.IOS_LARGE -> {
                     Box(Modifier.padding(start = widgetInset)) { Widget(WidgetKind.WEATHER, WidgetSize.LARGE, 4, 4) }
-                    AppRows(apps.take(columns))
+                    AppGrid(apps.take(columns), bottom = false, Modifier.weight(1f).fillMaxWidth())
                 }
-                else -> {
-                    // iOS 18 style: the wallpaper stays free, the apps sit within thumb reach.
-                    Spacer(Modifier.weight(1f))
-                    AppRows(apps.take(columns * 2))
-                }
+                // iOS 18 style: the wallpaper stays free, the apps sit within thumb reach.
+                else -> AppGrid(apps.take(columns * 2), bottom = true, Modifier.weight(1f).fillMaxWidth())
             }
         }
     }
@@ -314,30 +381,51 @@ private fun minimalText(size: Int, weight: FontWeight, color: Color) =
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun MinimalAppName(app: AppInfo, onClick: (AppInfo, Rect) -> Unit, onLongClick: (AppInfo, Rect) -> Unit) {
+private fun MinimalAppName(
+    app: AppInfo,
+    edit: MinimalEdit,
+    report: (String, Rect) -> Unit,
+    onClick: (AppInfo, Rect) -> Unit,
+    onLongClick: (AppInfo, Rect) -> Unit,
+    modifier: Modifier = Modifier
+) {
     var bounds by remember { mutableStateOf(Rect.Zero) }
     val source = remember { MutableInteractionSource() }
     val pressed by source.collectIsPressedAsState()
-    val alpha by animateFloatAsState(if (pressed) 0.45f else 1f, tween(if (pressed) 40 else 220), label = "press")
-    Box(
-        contentAlignment = Alignment.CenterStart,
-        modifier = Modifier
+    val alpha by animateFloatAsState(if (pressed && !edit.jiggle) 0.45f else 1f, tween(if (pressed) 40 else 220), label = "press")
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier
             .height(52.dp)
-            .combinedClickable(source, null, onClick = { onClick(app, bounds) }, onLongClick = { onLongClick(app, bounds) })
-            .graphicsLayer { this.alpha = alpha }
+            .graphicsLayer { this.alpha = if (app.packageName == edit.hiddenPkg) 0f else alpha }
     ) {
+        if (edit.jiggle) {
+            RemoveBadge(true, Modifier) { edit.onRemove(app) }
+            Spacer(Modifier.width(12.dp))
+        }
         Text(
             app.displayLabel,
             style = minimalText(27, FontWeight.Normal, Color.White).copy(letterSpacing = (-0.3).sp),
             maxLines = 1, overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.onGloballyPositioned { bounds = it.boundsInRoot() }
+            modifier = Modifier
+                .onGloballyPositioned { bounds = it.boundsInRoot(); report(app.packageName, bounds) }
+                .jiggle(edit.jiggle, app.packageName.hashCode(), amplitude = 0.6f)
+                .combinedClickable(
+                    source, null,
+                    onClick = { if (!edit.jiggle) onClick(app, bounds) },
+                    onLongClick = { if (!edit.jiggle) onLongClick(app, bounds) }
+                )
         )
     }
 }
 
 @Composable
-private fun EmptyHint(text: String, align: TextAlign) {
-    Text(text, style = minimalText(16, FontWeight.Medium, Color.White.copy(alpha = 0.7f)).copy(textAlign = align), modifier = Modifier.padding(vertical = 12.dp))
+private fun EmptyHint(text: String, align: TextAlign, onClick: () -> Unit) {
+    Text(
+        text,
+        style = minimalText(16, FontWeight.Medium, Color.White.copy(alpha = 0.7f)).copy(textAlign = align),
+        modifier = Modifier.clickable(remember { MutableInteractionSource() }, null, onClick = onClick).padding(vertical = 12.dp)
+    )
 }
 
 /* ========================================================================== */

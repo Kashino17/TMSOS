@@ -8,6 +8,10 @@ Ein maßgeschneiderter, werbefreier und kostenloser **iOS-Style Homescreen-Launc
 
 ---
 
+## Neu in v5.6.1 – Minimal-Modus bearbeiten
+- **Reihenfolge per Ziehen ändern** im minimalistischen Home-Bildschirm: App gedrückt halten und ziehen – auf der Seite, im Dock und zwischen beiden; die anderen rücken animiert zur Seite. Funktioniert in allen sechs Vorlagen.
+- **Bearbeiten-Modus wie gewohnt**: Hintergrund gedrückt halten lässt die Apps wackeln, „−“ entfernt eine App aus der Auswahl, „Fertig“ beendet. Vorlage und App-Auswahl stehen unter „Bearbeiten“ → „Minimalistisch“.
+
 ## Neu in v5.6.0 – natürlicher Dunkel-Stil, schneller, sparsamer
 - **Icon-Stil „Dunkel“ neu**: helle Platten werden dunkel und Logos bleiben, wie sie sind; ein schwarzes Symbol wird hell (Revolut, ChatGPT); einfarbige Icons tauschen die Rollen (WhatsApp: dunkler Grund, grünes Symbol); bunte Icons mit Logo bekommen einen tieferen Farbton statt hell zu bleiben; bereits dunkle Icons bleiben unverändert. Kanten ohne hellen Saum.
 - **Sofort da nach einem Neustart des Launchers**: fertige Icons liegen jetzt auf dem Speicher statt jedes Mal neu berechnet zu werden; Apps werden parallel geladen; die Icons fliegen mit derselben Animation ein wie bei der Rückkehr aus einer App.
