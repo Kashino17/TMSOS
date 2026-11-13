@@ -179,9 +179,11 @@ fun IosSpotlight(
         Modifier
             .fillMaxSize()
             .graphicsLayer { alpha = progress().coerceIn(0f, 1f) }
-            // Tap on empty space or swipe up: back to the home screen.
-            .clickable(remember { MutableInteractionSource() }, null, onClick = onClose)
-            .pointerInput(Unit) {
+            // Tap on empty space or swipe up: back to the home screen. Only while it is open:
+            // a half-pulled, nearly invisible Spotlight must never swallow the home screen's touches.
+            .clickable(remember { MutableInteractionSource() }, null, enabled = visible, onClick = onClose)
+            .pointerInput(visible) {
+                if (!visible) return@pointerInput
                 var total = 0f
                 detectVerticalDragGestures(
                     onDragStart = { total = 0f },

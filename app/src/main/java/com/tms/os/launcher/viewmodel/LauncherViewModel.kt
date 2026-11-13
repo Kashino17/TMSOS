@@ -125,7 +125,10 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         refreshApps()
         refreshLiveWeatherIfNeeded()
         // Solvado widgets show the last known figures at once, fresh ones follow.
-        _uiState.update { it.copy(solvado = solvadoRepo.cachedState()) }
+        viewModelScope.launch {
+            val cached = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { solvadoRepo.cachedState() }
+            _uiState.update { if (it.solvado.updatedAt == 0L) it.copy(solvado = cached) else it }
+        }
     }
 
     override fun onCleared() {

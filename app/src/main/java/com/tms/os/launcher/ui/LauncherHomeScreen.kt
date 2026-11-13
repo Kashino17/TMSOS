@@ -650,14 +650,18 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                 viewModel.commitHomeOrder(next)
                 viewModel.openFolder(folder)
                 scope.launch {
-                    drag.dropping = true
-                    drag.dropAnim.snapTo(drag.pointer - drag.grab)
-                    val idx = apps.indexOf(pkg)
-                    val target = folderSlots[sessionId]?.takeIf { it.second == idx / 9 }?.first?.iconTopLeft(idx % 9)
-                    if (target != null) drag.dropAnim.animateTo(target - Offset((geometry.cellW - geometry.iconPx) / 2f, 0f), spring(0.8f, 400f))
-                    else delay(120)
-                    fs.clear(); sessionFolder = null; ownerFolder = null
-                    drag.clear()
+                    try {
+                        drag.dropping = true
+                        drag.dropAnim.snapTo(drag.pointer - drag.grab)
+                        val idx = apps.indexOf(pkg)
+                        val target = folderSlots[sessionId]?.takeIf { it.second == idx / 9 }?.first?.iconTopLeft(idx % 9)
+                        if (target != null) drag.dropAnim.animateTo(target - Offset((geometry.cellW - geometry.iconPx) / 2f, 0f), spring(0.8f, 400f))
+                        else delay(120)
+                    } finally {
+                        // Even if the drop animation is interrupted: nothing may stay "being dragged".
+                        fs.clear(); sessionFolder = null; ownerFolder = null
+                        if (drag.dropping) drag.clear()
+                    }
                 }
                 return
             }
@@ -680,6 +684,7 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
             if (pkg != null && state.dockPackages.contains(pkg)) viewModel.setDockOrder(state.dockPackages - pkg)
             ownerFolder = null
             scope.launch {
+              try {
                 drag.dropping = true
                 drag.dropAnim.snapTo(drag.pointer - drag.grab)
                 if (folderTarget != null) {
@@ -702,7 +707,11 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                     val target = p?.let { rootOfPlaced(it) }
                     if (target != null) drag.dropAnim.animateTo(target, spring(0.78f, 380f))
                 }
-                drag.clear()
+              } finally {
+                // Even if the drop animation is interrupted: nothing may stay "being dragged",
+                // which would keep the pager and every home gesture switched off.
+                if (drag.dropping) drag.clear()
+              }
             }
         }
 
@@ -737,13 +746,16 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                 val order = md.order ?: settings.minimalApps
                 viewModel.updateSettings { it.copy(minimalApps = order) }
                 scope.launch {
-                    val target = md.slots.getOrNull(order.indexOf(pkg))
-                    if (target != null && settings.minimalTemplate != com.tms.os.launcher.model.MinimalTemplate.LIST) {
-                        md.dropping = true
-                        md.dropAnim.snapTo(md.pointer - md.grab)
-                        md.dropAnim.animateTo(target - Offset(geometry.iconPx / 2f, geometry.iconPx / 2f), spring(0.8f, 400f))
+                    try {
+                        val target = md.slots.getOrNull(order.indexOf(pkg))
+                        if (target != null && settings.minimalTemplate != com.tms.os.launcher.model.MinimalTemplate.LIST) {
+                            md.dropping = true
+                            md.dropAnim.snapTo(md.pointer - md.grab)
+                            md.dropAnim.animateTo(target - Offset(geometry.iconPx / 2f, geometry.iconPx / 2f), spring(0.8f, 400f))
+                        }
+                    } finally {
+                        if (md.pkg == pkg) md.clear()
                     }
-                    md.clear()
                 }
             }
             override fun minimalDragStart(pkg: String, topLeft: Offset, downAt: Offset, at: Offset) {
@@ -889,8 +901,11 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                         val tracker = VelocityTracker()
                         tracker.addPosition(down.uptimeMillis, down.position)
                         var pulling = false
+                        var opened = false
                         val onStack = stackRects.values.any { it.contains(down.position) }
-                        while (true) {
+                        // However the pull ends – release, a second finger, the system taking the
+                        // gesture, this handler being restarted – Spotlight ends up open or closed.
+                        try { while (true) {
                             val ev = awaitPointerEvent(PointerEventPass.Initial)
                             val c = ev.changes.firstOrNull { it.id == down.id } ?: break
                             tracker.addPosition(c.uptimeMillis, c.position)
@@ -899,8 +914,7 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                             if (!c.pressed) {
                                 if (pulling) {
                                     val v = tracker.calculateVelocity().y
-                                    if (spotlight.value > 0.35f || v > 1200f) viewModel.openSpotlight()
-                                    else scope.launch { spotlight.animateTo(0f, spring(0.9f, 400f)) }
+                                    if (spotlight.value > 0.35f || v > 1200f) { opened = true; viewModel.openSpotlight() }
                                 }
                                 break
                             }
@@ -923,6 +937,8 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                                 val p = if (raw <= 1f) raw else 1f + (raw - 1f) * 0.25f
                                 scope.launch { spotlight.snapTo(p.coerceAtLeast(0f)) }
                             }
+                        } } finally {
+                            if (pulling && !opened) scope.launch { spotlight.animateTo(0f, spring(0.9f, 400f)) }
                         }
                     }
                 }
@@ -1265,8 +1281,12 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                 onAppLongClick = actions.appMenu,
                 onRequestClose = {
                     scope.launch {
-                        podProgress.animateTo(0f, spring(dampingRatio = 1f, stiffness = 260f, visibilityThreshold = 0.004f))
-                        openPod = null
+                        try {
+                            podProgress.animateTo(0f, spring(dampingRatio = 1f, stiffness = 260f, visibilityThreshold = 0.004f))
+                        } finally {
+                            // Interrupted on its way out: still gone, never a hidden layer over the screen.
+                            if (podProgress.value < 0.5f) openPod = null
+                        }
                     }
                 }
             )

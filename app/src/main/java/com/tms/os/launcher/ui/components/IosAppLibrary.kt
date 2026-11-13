@@ -572,6 +572,7 @@ fun IosLibraryCategoryView(
     onRequestClose: () -> Unit
 ) {
     BackHandler(onBack = onRequestClose)
+    val interactive by remember { androidx.compose.runtime.derivedStateOf { progress() > 0.3f } }
 
     BoxWithConstraints(
         Modifier
@@ -586,7 +587,8 @@ fun IosLibraryCategoryView(
                     (origin.center.x / size.width).coerceIn(0f, 1f), (origin.center.y / size.height).coerceIn(0f, 1f)
                 )
             }
-            .clickable(remember { MutableInteractionSource() }, null, onClick = onRequestClose)
+            // Only once it is (almost) there: a category caught at progress 0 must not block the screen.
+            .clickable(remember { MutableInteractionSource() }, null, enabled = interactive, onClick = onRequestClose)
     ) {
         val cell = (maxWidth - sidePadding * 2) / columns
         val rows = (apps.size + columns - 1) / columns
