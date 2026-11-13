@@ -239,12 +239,14 @@ class HomeDragState {
     var overDock by mutableStateOf(false)
     /** Free placement preview while dragging: every item's cell (null = unchanged). */
     var anchors by mutableStateOf<Map<String, com.tms.os.launcher.domain.GridAnchor>?>(null)
+    /** The layout when the drag began; every preview is computed from it. */
+    var basePages: List<List<PlacedCell<HomeGridItem>>>? = null
 
     val active get() = item != null
 
     fun clear() {
         item = null; order = null; folderTarget = null; hover = null; edge = 0; dropping = false; dropScale = 1f
-        external = false; dockOrder = null; overDock = false; anchors = null
+        external = false; dockOrder = null; overDock = false; anchors = null; basePages = null
     }
 }
 

@@ -8,6 +8,11 @@ Ein maßgeschneiderter, werbefreier und kostenloser **iOS-Style Homescreen-Launc
 
 ---
 
+## Neu in v5.8.2 – Platzieren ohne Zurückspringen
+- Ein Icon landet genau in der Zelle, in der du es loslässt – auch wenn du schnell loslässt.
+- Die Vorschau beim Ziehen geht immer von der Anordnung vor dem Ziehen aus: weiterziehen macht das Ausweichen anderer Icons rückgängig, statt es aufzustapeln.
+- Das Raster reicht jetzt bis zum Dock; der freie Streifen unter der letzten Reihe ist nutzbar. Bisherige Anordnungen bleiben erhalten.
+
 ## Neu in v5.8.1 – frei positionierbar, Einstellungen wiederhergestellt
 - **Apps und Widgets frei platzieren** wie bei iOS 18: dort ablegen, wo du willst – oben, unten, in der Mitte, Lücken bleiben. Liegt dort schon ein Icon, rückt es eine Zelle weiter. Gilt für den normalen und den minimalistischen Home-Bildschirm; Deckel- und Innendisplay merken sich ihre Anordnung getrennt.
 - **Wiederhergestellt**: Die in v5.8.0 verlorene App-Auswahl des iOS-Minimal-Bildschirms wird einmalig zurückgeholt.

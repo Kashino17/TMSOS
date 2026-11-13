@@ -317,7 +317,6 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
             fontScale = density.fontScale
         )
         val columns = layout.columns
-        val rows = layout.rows
         val iconSize = layout.iconSize.dp
         val sidePadding = layout.sidePadding.dp
         val dockCount = settings.dockIconCount.coerceIn(3, 6)
@@ -331,6 +330,13 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
         // Search pill row + dock + gap: home pages keep clear of it, Today View
         // and App Library run underneath it to the bottom edge like on iOS.
         val chromeHeight = PillAreaHeight + dockHeight + dockBottomGap
+        // As many square rows as the page really has room for: with free placement the
+        // space down to the dock must be usable, not a strip below the last row.
+        val rows = run {
+            val pageHeight = maxHeight - IosMetrics.statusBarHeight - chromeHeight - 9.dp - 4.dp
+            val cell = (maxWidth / perScreen - sidePadding * 2) / columns
+            maxOf(layout.rows, if (cell > 0.dp) (pageHeight / cell).toInt() else layout.rows)
+        }
 
         // Minimalist mode: one calm page instead of the icon grid. The grid itself stays
         // stored untouched, so switching back brings everything back.
@@ -344,7 +350,9 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
         val displayOrder = if (minimal) emptyList() else drag.order ?: state.homeGridItems
         // Free placement (iOS 18): each grid shape keeps its own cells; none = reading order.
         val shape = "${columns}x$rows"
-        val displayAnchors = drag.anchors ?: state.gridAnchors[shape].orEmpty()
+        // A placement saved for the same number of columns still fits when rows were added.
+        val savedAnchors = state.gridAnchors[shape] ?: state.gridAnchors.entries.firstOrNull { it.key.startsWith("${columns}x") }?.value.orEmpty()
+        val displayAnchors = drag.anchors ?: savedAnchors
         val pages = remember(displayOrder, columns, rows, displayAnchors) {
             packAnchored(displayOrder, columns, { rows }, { it.span() }) { displayAnchors[it.id] }
         }
@@ -611,6 +619,17 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
             }
         }
 
+        fun placeDragged(h: Hover) {
+            val item = drag.item ?: return
+            val order = drag.order ?: return
+            // Always measured against the layout as it was when the drag began: moving on
+            // undoes the previous push instead of piling one onto the other.
+            val base = drag.basePages ?: pages.also { drag.basePages = it }
+            val moved = moveAnchored(base, { it.id }, item, com.tms.os.launcher.domain.GridAnchor(h.page, h.col, h.row), columns, { rows }) { it.span() } ?: return
+            if (order.none { it.id == item.id }) drag.order = order + item
+            if (moved != drag.anchors) drag.anchors = moved
+        }
+
         fun dragEnd() {
             val item = drag.item ?: return
             val folderTarget = drag.folderTarget
@@ -640,6 +659,8 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                 return
             }
             val intoDock = pkg != null && drag.overDock && drag.dockOrder?.contains(pkg) == true
+            // The cell under the finger at the moment of release is where it goes.
+            drag.hover?.let { h -> if (!h.folder && folderTarget == null && !drag.overDock && fs.folderId == null) placeDragged(h) }
             // Whatever moved aside during the drag stays where it is now.
             drag.anchors?.let { viewModel.commitAnchors(shape, it - item.id) }
             if (intoDock) {
@@ -671,7 +692,7 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 } else {
                     viewModel.commitHomeOrder(finalOrder)
-                    val finalAnchors = drag.anchors ?: state.gridAnchors[shape].orEmpty()
+                    val finalAnchors = drag.anchors ?: savedAnchors
                     drag.anchors?.let { viewModel.commitAnchors(shape, it) }
                     val finalPages = packAnchored(finalOrder, columns, { rows }, { it.span() }) { finalAnchors[it.id] }
                     val p = finalPages.asSequence().flatten().firstOrNull { it.item.id == item.id }
@@ -774,6 +795,7 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                 viewModel.setJiggleMode(false)
                 showMinimalSetup = true
             }
+            override fun placeAt(h: Hover) = placeDragged(h)
             override fun spotlight() { viewModel.openSpotlight() }
             override fun pod(title: String, apps: List<AppInfo>, origin: Rect) {
                 openPod = OpenPod(title, apps, origin)
@@ -790,7 +812,8 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
         LaunchedEffect(drag.hover) {
             val h = drag.hover ?: return@LaunchedEffect
             val item = drag.item ?: return@LaunchedEffect
-            if (h.overId == item.id) return@LaunchedEffect
+            // Back over its own place: undo whatever made room before.
+            if (h.overId == item.id) { ops.value.placeAt(h); return@LaunchedEffect }
             if (h.folder) {
                 delay(420)
                 drag.folderTarget = h.overId
@@ -803,14 +826,10 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                     ops.value.springFolder(over)
                 }
             } else {
-                // A beat longer than a passing finger takes, so icons only move where the item rests.
-                delay(260)
-                val order = drag.order ?: return@LaunchedEffect
-                // The item goes exactly to the cell under the finger; whatever stands there makes room.
-                val moved = moveAnchored(pages, { it.id }, item, com.tms.os.launcher.domain.GridAnchor(h.page, h.col, h.row), columns, { rows }) { it.span() }
-                    ?: return@LaunchedEffect
-                if (order.none { it.id == item.id }) drag.order = order + item
-                if (moved != drag.anchors) drag.anchors = moved
+                // An empty cell takes the item at once; only when something has to make room
+                // does it wait a beat, so icons move where the item rests, not where it passes.
+                if (h.overId != null) delay(260)
+                ops.value.placeAt(h)
             }
         }
         // Minimalist page: the others make room after a short dwell.
@@ -1669,6 +1688,7 @@ private interface HomeOps {
     fun leaveFolder()
     fun widgetSettings(widgetId: String)
     fun minimalSetup()
+    fun placeAt(h: Hover)
     fun minimalDragStart(pkg: String, topLeft: Offset, downAt: Offset, at: Offset)
     fun minimalRemove(pkg: String)
     fun spotlight()
