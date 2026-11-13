@@ -364,13 +364,22 @@ data class LauncherSettings(
 
 
 /** Layouts of the minimalist home screen. */
-enum class MinimalTemplate(val id: String, val maxApps: Int) {
+enum class MinimalTemplate(val id: String, val maxApps: Int, val usesDock: Boolean = false, val ios: Boolean = false) {
     /** Clock on top, the apps as a plain list of names. */
     LIST("list", 10),
     /** Clock on top, a few rows of icons without labels at the bottom. */
     ICONS("icons", 12),
     /** Only the clock; the apps sit in the dock. */
-    FOCUS("focus", 4);
+    FOCUS("focus", 4, usesDock = true),
+
+    // The same idea with the regular iPhone building blocks: widget plates,
+    // labelled icons on the home-screen grid and the glass dock.
+    /** Two small widgets on top, the apps in the grid below, four in the dock. */
+    IOS_WIDGETS("ios_widgets", 12, usesDock = true, ios = true),
+    /** One large widget, a single row of apps, four in the dock. */
+    IOS_LARGE("ios_large", 8, usesDock = true, ios = true),
+    /** Free wallpaper on top, the apps in the rows right above the dock. */
+    IOS_BOTTOM("ios_bottom", 12, usesDock = true, ios = true);
 
     companion object {
         fun fromId(id: String?): MinimalTemplate = entries.find { it.id == id } ?: LIST

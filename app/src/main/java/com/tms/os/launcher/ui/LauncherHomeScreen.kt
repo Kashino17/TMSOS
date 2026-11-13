@@ -316,7 +316,8 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
         // stored untouched, so switching back brings everything back.
         val minimal = settings.minimalMode
         val minimalApps = remember(settings.minimalApps, state.appMap) { settings.minimalApps.mapNotNull { state.appMap[it] } }
-        val minimalDock = minimal && settings.minimalTemplate == com.tms.os.launcher.model.MinimalTemplate.FOCUS
+        // Templates with a dock put the first apps there; the rest go on the page.
+        val minimalDock = minimal && settings.minimalTemplate.usesDock
         val displayOrder = if (minimal) emptyList() else drag.order ?: state.homeGridItems
         val pages = remember(displayOrder, columns, rows) {
             packIntoPages(displayOrder, columns, { rows }) { it.span() }
@@ -887,7 +888,12 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                                 )
                                 else -> if (minimal) com.tms.os.launcher.ui.home.MinimalHomePage(
                                     template = settings.minimalTemplate,
-                                    apps = minimalApps,
+                                    apps = if (settings.minimalTemplate.ios) minimalApps.drop(dockCount) else minimalApps,
+                                    columns = columns,
+                                    sidePadding = sidePadding,
+                                    labelFontSizeSp = settings.labelFontSizeSp,
+                                    showLabels = settings.showAppLabels,
+                                    onWidgetTap = actions.widgetTap,
                                     env = widgetEnv,
                                     iconSize = iconSize,
                                     // Without a dock only the search pill is left at the bottom.

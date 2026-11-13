@@ -76,6 +76,10 @@ import com.tms.os.launcher.model.AppInfo
 import com.tms.os.launcher.model.AppLanguage
 import com.tms.os.launcher.model.LauncherSettings
 import com.tms.os.launcher.model.MinimalTemplate
+import com.tms.os.launcher.model.WidgetKind
+import com.tms.os.launcher.model.WidgetSize
+import com.tms.os.launcher.ui.widgets.IosWidget
+import androidx.compose.foundation.layout.BoxWithConstraints
 import com.tms.os.launcher.ui.components.IosAppIcon
 import com.tms.os.launcher.ui.theme.HomeStrings
 import com.tms.os.launcher.ui.theme.IosText
@@ -111,7 +115,13 @@ fun MinimalHomePage(
     onAppClick: (AppInfo, Rect) -> Unit,
     onAppLongClick: (AppInfo, Rect) -> Unit,
     onClock: () -> Unit,
-    onSetup: () -> Unit
+    onSetup: () -> Unit,
+    /** Home-screen grid of the regular layout, for the iOS-style templates. */
+    columns: Int = 4,
+    sidePadding: Dp = 16.dp,
+    labelFontSizeSp: Float = 12f,
+    showLabels: Boolean = true,
+    onWidgetTap: (WidgetKind) -> Unit = {}
 ) {
     Box(
         Modifier
@@ -162,6 +172,104 @@ fun MinimalHomePage(
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.offset(y = (-70).dp)) {
                     MinimalClock(env, centered = true, timeSize = 108, onClick = onClock)
                     if (apps.isEmpty()) { Spacer(Modifier.height(26.dp)); EmptyHint(env.strings.minimalEmpty, TextAlign.Center) }
+                }
+            }
+
+            MinimalTemplate.IOS_WIDGETS, MinimalTemplate.IOS_LARGE, MinimalTemplate.IOS_BOTTOM ->
+                IosStylePage(template, apps, env, iconSize, columns, sidePadding, labelFontSizeSp, showLabels, onAppClick, onAppLongClick, onWidgetTap, onSetup)
+        }
+    }
+}
+
+/**
+ * The iOS-style templates: the regular iPhone home screen, reduced. Same grid
+ * cells, same widget plates, same labelled icons as the full layout — only far
+ * fewer of them. (The dock with the first apps is drawn by the home screen.)
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun IosStylePage(
+    template: MinimalTemplate,
+    apps: List<AppInfo>,
+    env: WidgetEnv,
+    iconSize: Dp,
+    columns: Int,
+    sidePadding: Dp,
+    labelFontSizeSp: Float,
+    showLabels: Boolean,
+    onAppClick: (AppInfo, Rect) -> Unit,
+    onAppLongClick: (AppInfo, Rect) -> Unit,
+    onWidgetTap: (WidgetKind) -> Unit,
+    onSetup: () -> Unit
+) {
+    BoxWithConstraints(Modifier.fillMaxSize().padding(start = sidePadding, end = sidePadding, top = 9.dp, bottom = 4.dp)) {
+        // Square cells, exactly as on the regular home screen.
+        val cell = maxWidth / columns
+        // Five rows must always fit (large widget plus one row of apps), also on wide, low screens.
+        val cellH = minOf(cell, maxHeight / 5)
+        // Widgets span four columns; on wider grids they sit in the middle.
+        val widgetInset = cell * ((columns - 4).coerceAtLeast(0) / 2f)
+
+        @Composable
+        fun Widget(kind: WidgetKind, size: WidgetSize, cols: Int, rows: Int) {
+            // A widget reaches from the first icon's left edge to the last icon's right edge.
+            Column(Modifier.width(cell * cols).height(cellH * rows), horizontalAlignment = Alignment.CenterHorizontally) {
+                IosWidget(
+                    kind, size, env,
+                    Modifier
+                        .size(cell * (cols - 1) + iconSize, cellH * (rows - 1) + iconSize)
+                        .combinedClickable(remember { MutableInteractionSource() }, null, onClick = { onWidgetTap(kind) }, onLongClick = onSetup)
+                )
+                if (showLabels) {
+                    Spacer(Modifier.height(5.dp))
+                    Text(
+                        env.strings.widgetName(kind),
+                        style = TextStyle(fontFamily = SfFamily, fontWeight = FontWeight.Medium, fontSize = labelFontSizeSp.sp, color = Color.White, shadow = MinimalShadow),
+                        maxLines = 1
+                    )
+                }
+            }
+        }
+
+        @Composable
+        fun AppRows(list: List<AppInfo>) {
+            list.chunked(columns).forEach { row ->
+                Row(Modifier.height(cellH)) {
+                    row.forEach { app ->
+                        Box(Modifier.width(cell), contentAlignment = Alignment.TopCenter) {
+                            IosAppIcon(
+                                app = app,
+                                iconSize = iconSize,
+                                labelFontSizeSp = labelFontSizeSp,
+                                showLabel = showLabels,
+                                onClick = { onAppClick(app, Rect.Zero) },
+                                onClickWithBounds = { b -> onAppClick(app, b) },
+                                onLongClick = { onAppLongClick(app, Rect.Zero) },
+                                onLongClickWithBounds = { b -> onAppLongClick(app, b) }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        Column(Modifier.fillMaxSize()) {
+            when (template) {
+                MinimalTemplate.IOS_WIDGETS -> {
+                    Row(Modifier.padding(start = widgetInset)) {
+                        Widget(WidgetKind.CALENDAR, WidgetSize.SMALL, 2, 2)
+                        Widget(WidgetKind.WEATHER, WidgetSize.SMALL, 2, 2)
+                    }
+                    AppRows(apps.take(columns * 2))
+                }
+                MinimalTemplate.IOS_LARGE -> {
+                    Box(Modifier.padding(start = widgetInset)) { Widget(WidgetKind.WEATHER, WidgetSize.LARGE, 4, 4) }
+                    AppRows(apps.take(columns))
+                }
+                else -> {
+                    // iOS 18 style: the wallpaper stays free, the apps sit within thumb reach.
+                    Spacer(Modifier.weight(1f))
+                    AppRows(apps.take(columns * 2))
                 }
             }
         }
@@ -321,15 +429,25 @@ fun MinimalSetupSheet(
                         }
                         Text(strings.minimalHint, style = IosText.footnote.copy(color = Secondary), modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp))
                         Spacer(Modifier.height(22.dp))
-                        SheetHeader(strings.template, null)
-                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-                            listOf(
+                        listOf(
+                            strings.templatesPlain to listOf(
                                 MinimalTemplate.LIST to strings.templateList,
                                 MinimalTemplate.ICONS to strings.templateIcons,
                                 MinimalTemplate.FOCUS to strings.templateFocus
-                            ).forEach { (template, label) ->
-                                TemplateCard(template, label, settings.minimalTemplate == template, Modifier.weight(1f)) {
-                                    onSettingsChange { it.copy(minimalTemplate = template) }
+                            ),
+                            strings.templatesIos to listOf(
+                                MinimalTemplate.IOS_WIDGETS to strings.templateIosWidgets,
+                                MinimalTemplate.IOS_LARGE to strings.templateIosLarge,
+                                MinimalTemplate.IOS_BOTTOM to strings.templateIosBottom
+                            )
+                        ).forEachIndexed { g, (title, templates) ->
+                            if (g > 0) Spacer(Modifier.height(18.dp))
+                            SheetHeader("${strings.template} · $title", null)
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                                templates.forEach { (template, label) ->
+                                    TemplateCard(template, label, settings.minimalTemplate == template, Modifier.weight(1f)) {
+                                        onSettingsChange { it.copy(minimalTemplate = template) }
+                                    }
                                 }
                             }
                         }
@@ -451,6 +569,38 @@ private fun TemplateCard(template: MinimalTemplate, label: String, selected: Boo
                             repeat(4) { Box(Modifier.size(13.dp).clip(RoundedCornerShape(4.dp)).background(ink.copy(alpha = 0.8f))) }
                         }
                     }
+                }
+                MinimalTemplate.IOS_WIDGETS, MinimalTemplate.IOS_LARGE, MinimalTemplate.IOS_BOTTOM -> Column(Modifier.fillMaxSize()) {
+                    @Composable
+                    fun Icons(n: Int) = Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                        repeat(4) { i -> Box(Modifier.size(13.dp).clip(RoundedCornerShape(4.dp)).background(if (i < n) ink.copy(alpha = 0.8f) else Color.Transparent)) }
+                    }
+                    when (template) {
+                        MinimalTemplate.IOS_WIDGETS -> {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Box(Modifier.weight(1f).aspectRatio(1f).clip(RoundedCornerShape(8.dp)).background(Color.White.copy(alpha = 0.22f)))
+                                Box(Modifier.weight(1f).aspectRatio(1f).clip(RoundedCornerShape(8.dp)).background(Color(0xFF3B82D9)))
+                            }
+                            Spacer(Modifier.height(6.dp))
+                            Icons(4); Icons(4)
+                            Spacer(Modifier.weight(1f))
+                        }
+                        MinimalTemplate.IOS_LARGE -> {
+                            Box(Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(9.dp)).background(Color(0xFF3B82D9)))
+                            Spacer(Modifier.height(6.dp))
+                            Icons(4)
+                            Spacer(Modifier.weight(1f))
+                        }
+                        else -> {
+                            Spacer(Modifier.weight(1f))
+                            Icons(4); Icons(4)
+                            Spacer(Modifier.height(4.dp))
+                        }
+                    }
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Color.White.copy(alpha = 0.12f)).padding(5.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) { repeat(4) { Box(Modifier.size(12.dp).clip(RoundedCornerShape(4.dp)).background(ink.copy(alpha = 0.8f))) } }
                 }
                 MinimalTemplate.FOCUS -> Box(Modifier.fillMaxSize()) {
                     Column(Modifier.align(Alignment.Center).offset(y = (-14).dp), horizontalAlignment = Alignment.CenterHorizontally) {

@@ -8,6 +8,10 @@ Ein maßgeschneiderter, werbefreier und kostenloser **iOS-Style Homescreen-Launc
 
 ---
 
+## Neu in v5.5.1 – Minimal-Vorlagen im iOS-Stil
+- Drei weitere Vorlagen für den minimalistischen Home-Bildschirm, gebaut aus den normalen iPhone-Bausteinen (Widget-Kacheln, beschriftete Icons im Raster, Glas-Dock): **Widgets** (Kalender + Wetter, zwei App-Reihen), **Groß** (großes Wetter-Widget, eine App-Reihe), **Unten** (freies Hintergrundbild, Apps direkt über dem Dock). Die ersten vier gewählten Apps stehen jeweils im Dock.
+- Die drei schlichten Vorlagen (Liste, Symbole, Fokus) bleiben.
+
 ## Neu in v5.5.0 – Minimalistischer Modus, mehr Widgets, besserer Rechner
 - **Minimalistischer Home-Bildschirm** (Bearbeiten → „Minimalistisch“): wichtigste Apps aus einer durchsuchbaren Liste wählen, drei Vorlagen – **Liste** (Uhr + App-Namen), **Symbole** (Uhr + Icons ohne Beschriftung), **Fokus** (nur Uhr, Apps im Dock). Der normale Home-Bildschirm bleibt gespeichert; zum Ändern den Hintergrund gedrückt halten.
 - **Fünf neue Widgets**: Minimal (nur Schrift, ohne Hintergrund), Digitaluhr, Datum, Jahr (Fortschritt), Bildschirmzeit (braucht den Nutzungszugriff).
