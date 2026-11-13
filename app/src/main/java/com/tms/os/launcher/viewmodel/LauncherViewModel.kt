@@ -63,6 +63,7 @@ data class LauncherUiState(
     val isUsageStatsGranted: Boolean = false,
     val batteryPercent: Int = 85,
     val screenTime: com.tms.os.launcher.model.ScreenTime = com.tms.os.launcher.model.ScreenTime(),
+    val solvado: com.tms.os.launcher.model.SolvadoState = com.tms.os.launcher.model.SolvadoState(),
     val storageRamInfo: SystemStorageRamInfo = SystemStorageRamInfo(6.4f, 12.0f, 128, 512),
     val isWeatherRefreshing: Boolean = false
 ) {
@@ -73,6 +74,7 @@ data class LauncherUiState(
 class LauncherViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = LauncherRepository(application.applicationContext)
+    private val solvadoRepo = com.tms.os.launcher.data.SolvadoRepository(application.applicationContext)
 
     private val _uiState = MutableStateFlow(
         LauncherUiState(
@@ -116,6 +118,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
         refreshApps()
         refreshLiveWeatherIfNeeded()
+        // Solvado widgets show the last known figures at once, fresh ones follow.
+        _uiState.update { it.copy(solvado = solvadoRepo.cachedState()) }
     }
 
     override fun onCleared() {
@@ -423,6 +427,106 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    /* ---------------------------------------------------------- TMS Solvado */
+
+    private var solvadoJob: kotlinx.coroutines.Job? = null
+    private var solvadoLoadedAt = 0L
+
+    private fun solvadoWidgets(): List<HomeGridItem.WidgetItem> =
+        (_uiState.value.homeGridItems.filterIsInstance<HomeGridItem.WidgetItem>() + _uiState.value.todayWidgets)
+            .filter { it.kind == com.tms.os.launcher.model.WidgetKind.SOLVADO_SHOP || it.kind == com.tms.os.launcher.model.WidgetKind.SOLVADO_ADMIN }
+
+    val solvadoServer: String get() = solvadoRepo.baseUrl
+
+    fun solvadoLogin(email: String, password: String, server: String?) {
+        if (_uiState.value.solvado.busy) return
+        _uiState.update { it.copy(solvado = it.solvado.copy(busy = true, error = null)) }
+        viewModelScope.launch {
+            val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching {
+                    if (!server.isNullOrBlank()) solvadoRepo.baseUrl = server
+                    solvadoRepo.login(email, password)
+                    solvadoRepo.loadAccount()
+                }
+            }
+            result.onSuccess { account ->
+                _uiState.update { it.copy(solvado = account) }
+                // Admins get the platform widget without having to look for it: once, in the Today view.
+                if (account.isAdmin && repository.takeFirstSolvadoAdminLogin() && solvadoWidgets().none { it.kind == com.tms.os.launcher.model.WidgetKind.SOLVADO_ADMIN }) {
+                    addWidget(com.tms.os.launcher.model.WidgetKind.SOLVADO_ADMIN, com.tms.os.launcher.model.WidgetSize.MEDIUM, toToday = true, index = 0)
+                }
+                // A shop widget placed before signing in gets the first shop.
+                account.shops.firstOrNull()?.let { first ->
+                    solvadoWidgets().filter { it.kind == com.tms.os.launcher.model.WidgetKind.SOLVADO_SHOP }.forEach { w ->
+                        val cfg = com.tms.os.launcher.model.SolvadoWidgetConfig.decode(w.config, admin = false)
+                        if (cfg.shopId.isEmpty()) setWidgetConfig(w.widgetId, cfg.copy(shopId = first.id).encode(), refresh = false)
+                    }
+                }
+                refreshSolvado(force = true)
+            }.onFailure { e ->
+                _uiState.update { it.copy(solvado = it.solvado.copy(busy = false, error = solvadoMessage(e))) }
+            }
+        }
+    }
+
+    fun solvadoLogout() {
+        solvadoJob?.cancel()
+        solvadoRepo.logout()
+        _uiState.update { it.copy(solvado = com.tms.os.launcher.model.SolvadoState()) }
+    }
+
+    /** Fetches the figures the placed widgets need. Throttled: a widget is glanced at, not polled. */
+    fun refreshSolvado(force: Boolean = false) {
+        if (!solvadoRepo.connected) return
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (!force && (solvadoJob?.isActive == true || now - solvadoLoadedAt < 3 * 60_000L)) return
+        val widgets = solvadoWidgets()
+        if (widgets.isEmpty() && !force) return
+        solvadoLoadedAt = now
+        solvadoJob?.cancel()
+        _uiState.update { it.copy(solvado = it.solvado.copy(busy = true, error = null)) }
+        solvadoJob = viewModelScope.launch {
+            val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching {
+                    val account = solvadoRepo.loadAccount()
+                    if (account.isAdmin && widgets.any { it.kind == com.tms.os.launcher.model.WidgetKind.SOLVADO_ADMIN }) solvadoRepo.loadAdmin()
+                    widgets.filter { it.kind == com.tms.os.launcher.model.WidgetKind.SOLVADO_SHOP }
+                        .map { com.tms.os.launcher.model.SolvadoWidgetConfig.decode(it.config, admin = false) }
+                        .filter { it.shopId.isNotEmpty() }
+                        .groupBy({ it.range }, { it.shopId })
+                        .forEach { (range, ids) -> solvadoRepo.loadShops(ids, range) }
+                    solvadoRepo.markUpdated()
+                    solvadoRepo.cachedState()
+                }
+            }
+            result.onSuccess { fresh -> _uiState.update { it.copy(solvado = fresh) } }
+                .onFailure { e ->
+                    // A rejected session means signed out; anything else keeps the last figures on screen.
+                    if (e is com.tms.os.launcher.data.SolvadoRepository.ApiError && e.status == 401) solvadoLogout()
+                    else _uiState.update { it.copy(solvado = it.solvado.copy(busy = false, error = solvadoMessage(e))) }
+                }
+        }
+    }
+
+    private fun solvadoMessage(e: Throwable): String = when (e) {
+        is com.tms.os.launcher.data.SolvadoRepository.ApiError -> e.message ?: "Fehler"
+        is java.io.IOException -> "Keine Verbindung zu Solvado."
+        else -> "Solvado ist gerade nicht erreichbar."
+    }
+
+    /** Saves what a configurable widget shows (home screen or Today view). */
+    fun setWidgetConfig(widgetId: String, config: String, refresh: Boolean = true) {
+        val today = _uiState.value.todayWidgets
+        if (today.any { it.widgetId == widgetId }) {
+            commitTodayOrder(today.map { if (it.widgetId == widgetId) it.copy(config = config) else it })
+        } else {
+            commitHomeOrder(_uiState.value.homeGridItems.map {
+                if (it is HomeGridItem.WidgetItem && it.widgetId == widgetId) it.copy(config = config) else it
+            })
+        }
+        if (refresh) refreshSolvado(force = true)
+    }
+
     /** Screen Time widget: re-read whenever the home screen comes back to the front. */
     fun refreshScreenTime() {
         viewModelScope.launch {
@@ -602,7 +706,15 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         index: Int,
         stack: List<com.tms.os.launcher.model.WidgetKind> = emptyList()
     ) {
-        val widget = HomeGridItem.WidgetItem("w_${UUID.randomUUID()}", kind, size, stack = stack)
+        val firstShop = _uiState.value.solvado.shops.firstOrNull()?.id.orEmpty()
+        val config = when (kind) {
+            com.tms.os.launcher.model.WidgetKind.SOLVADO_SHOP ->
+                com.tms.os.launcher.model.SolvadoWidgetConfig(shopId = firstShop, metrics = com.tms.os.launcher.model.SolvadoMetric.shopDefault).encode()
+            com.tms.os.launcher.model.WidgetKind.SOLVADO_ADMIN ->
+                com.tms.os.launcher.model.SolvadoWidgetConfig(metrics = com.tms.os.launcher.model.SolvadoMetric.adminDefault).encode()
+            else -> ""
+        }
+        val widget = HomeGridItem.WidgetItem("w_${UUID.randomUUID()}", kind, size, stack = stack, config = config)
         if (toToday) {
             val list = listOf(widget) + _uiState.value.todayWidgets
             repository.saveTodayWidgets(list)

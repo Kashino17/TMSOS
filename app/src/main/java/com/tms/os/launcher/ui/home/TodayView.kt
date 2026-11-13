@@ -79,11 +79,12 @@ fun TodayView(
                         Box(Modifier.size(width, height).jiggle(jiggle, w.widgetId.hashCode(), 0.7f)) {
                             val surface = Modifier.fillMaxSize().combinedClickable(
                                 remember { MutableInteractionSource() }, null,
-                                onClick = { if (!jiggle) onWidgetTap(w) },
+                                // A configurable widget opens its settings on tap, also while editing (as on iOS).
+                                onClick = { if (!jiggle || w.kind.configurable) onWidgetTap(w) },
                                 onLongClick = onEnterJiggle
                             )
                             if (w.isStack) IosSmartStack(w.kinds, w.size, env, surface)
-                            else IosWidget(w.kind, w.size, env, surface)
+                            else IosWidget(w.kind, w.size, env, surface, config = w.config)
                             RemoveBadge(jiggle, Modifier.offset((-8).dp, (-8).dp)) { onRemove(w) }
                         }
                     }

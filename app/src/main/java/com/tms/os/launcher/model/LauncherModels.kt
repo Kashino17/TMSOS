@@ -223,7 +223,9 @@ sealed class HomeGridItem(val id: String) {
         val size: WidgetSize,
         override val page: Int = 0,
         /** Non-empty = Smart Stack: several widgets of the same size, swiped vertically. */
-        val stack: List<WidgetKind> = emptyList()
+        val stack: List<WidgetKind> = emptyList(),
+        /** Settings of a configurable widget (see [SolvadoWidgetConfig]); empty = defaults. */
+        val config: String = ""
     ) : HomeGridItem("widget:$widgetId") {
         val kinds: List<WidgetKind> get() = stack.ifEmpty { listOf(kind) }
         val isStack: Boolean get() = stack.size > 1
@@ -241,7 +243,7 @@ enum class WidgetSize(val id: String, val cols: Int, val rows: Int) {
     }
 }
 
-enum class WidgetKind(val id: String, val sizes: List<WidgetSize>) {
+enum class WidgetKind(val id: String, val sizes: List<WidgetSize>, val configurable: Boolean = false) {
     WEATHER("weather", listOf(WidgetSize.SMALL, WidgetSize.MEDIUM, WidgetSize.LARGE)),
     CALENDAR("calendar", listOf(WidgetSize.SMALL, WidgetSize.MEDIUM, WidgetSize.LARGE)),
     CLOCK("clock", listOf(WidgetSize.SMALL, WidgetSize.MEDIUM)),
@@ -253,7 +255,11 @@ enum class WidgetKind(val id: String, val sizes: List<WidgetSize>) {
     YEAR("year", listOf(WidgetSize.SMALL, WidgetSize.MEDIUM)),
     SCREENTIME("screentime", listOf(WidgetSize.SMALL, WidgetSize.MEDIUM)),
     /** Text only, no plate: time, date and a line of weather and battery. */
-    MINIMAL("minimal", listOf(WidgetSize.SMALL, WidgetSize.MEDIUM, WidgetSize.LARGE));
+    MINIMAL("minimal", listOf(WidgetSize.SMALL, WidgetSize.MEDIUM, WidgetSize.LARGE)),
+    /** TMS Solvado: figures of one shop. What it shows is set per widget. */
+    SOLVADO_SHOP("solvado_shop", listOf(WidgetSize.SMALL, WidgetSize.MEDIUM, WidgetSize.LARGE), configurable = true),
+    /** TMS Solvado: platform figures, for admin accounts only. */
+    SOLVADO_ADMIN("solvado_admin", listOf(WidgetSize.SMALL, WidgetSize.MEDIUM, WidgetSize.LARGE), configurable = true);
 
     companion object {
         fun fromId(id: String): WidgetKind? = entries.find { it.id == id }

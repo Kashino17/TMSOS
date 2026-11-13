@@ -419,6 +419,13 @@ class LauncherRepository(private val context: Context) {
         }
     }
 
+    /** True exactly once: the first time an admin account signs in to Solvado on this phone. */
+    fun takeFirstSolvadoAdminLogin(): Boolean {
+        if (prefs.getBoolean("solvado_admin_widget_added", false)) return false
+        prefs.edit().putBoolean("solvado_admin_widget_added", true).apply()
+        return true
+    }
+
     fun isUsageStatsPermissionGranted(): Boolean {
         return try {
             val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
@@ -746,7 +753,8 @@ class LauncherRepository(private val context: Context) {
                                     kind = kind,
                                     size = com.tms.os.launcher.model.WidgetSize.fromId(obj.optString("size")),
                                     page = obj.optInt("page", 0),
-                                    stack = obj.optString("stack").split(',').mapNotNull { com.tms.os.launcher.model.WidgetKind.fromId(it) }
+                                    stack = obj.optString("stack").split(',').mapNotNull { com.tms.os.launcher.model.WidgetKind.fromId(it) },
+                                    config = obj.optString("cfg")
                                 )
                             )
                         }
@@ -831,7 +839,8 @@ class LauncherRepository(private val context: Context) {
                 val kind = com.tms.os.launcher.model.WidgetKind.fromId(o.optString("kind")) ?: return@mapNotNull null
                 HomeGridItem.WidgetItem(
                     o.optString("widgetId"), kind, com.tms.os.launcher.model.WidgetSize.fromId(o.optString("size")),
-                    stack = o.optString("stack").split(',').mapNotNull { com.tms.os.launcher.model.WidgetKind.fromId(it) }
+                    stack = o.optString("stack").split(',').mapNotNull { com.tms.os.launcher.model.WidgetKind.fromId(it) },
+                    config = o.optString("cfg")
                 )
             }
         }.getOrDefault(emptyList())
@@ -840,7 +849,7 @@ class LauncherRepository(private val context: Context) {
     fun saveTodayWidgets(widgets: List<HomeGridItem.WidgetItem>) {
         val arr = JSONArray()
         widgets.forEach { w ->
-            arr.put(JSONObject().put("widgetId", w.widgetId).put("kind", w.kind.id).put("size", w.size.id).put("stack", w.stack.joinToString(",") { it.id }))
+            arr.put(JSONObject().put("widgetId", w.widgetId).put("kind", w.kind.id).put("size", w.size.id).put("stack", w.stack.joinToString(",") { it.id }).put("cfg", w.config))
         }
         prefs.edit().putString("today_widgets_v2", arr.toString()).apply()
     }
@@ -994,6 +1003,7 @@ class LauncherRepository(private val context: Context) {
                     obj.put("kind", item.kind.id)
                     obj.put("size", item.size.id)
                     obj.put("stack", item.stack.joinToString(",") { it.id })
+                    obj.put("cfg", item.config)
                     obj.put("page", item.page)
                     obj.put("position", index)
                 }

@@ -67,7 +67,26 @@ data class HomeStrings(
     val yourApps: String = "Deine Apps",
     val searchApps: String = "Apps suchen",
     val selectedOf: String = "%1\$d von %2\$d",
-    val minimalEmpty: String = "Tippen, um Apps auszuwählen"
+    val minimalEmpty: String = "Tippen, um Apps auszuwählen",
+    val solvadoConnect: String = "Mit Solvado verbinden",
+    val solvadoConnectHint: String = "Melde dich mit deinem TMS-Solvado-Konto an. Das Widget liest nur Zahlen, es kann nichts ändern.",
+    val solvadoTapToConnect: String = "Tippen, um Solvado zu verbinden",
+    val solvadoTapToChoose: String = "Tippen, um einen Shop zu wählen",
+    val email: String = "E-Mail",
+    val password: String = "Passwort",
+    val signIn: String = "Anmelden",
+    val signOut: String = "Abmelden",
+    val server: String = "Server",
+    val shop: String = "Shop",
+    val period: String = "Zeitraum",
+    val last7: String = "7 Tage",
+    val last30: String = "30 Tage",
+    val figures: String = "Werte",
+    val figuresHint: String = "Klein zeigt die ersten 2, Mittel 4, Groß 8.",
+    val editWidget: String = "Widget bearbeiten",
+    val updatedAt: String = "Stand %s",
+    val incomplete: String = "* unvollständig gemessen",
+    val noShops: String = "In diesem Konto gibt es noch keinen Shop."
 )
 
 private val DE = HomeStrings(
@@ -120,6 +139,8 @@ private val DE = HomeStrings(
             WidgetKind.YEAR -> "Jahr"
             WidgetKind.SCREENTIME -> "Bildschirmzeit"
             WidgetKind.MINIMAL -> "Minimal"
+            WidgetKind.SOLVADO_SHOP -> "Solvado Shop"
+            WidgetKind.SOLVADO_ADMIN -> "Solvado Admin"
         }
     },
     widgetDescription = {
@@ -135,11 +156,18 @@ private val DE = HomeStrings(
             WidgetKind.YEAR -> "Wie viel vom Jahr schon vorbei ist."
             WidgetKind.SCREENTIME -> "Wie lange du dein Gerät heute genutzt hast und womit."
             WidgetKind.MINIMAL -> "Nur Schrift, kein Hintergrund: Uhrzeit, Datum, Wetter und Akku."
+            WidgetKind.SOLVADO_SHOP -> "Umsatz, Gewinn, Conversion und Kosten eines deiner Shops – du wählst, welche Werte."
+            WidgetKind.SOLVADO_ADMIN -> "Abonnenten, Credit-Umsatz und neue Accounts der Plattform."
         }
     }
 )
 
 private val EN = DE.copy(
+    solvadoConnect = "Connect Solvado", solvadoConnectHint = "Sign in with your TMS Solvado account. The widget only reads figures, it cannot change anything.",
+    solvadoTapToConnect = "Tap to connect Solvado", solvadoTapToChoose = "Tap to choose a shop",
+    email = "Email", password = "Password", signIn = "Sign In", signOut = "Sign Out", server = "Server", shop = "Shop",
+    period = "Period", last7 = "7 days", last30 = "30 days", figures = "Figures", figuresHint = "Small shows the first 2, medium 4, large 8.",
+    editWidget = "Edit Widget", updatedAt = "As of %s", incomplete = "* not fully measured", noShops = "This account has no shop yet.",
     copy = "Copy", copied = "Copied", screenTime = "Screen Time", allowAccess = "Tap to allow access",
     daysLeft = "%d days left", week = "Week %d", hoursMinutes = "%d h %d min", minutesOnly = "%d min", battery = "Battery",
     minimal = "Minimal", minimalToggle = "Minimalist Home Screen",
@@ -195,6 +223,8 @@ private val EN = DE.copy(
             WidgetKind.YEAR -> "Year"
             WidgetKind.SCREENTIME -> "Screen Time"
             WidgetKind.MINIMAL -> "Minimal"
+            WidgetKind.SOLVADO_SHOP -> "Solvado Shop"
+            WidgetKind.SOLVADO_ADMIN -> "Solvado Admin"
         }
     },
     widgetDescription = {
@@ -210,11 +240,18 @@ private val EN = DE.copy(
             WidgetKind.YEAR -> "How much of the year has passed."
             WidgetKind.SCREENTIME -> "How long you used your device today, and for what."
             WidgetKind.MINIMAL -> "Text only, no background: time, date, weather and battery."
+            WidgetKind.SOLVADO_SHOP -> "Revenue, profit, conversion and costs of one of your shops – you choose the figures."
+            WidgetKind.SOLVADO_ADMIN -> "Subscribers, credit revenue and new accounts of the platform."
         }
     }
 )
 
 private val TR = DE.copy(
+    solvadoConnect = "Solvado'ya bağlan", solvadoConnectHint = "TMS Solvado hesabınızla giriş yapın. Araç yalnızca rakamları okur, hiçbir şeyi değiştiremez.",
+    solvadoTapToConnect = "Solvado'ya bağlanmak için dokunun", solvadoTapToChoose = "Mağaza seçmek için dokunun",
+    email = "E-posta", password = "Parola", signIn = "Giriş Yap", signOut = "Çıkış Yap", server = "Sunucu", shop = "Mağaza",
+    period = "Dönem", last7 = "7 gün", last30 = "30 gün", figures = "Değerler", figuresHint = "Küçük ilk 2, orta 4, büyük 8 değeri gösterir.",
+    editWidget = "Aracı Düzenle", updatedAt = "%s itibarıyla", incomplete = "* eksik ölçüldü", noShops = "Bu hesapta henüz mağaza yok.",
     copy = "Kopyala", copied = "Kopyalandı", screenTime = "Ekran Süresi", allowAccess = "Erişime izin vermek için dokunun",
     daysLeft = "%d gün kaldı", week = "%d. hafta", hoursMinutes = "%d sa %d dk", minutesOnly = "%d dk", battery = "Pil",
     minimal = "Minimal", minimalToggle = "Minimalist Ana Ekran",
@@ -270,6 +307,8 @@ private val TR = DE.copy(
             WidgetKind.YEAR -> "Yıl"
             WidgetKind.SCREENTIME -> "Ekran Süresi"
             WidgetKind.MINIMAL -> "Minimal"
+            WidgetKind.SOLVADO_SHOP -> "Solvado Mağaza"
+            WidgetKind.SOLVADO_ADMIN -> "Solvado Yönetici"
         }
     },
     widgetDescription = {
@@ -285,6 +324,8 @@ private val TR = DE.copy(
             WidgetKind.YEAR -> "Yılın ne kadarı geçti."
             WidgetKind.SCREENTIME -> "Bugün aygıtınızı ne kadar ve neyle kullandığınız."
             WidgetKind.MINIMAL -> "Yalnızca yazı, arka plan yok: saat, tarih, hava ve pil."
+            WidgetKind.SOLVADO_SHOP -> "Mağazalarınızdan birinin cirosu, kârı, dönüşümü ve giderleri – değerleri siz seçersiniz."
+            WidgetKind.SOLVADO_ADMIN -> "Platformun aboneleri, kredi cirosu ve yeni hesapları."
         }
     }
 )

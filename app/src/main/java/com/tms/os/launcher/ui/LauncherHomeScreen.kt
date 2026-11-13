@@ -199,6 +199,8 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
 
     var showCustomizeSheet by remember { mutableStateOf(false) }
     var showMinimalSetup by remember { mutableStateOf(false) }
+    // Id of the Solvado widget whose settings are open.
+    var solvadoWidgetId by remember { mutableStateOf<String?>(null) }
     var showGallery by remember { mutableStateOf(false) }
     var removeTarget by remember { mutableStateOf<HomeGridItem?>(null) }
     var menuAnchor by remember { mutableStateOf<Pair<String, Rect>?>(null) }
@@ -241,6 +243,7 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                 Lifecycle.Event.ON_STOP -> leftToApp = true
                 Lifecycle.Event.ON_RESUME -> {
                     viewModel.refreshScreenTime()
+                    viewModel.refreshSolvado()
                     scope.launch { refreshStatusBarTone() }
                     if (loadingNow) leftToApp = false
                     else if (leftToApp || homeZoom.value != 1f) {
@@ -281,7 +284,8 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
         suggestedApps = suggestions,
         onAppClick = { viewModel.launchApp(it.packageName) },
         screenMinutes = state.screenTime.takeIf { it.granted }?.totalMinutes,
-        screenTop = remember(state.screenTime, state.appMap) { state.screenTime.top.mapNotNull { (pkg, m) -> state.appMap[pkg]?.let { it to m } } }
+        screenTop = remember(state.screenTime, state.appMap) { state.screenTime.top.mapNotNull { (pkg, m) -> state.appMap[pkg]?.let { it to m } } },
+        solvado = state.solvado
     )
 
     fun appForWidget(kind: WidgetKind): AppInfo? {
@@ -291,7 +295,7 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
             WidgetKind.NOTES -> listOf("keep", "notes", "memo")
             WidgetKind.CLOCK, WidgetKind.DIGITAL, WidgetKind.MINIMAL -> listOf("deskclock", "clock")
             WidgetKind.DATE, WidgetKind.YEAR -> listOf("calendar")
-            WidgetKind.BATTERY, WidgetKind.SUGGESTIONS, WidgetKind.SCREENTIME -> emptyList()
+            WidgetKind.BATTERY, WidgetKind.SUGGESTIONS, WidgetKind.SCREENTIME, WidgetKind.SOLVADO_SHOP, WidgetKind.SOLVADO_ADMIN -> emptyList()
         }
         return keys.firstNotNullOfOrNull { k -> state.allApps.firstOrNull { it.packageName.contains(k) } }
     }
@@ -348,13 +352,14 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
 
         LaunchedEffect(state.homePressGeneration) {
             if (state.homePressGeneration > 0) {
-                showCustomizeSheet = false; showGallery = false; showMinimalSetup = false
+                showCustomizeSheet = false; showGallery = false; showMinimalSetup = false; solvadoWidgetId = null
                 if (openPod != null) { podProgress.animateTo(0f, spring(dampingRatio = 1f, stiffness = 260f, visibilityThreshold = 0.004f)); openPod = null }
                 if (pagerState.currentPage != 1) pagerState.animateScrollToPage(1, animationSpec = spring(dampingRatio = 1f, stiffness = 300f))
             }
         }
-        BackHandler(enabled = showCustomizeSheet || showMinimalSetup || pagerState.settledPage != 1 || state.isAnyOverlayOpen || state.isJiggleMode) {
+        BackHandler(enabled = showCustomizeSheet || showMinimalSetup || solvadoWidgetId != null || pagerState.settledPage != 1 || state.isAnyOverlayOpen || state.isJiggleMode) {
             when {
+                solvadoWidgetId != null -> solvadoWidgetId = null
                 showMinimalSetup -> showMinimalSetup = false
                 showCustomizeSheet -> showCustomizeSheet = false
                 state.isAnyOverlayOpen || state.isJiggleMode -> viewModel.handleBackOrHomePress()
@@ -363,7 +368,7 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
         }
 
         val anyOverlay = state.isSpotlightOpen || state.activeFolder != null ||
-            state.activeCategoryModal != null || state.selectedAppForMenu != null || showCustomizeSheet || showMinimalSetup || showGallery || openPod != null
+            state.activeCategoryModal != null || state.selectedAppForMenu != null || showCustomizeSheet || showMinimalSetup || solvadoWidgetId != null || showGallery || openPod != null
         // Folder, menu and gallery sit on a frosted home screen. The frost is the
         // home content redrawn at 1/8 size and blurred there (64x fewer pixels than a
         // full-size blur, and nothing is read back from the GPU), then stretched back.
@@ -750,6 +755,7 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                 fs.clear()
                 if (state.activeFolder?.folderId == id) viewModel.openFolder(null)
             }
+            override fun widgetSettings(widgetId: String) { solvadoWidgetId = widgetId }
             override fun minimalSetup() {
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 viewModel.setJiggleMode(false)
@@ -1268,6 +1274,21 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
             onDismiss = { showCustomizeSheet = false }
         )
 
+        com.tms.os.launcher.ui.widgets.SolvadoWidgetSheet(
+            widget = solvadoWidgetId?.let { id ->
+                state.todayWidgets.firstOrNull { it.widgetId == id }
+                    ?: state.homeGridItems.firstOrNull { it is HomeGridItem.WidgetItem && it.widgetId == id } as? HomeGridItem.WidgetItem
+            },
+            state = state.solvado,
+            strings = hs,
+            language = settings.appLanguage,
+            server = viewModel.solvadoServer,
+            onLogin = { email, password, server -> viewModel.solvadoLogin(email, password, server) },
+            onLogout = { viewModel.solvadoLogout() },
+            onConfig = { config -> solvadoWidgetId?.let { viewModel.setWidgetConfig(it, config) } },
+            onDismiss = { solvadoWidgetId = null }
+        )
+
         com.tms.os.launcher.ui.home.MinimalSetupSheet(
             visible = showMinimalSetup,
             settings = settings,
@@ -1441,14 +1462,15 @@ private fun GridItem(
                         .combinedClickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
-                            onClick = { if (!jiggle) onWidgetTap(current) },
+                            // A configurable widget opens its settings on tap, also while editing (as on iOS).
+                            onClick = { if (item.kind.configurable && !item.isStack) actions.widgetSettings(item.widgetId) else if (!jiggle) onWidgetTap(current) },
                             onLongClick = { if (!jiggle) onEnterJiggle() }
                         )
                     if (item.isStack) IosSmartStack(
                         item.kinds, item.size, env,
                         surface.onGloballyPositioned { onStackBounds(item.widgetId, it.boundsInRoot()) },
                         onCurrent = { current = it }
-                    ) else IosWidget(item.kind, item.size, env, surface)
+                    ) else IosWidget(item.kind, item.size, env, surface, config = item.config)
                     RemoveBadge(jiggle, Modifier.offset((-8).dp, (-8).dp), onClick = onRemove)
                 }
                 if (widgetLabel != null && showLabels) {
@@ -1602,6 +1624,7 @@ private interface HomeOps {
     fun endDrag()
     fun springFolder(itemId: String)
     fun leaveFolder()
+    fun widgetSettings(widgetId: String)
     fun minimalSetup()
     fun minimalDragStart(pkg: String, topLeft: Offset, downAt: Offset, at: Offset)
     fun minimalRemove(pkg: String)
@@ -1624,7 +1647,10 @@ private class HomeActions(ops: androidx.compose.runtime.State<HomeOps>?) {
     val appMenu: (AppInfo, Rect) -> Unit = { a, r -> ops?.value?.appMenu(a, r) }
     val folder: (HomeGridItem.FolderItem, Rect) -> Unit = { f, r -> ops?.value?.folder(f, r) }
     val widgetTap: (WidgetKind) -> Unit = { k -> ops?.value?.widgetTap(k) }
-    val todayWidgetTap: (HomeGridItem.WidgetItem) -> Unit = { w -> ops?.value?.widgetTap(w.kind) }
+    val todayWidgetTap: (HomeGridItem.WidgetItem) -> Unit = { w ->
+        if (w.kind.configurable) ops?.value?.widgetSettings(w.widgetId) else ops?.value?.widgetTap(w.kind)
+    }
+    val widgetSettings: (String) -> Unit = { id -> ops?.value?.widgetSettings(id) }
     val enterJiggle: () -> Unit = { ops?.value?.enterJiggle() }
     val exitJiggle: () -> Unit = { ops?.value?.exitJiggle() }
     val remove: (HomeGridItem) -> Unit = { i -> ops?.value?.remove(i) }

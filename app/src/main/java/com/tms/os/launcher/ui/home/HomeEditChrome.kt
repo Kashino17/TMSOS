@@ -370,7 +370,11 @@ private fun GalleryHome(
                 modifier = Modifier.size(32.dp).clip(CircleShape).background(Color(0x3D767680)).clickable(onClick = onClose)
             ) { Icon(Icons.Rounded.Close, null, tint = Color(0xFFAEAEB2), modifier = Modifier.size(18.dp)) }
         }
-        val kinds = WidgetKind.entries.filter { query.isBlank() || strings.widgetName(it).contains(query, ignoreCase = true) }
+        // The platform widget is offered to admin accounts only.
+        val kinds = WidgetKind.entries.filter {
+            (it != WidgetKind.SOLVADO_ADMIN || env.solvado.isAdmin) &&
+                (query.isBlank() || strings.widgetName(it).contains(query, ignoreCase = true))
+        }
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
             if (query.isBlank()) {
                 Spacer(Modifier.height(10.dp))
@@ -540,6 +544,9 @@ fun KindTile(kind: WidgetKind, modifier: Modifier) {
                 drawLine(Color.White, center, Offset(center.x, size.height * 0.24f), strokeWidth = 2.dp.toPx())
                 drawLine(Color.White, center, Offset(size.width * 0.7f, center.y), strokeWidth = 2.dp.toPx())
             }
+        }
+        WidgetKind.SOLVADO_SHOP, WidgetKind.SOLVADO_ADMIN -> Box(modifier.clip(shape).background(Color(0xFF5E5CE6)), contentAlignment = Alignment.Center) {
+            Text("S", style = IosText.title3.copy(color = Color.White, fontWeight = FontWeight.Bold))
         }
         WidgetKind.NOTES -> Box(modifier.clip(shape).background(Color.White)) {
             Box(Modifier.fillMaxWidth().height(9.dp).background(Color(0xFFFFCC00)))

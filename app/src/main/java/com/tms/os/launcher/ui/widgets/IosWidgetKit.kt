@@ -102,7 +102,9 @@ data class WidgetEnv(
     val onAppClick: (AppInfo) -> Unit = {},
     /** Today's usage: total minutes and the most used apps; null until usage access is granted. */
     val screenMinutes: Int? = null,
-    val screenTop: List<Pair<AppInfo, Int>> = emptyList()
+    val screenTop: List<Pair<AppInfo, Int>> = emptyList(),
+    /** TMS Solvado account and the last figures read from it. */
+    val solvado: com.tms.os.launcher.model.SolvadoState = com.tms.os.launcher.model.SolvadoState()
 ) {
     val locale: Locale get() = Locale.forLanguageTag(language.code)
     fun t(c: Int) = if (fahrenheit) c * 9 / 5 + 32 else c
@@ -138,7 +140,7 @@ private fun ts(size: TextUnit, weight: FontWeight = FontWeight.Normal, color: Co
  * screen. The caller decides the outer size (from the home-screen grid).
  */
 @Composable
-fun IosWidget(kind: WidgetKind, size: WidgetSize, env: WidgetEnv, modifier: Modifier = Modifier) {
+fun IosWidget(kind: WidgetKind, size: WidgetSize, env: WidgetEnv, modifier: Modifier = Modifier, config: String = "") {
     BoxWithConstraints(modifier, contentAlignment = Alignment.Center) {
         val base = LocalDensity.current
         val scale = min(maxWidth / size.canonicalWidth(), maxHeight / size.canonicalHeight()).coerceAtLeast(0.1f)
@@ -165,6 +167,7 @@ fun IosWidget(kind: WidgetKind, size: WidgetSize, env: WidgetEnv, modifier: Modi
                     WidgetKind.YEAR -> YearWidget(size, env)
                     WidgetKind.SCREENTIME -> ScreenTimeWidget(size, env)
                     WidgetKind.MINIMAL -> MinimalWidget(size, env)
+                    WidgetKind.SOLVADO_SHOP, WidgetKind.SOLVADO_ADMIN -> SolvadoWidget(kind, size, env, config)
                 }
             }
         }
