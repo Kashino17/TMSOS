@@ -8,6 +8,10 @@ Ein maßgeschneiderter, werbefreier und kostenloser **iOS-Style Homescreen-Launc
 
 ---
 
+## Neu in v5.9.1
+- Das Home-Raster wird an der Fensterhöhe gemessen: eine offene Tastatur (Suche, Spotlight) packt die Seiten nicht mehr um, und die App-Mediathek bleibt dort, wo sie ist.
+- Ändert sich die Zahl der Home-Seiten, während die Mediathek offen ist, bleibt man auf der Mediathek.
+
 ## Neu in v5.9.0 – Apps sichern, Ausgeblendet-Ordner
 - **Mit Touch ID sichern** (App lange drücken → Mehr): Die App öffnet sich nur nach Fingerabdruck oder Geräte-Code – vom Home-Bildschirm, Dock, Mediathek, Spotlight, Ordnern und Kurzbefehlen. Sichern und Entsichern verlangen ebenfalls Touch ID.
 - **Ausgeblendet** in der App-Mediathek: wirkt immer leer, zeigt die ausgeblendeten Apps erst nach Touch ID. Dort lassen sie sich über langes Drücken wieder einblenden.

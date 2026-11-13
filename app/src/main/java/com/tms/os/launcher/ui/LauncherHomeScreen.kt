@@ -311,8 +311,15 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
         val isUnfolded = maxWidth >= 600.dp
         val bookMode = isUnfolded && settings.foldMode == com.tms.os.launcher.model.FoldPostureMode.BOOK_SPLIT
         val perScreen = if (bookMode) 2 else 1
+        // The grid is measured against the window, not this box: the box shrinks while a
+        // keyboard is up (adjustResize), and the home pages must not repack because of that.
+        val windowHeight = remember(configuration.screenWidthDp, configuration.screenHeightDp, maxWidth) {
+            val activity = generateSequence(context) { (it as? android.content.ContextWrapper)?.baseContext }.filterIsInstance<android.app.Activity>().firstOrNull()
+            activity?.let { with(density) { androidx.window.layout.WindowMetricsCalculator.getOrCreate().computeCurrentWindowMetrics(it).bounds.height().toDp() } } ?: 0.dp
+        }
+        val gridHeight = if (windowHeight > maxHeight) windowHeight else maxHeight
         val layout = calculateHomeLayout(
-            width = maxWidth.value / perScreen, height = maxHeight.value,
+            width = maxWidth.value / perScreen, height = gridHeight.value,
             columns = if (isUnfolded && !bookMode && settings.foldMode != com.tms.os.launcher.model.FoldPostureMode.CLASSIC_SCALED) settings.mainUnfoldedColumns else settings.coverColumns,
             requestedRows = if (isUnfolded && !bookMode) settings.mainUnfoldedRows else settings.coverRows,
             iconScale = settings.iconSizeScale, labelSize = settings.labelFontSizeSp,
@@ -335,7 +342,7 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
         // As many square rows as the page really has room for: with free placement the
         // space down to the dock must be usable, not a strip below the last row.
         val rows = run {
-            val pageHeight = maxHeight - IosMetrics.statusBarHeight - chromeHeight - 9.dp - 4.dp
+            val pageHeight = gridHeight - IosMetrics.statusBarHeight - chromeHeight - 9.dp - 4.dp
             // A row needs room for the icon, its label and a little air – it does not have to
             // be square. Rows get a bit lower when that lets one more fit above the dock.
             val label = with(density) { (settings.labelFontSizeSp * 1.3f).sp.toDp() }
@@ -364,6 +371,18 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
         val homePageCount = ((pages.size + perScreen - 1) / perScreen).coerceAtLeast(1)
         // Pager: 0 = Today View, 1..n = home pages, n+1 = App Library.
         val pagerState = rememberPagerState(initialPage = 1, pageCount = { homePageCount + 2 })
+        // The App Library is the last page, so its index moves with the number of home
+        // pages. That number can change for a moment while a system sheet (Touch ID)
+        // changes the window height; whoever was on the library stays on the library.
+        var lastHomePageCount by remember { mutableStateOf(homePageCount) }
+        LaunchedEffect(homePageCount) {
+            val was = lastHomePageCount
+            lastHomePageCount = homePageCount
+            // On the old library index (or clamped onto the new one): go to the library's new index.
+            if (was != homePageCount && (pagerState.currentPage == was + 1 || pagerState.currentPage > homePageCount + 1)) {
+                pagerState.scrollToPage(homePageCount + 1)
+            }
+        }
         // A touch that interrupts a programmatic page change (Home button, a tap mid-animation)
         // ends the scroll without a fling, which would leave the pager between two pages.
         // Whenever scrolling stops off a page boundary, settle on the nearest page.
