@@ -8,6 +8,11 @@ Ein maßgeschneiderter, werbefreier und kostenloser **iOS-Style Homescreen-Launc
 
 ---
 
+## Neu in v5.6.0 – natürlicher Dunkel-Stil, schneller, sparsamer
+- **Icon-Stil „Dunkel“ neu**: helle Platten werden dunkel und Logos bleiben, wie sie sind; ein schwarzes Symbol wird hell (Revolut, ChatGPT); einfarbige Icons tauschen die Rollen (WhatsApp: dunkler Grund, grünes Symbol); bunte Icons mit Logo bekommen einen tieferen Farbton statt hell zu bleiben; bereits dunkle Icons bleiben unverändert. Kanten ohne hellen Saum.
+- **Sofort da nach einem Neustart des Launchers**: fertige Icons liegen jetzt auf dem Speicher statt jedes Mal neu berechnet zu werden; Apps werden parallel geladen; die Icons fliegen mit derselben Animation ein wie bei der Rückkehr aus einer App.
+- **Weniger Energie**: Uhr-Icon, Uhr-Widgets und Minimal-Uhr ticken nur noch, solange der Home-Bildschirm sichtbar ist (vorher rechnete das Uhr-Icon auch im Hintergrund jede Sekunde); das Hintergrundbild wird bei der Rückkehr nicht mehr neu geladen; Systemabfragen laufen nicht mehr auf dem Haupt-Thread.
+
 ## Neu in v5.5.1 – Minimal-Vorlagen im iOS-Stil
 - Drei weitere Vorlagen für den minimalistischen Home-Bildschirm, gebaut aus den normalen iPhone-Bausteinen (Widget-Kacheln, beschriftete Icons im Raster, Glas-Dock): **Widgets** (Kalender + Wetter, zwei App-Reihen), **Groß** (großes Wetter-Widget, eine App-Reihe), **Unten** (freies Hintergrundbild, Apps direkt über dem Dock). Die ersten vier gewählten Apps stehen jeweils im Dock.
 - Die drei schlichten Vorlagen (Liste, Symbole, Fokus) bleiben.

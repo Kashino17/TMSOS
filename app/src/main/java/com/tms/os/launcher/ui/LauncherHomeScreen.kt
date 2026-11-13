@@ -208,7 +208,13 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
     val podProgressRead = remember { { podProgress.value } }
     var statusBarLightContent by remember { mutableStateOf(true) }
 
-    val homeZoom = remember { Animatable(1f) }
+    // After a restart of the launcher the icons are not there yet: start zoomed out and
+    // invisible, and fly in once they are loaded – the same motion as returning from an app.
+    val homeZoom = remember { Animatable(if (state.isLoading) IOS_ZOOM_OUT else 1f) }
+    val loadingNow by androidx.compose.runtime.rememberUpdatedState(state.isLoading)
+    LaunchedEffect(state.isLoading) {
+        if (!state.isLoading && homeZoom.value != 1f) homeZoom.animateTo(1f, spring(dampingRatio = 0.84f, stiffness = 230f))
+    }
     val homeZoomRead = remember { { homeZoom.value } }
     val spotlight = remember { Animatable(0f) }
     var leftToApp by remember { mutableStateOf(false) }
@@ -231,7 +237,8 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                 Lifecycle.Event.ON_RESUME -> {
                     viewModel.refreshScreenTime()
                     scope.launch { refreshStatusBarTone() }
-                    if (leftToApp || homeZoom.value != 1f) {
+                    if (loadingNow) leftToApp = false
+                    else if (leftToApp || homeZoom.value != 1f) {
                         leftToApp = false
                         scope.launch {
                             homeZoom.snapTo(IOS_ZOOM_OUT)

@@ -53,7 +53,15 @@ fun rememberWallpaperBackdrop(size: IntSize, useSystemWallpaper: Boolean, revisi
     var backdrop by remember(size, useSystemWallpaper) { mutableStateOf(WallpaperBackdrop(viewport = size)) }
     // The bundled wallpaper never changes: decoding + blurring it again on every
     // resume would steal frames from the return-to-home animation.
+    // Returning from an app must not decode and blur the wallpaper again: only when the
+    // user actually changed it (the system gives every wallpaper a new id).
+    var loadedId by remember(size, useSystemWallpaper) { mutableStateOf<Int?>(null) }
     LaunchedEffect(size, useSystemWallpaper, if (useSystemWallpaper) revision else 0) {
+        val id = if (useSystemWallpaper) withContext(Dispatchers.IO) {
+            runCatching { WallpaperManager.getInstance(context).getWallpaperId(WallpaperManager.FLAG_SYSTEM) }.getOrDefault(-1)
+        } else 0
+        if (id == loadedId && id != -1 && backdrop.image != null) return@LaunchedEffect
+        loadedId = id
         backdrop = withContext(Dispatchers.Default) {
             if (size.width <= 0 || size.height <= 0) return@withContext WallpaperBackdrop()
             val scale = minOf(1f, 1080f / max(size.width, size.height))

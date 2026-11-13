@@ -279,10 +279,10 @@ private fun IosStylePage(
 @Composable
 private fun MinimalClock(env: WidgetEnv, centered: Boolean, timeSize: Int, onClick: () -> Unit) {
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) {
+    com.tms.os.launcher.ui.theme.WhileResumed {
         while (true) {
-            delay(60_000 - System.currentTimeMillis() % 60_000)
             now = System.currentTimeMillis()
+            delay(60_000 - System.currentTimeMillis() % 60_000)
         }
     }
     val locale = env.locale

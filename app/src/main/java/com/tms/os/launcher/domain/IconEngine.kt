@@ -289,34 +289,7 @@ object IconEngine {
      * gradual colour changes (flat plates and gradients), stopping at the crisp
      * edge of the artwork. Whites enclosed by the artwork are not part of it.
      */
-    private fun backgroundMask(pixels: IntArray, w: Int, h: Int): BooleanArray {
-        val mask = BooleanArray(w * h)
-        val queue = IntArray(w * h)
-        var head = 0
-        var tail = 0
-        fun seed(i: Int) { if (!mask[i]) { mask[i] = true; queue[tail++] = i } }
-        // Start from the four corners only: they lie outside the rounded icon shape
-        // and are always background, whereas artwork may touch an edge (a figure
-        // standing on the bottom, for example).
-        seed(0); seed(w - 1); seed((h - 1) * w); seed(h * w - 1)
-        while (head < tail) {
-            val i = queue[head++]
-            val c = pixels[i]
-            val r = (c ushr 16) and 0xFF; val g = (c ushr 8) and 0xFF; val b = c and 0xFF
-            val x = i % w
-            fun visit(n: Int) {
-                if (mask[n]) return
-                val d = pixels[n]
-                val delta = kotlin.math.abs(((d ushr 16) and 0xFF) - r) + kotlin.math.abs(((d ushr 8) and 0xFF) - g) + kotlin.math.abs((d and 0xFF) - b)
-                if (delta <= 22) { mask[n] = true; queue[tail++] = n }
-            }
-            if (x > 0) visit(i - 1)
-            if (x < w - 1) visit(i + 1)
-            if (i >= w) visit(i - w)
-            if (i < w * (h - 1)) visit(i + w)
-        }
-        return mask
-    }
+    private fun backgroundMask(pixels: IntArray, w: Int, h: Int): BooleanArray = DarkIconStyle.backgroundMask(pixels, w, h)
 
     /** iOS dark icon ground: a soft anthracite gradient. */
     private fun darkGround(y: Int, h: Int): Int {
@@ -335,48 +308,8 @@ object IconEngine {
         val h = bmp.height
         val pixels = IntArray(w * h)
         bmp.getPixels(pixels, 0, w, 0, 0, w, h)
-        val mask = backgroundMask(pixels, w, h)
-        val hsv = FloatArray(3)
-
-        fun isLightNeutral(c: Int): Boolean {
-            Color.RGBToHSV((c ushr 16) and 0xFF, (c ushr 8) and 0xFF, c and 0xFF, hsv)
-            return hsv[1] < 0.16f && hsv[2] > 0.72f
-        }
-        // Only act when the plate really is light (sampled along the border).
-        var light = 0; var total = 0
-        for (x in 0 until w step 4) { total += 2; if (isLightNeutral(pixels[x])) light++; if (isLightNeutral(pixels[(h - 1) * w + x])) light++ }
-        for (y in 0 until h step 4) { total += 2; if (isLightNeutral(pixels[y * w])) light++; if (isLightNeutral(pixels[y * w + w - 1])) light++ }
-        if (light < total * 0.6f) return
-
-        val out = pixels.copyOf()
-        for (i in pixels.indices) {
-            val y = i / w
-            if (mask[i]) {
-                if (isLightNeutral(pixels[i])) out[i] = darkGround(y, h)
-                continue
-            }
-            // Anti-aliased rim of the artwork: swap the white that is mixed in for the dark ground.
-            val x = i % w
-            var nearPlate = false
-            loop@ for (dy in -3..3) for (dx in -3..3) {
-                val nx = x + dx; val ny = y + dy
-                if (nx in 0 until w && ny in 0 until h && mask[ny * w + nx]) { nearPlate = true; break@loop }
-            }
-            if (!nearPlate) continue
-            val c = pixels[i]
-            val r = (c ushr 16) and 0xFF; val g = (c ushr 8) and 0xFF; val b = c and 0xFF
-            val white = minOf(r, g, b) / 255f
-            if (white < 0.22f) continue
-            val ground = darkGround(y, h)
-            val sub = white
-            out[i] = Color.argb(
-                (c ushr 24) and 0xFF,
-                (r - sub * (255 - Color.red(ground))).roundToInt().coerceIn(0, 255),
-                (g - sub * (255 - Color.green(ground))).roundToInt().coerceIn(0, 255),
-                (b - sub * (255 - Color.blue(ground))).roundToInt().coerceIn(0, 255)
-            )
-        }
-        bmp.setPixels(out, 0, w, 0, 0, w, h)
+        DarkIconStyle.apply(pixels, w, h)
+        bmp.setPixels(pixels, 0, w, 0, 0, w, h)
     }
 
     /**

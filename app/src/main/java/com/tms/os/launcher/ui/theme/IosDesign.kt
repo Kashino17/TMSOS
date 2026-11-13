@@ -1,5 +1,6 @@
 package com.tms.os.launcher.ui.theme
 
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -384,4 +385,18 @@ object IosMetrics {
     val searchButtonHeight = 34.dp
     val homeIndicatorWidth = 134.dp
     val homeIndicatorHeight = 5.dp
+}
+
+
+/**
+ * Runs [block] only while the launcher is on screen (lifecycle RESUMED) and
+ * restarts it on every return. Clocks and other tickers use this instead of
+ * a plain LaunchedEffect, which would keep waking the CPU in the background.
+ */
+@androidx.compose.runtime.Composable
+fun WhileResumed(vararg keys: Any?, block: suspend kotlinx.coroutines.CoroutineScope.() -> Unit) {
+    val owner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.LaunchedEffect(owner, *keys) {
+        owner.lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.RESUMED, block)
+    }
 }

@@ -9,6 +9,8 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.database.Cursor
 import android.graphics.Bitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
+import android.graphics.BitmapFactory
 import android.media.AudioManager
 import android.net.Uri
 import android.os.BatteryManager
@@ -38,6 +40,8 @@ import com.tms.os.launcher.model.PageTransitionEffect
 import com.tms.os.launcher.model.RightWidgetType
 import com.tms.os.launcher.model.TintAccentColor
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -57,6 +61,7 @@ class LauncherRepository(private val context: Context) {
 
     private val prefs = context.getSharedPreferences("tms_os_launcher_prefs", Context.MODE_PRIVATE)
     private val iconCache = ConcurrentHashMap<String, ImageBitmap>()
+    private val diskIcons = DiskIconCache(context)
 
     fun clearIconCache() {
         iconCache.clear()
@@ -181,15 +186,15 @@ class LauncherRepository(private val context: Context) {
         val pinnedSet = getPinnedPageOnePackages()
         val launchCounts = getLaunchCounts()
         val lastLaunched = getLastLaunchedTimes()
-        val usageMinutesMap = getUsageStatsMinutesMap()
+        val usageMinutesMap = usageMinutesCached()
 
-        val result = mutableListOf<AppInfo>()
-        val seenPackages = mutableSetOf<String>()
+        val today = java.time.LocalDate.now().toString()
+        val usedKeys = ConcurrentHashMap.newKeySet<String>()
+        val startedAt = android.os.SystemClock.elapsedRealtime()
 
-        for (ri in resolveInfos) {
-            val activityInfo = ri.activityInfo ?: continue
-            val pkg = activityInfo.packageName ?: continue
-            if (!seenPackages.add(pkg)) continue
+        fun build(ri: android.content.pm.ResolveInfo): AppInfo? {
+            val activityInfo = ri.activityInfo ?: return null
+            val pkg = activityInfo.packageName ?: return null
 
             val rawLabel = try {
                 ri.loadLabel(pm)?.toString()?.trim().takeUnless { it.isNullOrEmpty() } ?: pkg
@@ -202,56 +207,64 @@ class LauncherRepository(private val context: Context) {
                 (appInfo.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0
             } else false
 
-            val firstInstall = try {
-                pm.getPackageInfo(pkg, 0).firstInstallTime
-            } catch (_: Exception) {
-                0L
-            }
+            val packageInfo = try { pm.getPackageInfo(pkg, 0) } catch (_: Exception) { null }
+            val firstInstall = packageInfo?.firstInstallTime ?: 0L
 
             val overrideCat = customCategories[pkg]
             val category = SmartCategorizer.categorizeApp(pkg, rawLabel, appInfo, overrideCat)
 
-            val cacheKey = "${pkg}_${settings.useIosSystemIcons}_${settings.fullBleedAdaptiveIcons}_${settings.iconThemeMode.id}_${settings.tintAccentColor.id}_${settings.appLanguage.code}_${java.time.LocalDate.now()}"
-            val iconBitmap = iconCache.getOrPut(cacheKey) {
-                try {
-                    val drawable = ri.loadIcon(pm)
+            // Rendered once per app version and icon style, then kept in memory and on disk.
+            // Only the calendar icon depends on the day.
+            val cacheKey = "${pkg}_${settings.useIosSystemIcons}_${settings.fullBleedAdaptiveIcons}_${settings.iconThemeMode.id}_${settings.tintAccentColor.id}_${settings.appLanguage.code}_${packageInfo?.lastUpdateTime ?: 0L}_${if (pkg.contains("calendar")) today else ""}"
+            usedKeys.add(cacheKey)
+            val iconBitmap = iconCache[cacheKey] ?: (
+                diskIcons.read(pkg, cacheKey) ?: try {
                     IconEngine.renderIosIconBitmap(
                         packageName = pkg,
                         label = rawLabel,
-                        drawable = drawable,
+                        drawable = ri.loadIcon(pm),
                         sizePx = 192,
                         useIosSystemIcons = settings.useIosSystemIcons,
                         fullBleedAdaptive = settings.fullBleedAdaptiveIcons,
                         themeMode = settings.iconThemeMode,
                         tintAccent = settings.tintAccentColor,
                         locale = Locale.forLanguageTag(settings.appLanguage.code)
-                    )
+                    ).also { diskIcons.write(pkg, cacheKey, it) }
                 } catch (_: Exception) {
                     createFallbackBitmap(192)
                 }
-            }
+            ).also { iconCache[cacheKey] = it }
 
-            result.add(
-                AppInfo(
-                    packageName = pkg,
-                    activityName = activityInfo.name ?: "",
-                    label = if (pkg == context.packageName) "TMS OS"
-                        else if (settings.useIosSystemIcons) com.tms.os.launcher.domain.IosSystemIcons.localizedLabel(pkg, rawLabel, settings.appLanguage)
-                        else rawLabel,
-                    customLabel = customLabels[pkg],
-                    category = category,
-                    isSystemApp = isSystem,
-                    firstInstallTime = firstInstall,
-                    launchCount = launchCounts[pkg] ?: 0,
-                    usageDurationMinutes30d = usageMinutesMap[pkg] ?: 0,
-                    lastLaunchedTime = lastLaunched[pkg] ?: 0L,
-                    badgeCount = badgeMap[pkg] ?: 0,
-                    isHidden = hiddenSet.contains(pkg),
-                    isPinnedOnPageOne = pinnedSet.contains(pkg),
-                    iconBitmap = iconBitmap
-                )
+            return AppInfo(
+                packageName = pkg,
+                activityName = activityInfo.name ?: "",
+                label = if (pkg == context.packageName) "TMS OS"
+                    else if (settings.useIosSystemIcons) com.tms.os.launcher.domain.IosSystemIcons.localizedLabel(pkg, rawLabel, settings.appLanguage)
+                    else rawLabel,
+                customLabel = customLabels[pkg],
+                category = category,
+                isSystemApp = isSystem,
+                firstInstallTime = firstInstall,
+                launchCount = launchCounts[pkg] ?: 0,
+                usageDurationMinutes30d = usageMinutesMap[pkg] ?: 0,
+                lastLaunchedTime = lastLaunched[pkg] ?: 0L,
+                badgeCount = badgeMap[pkg] ?: 0,
+                isHidden = hiddenSet.contains(pkg),
+                isPinnedOnPageOne = pinnedSet.contains(pkg),
+                iconBitmap = iconBitmap
             )
         }
+
+        // Labels, package info and icons of all apps, on four workers side by side.
+        val unique = resolveInfos.filter { it.activityInfo?.packageName != null }.distinctBy { it.activityInfo.packageName }
+        val result = kotlinx.coroutines.coroutineScope {
+            unique.chunked(((unique.size + 3) / 4).coerceAtLeast(1)).map { chunk ->
+                async(Dispatchers.Default) { chunk.mapNotNull { build(it) } }
+            }.awaitAll().flatten()
+        }
+        // Entries of other styles or older app versions are not needed in memory any more.
+        iconCache.keys.retainAll(usedKeys)
+        android.util.Log.i("TmsOs", "apps: ${result.size} loaded in ${android.os.SystemClock.elapsedRealtime() - startedAt} ms")
 
         result.sortedBy { it.displayLabel.lowercase(Locale.ROOT) }
     }
@@ -315,6 +328,32 @@ class LauncherRepository(private val context: Context) {
 
     fun saveSpotlightHistory(packages: List<String>) {
         prefs.edit().putString("spotlight_history", packages.joinToString("|")).apply()
+    }
+
+    /**
+     * 30-day usage per app, for ranking suggestions. The system query can take a
+     * second on a phone with a long history, so the launcher never waits for it:
+     * it uses the last result (kept across restarts) and refreshes it on the side.
+     */
+    @Volatile private var usageMemory: Map<String, Int>? = null
+    @Volatile private var usageLoadedAt = 0L
+    private fun usageMinutesCached(): Map<String, Int> {
+        val now = android.os.SystemClock.elapsedRealtime()
+        val known = usageMemory ?: prefs.getString("usage30d_cache", null)?.let { saved ->
+            saved.split(';').mapNotNull { e -> e.split('=').takeIf { it.size == 2 }?.let { it[0] to (it[1].toIntOrNull() ?: 0) } }.toMap()
+        }?.also { usageMemory = it }
+        if (known == null || usageLoadedAt == 0L || now - usageLoadedAt > 30 * 60_000L) {
+            usageLoadedAt = now
+            val refresh = Runnable {
+                val fresh = getUsageStatsMinutesMap()
+                if (fresh.isNotEmpty()) {
+                    usageMemory = fresh
+                    prefs.edit().putString("usage30d_cache", fresh.entries.joinToString(";") { "${it.key}=${it.value}" }).apply()
+                }
+            }
+            if (known == null) refresh.run() else Thread(refresh, "usage-refresh").apply { priority = Thread.MIN_PRIORITY }.start()
+        }
+        return usageMemory ?: emptyMap()
     }
 
     fun getUsageStatsMinutesMap(): Map<String, Int> {
@@ -1116,5 +1155,41 @@ class LauncherRepository(private val context: Context) {
         val cn = ComponentName(context, "com.tms.os.launcher.service.BadgeNotificationService")
         val flat = Settings.Secure.getString(context.contentResolver, "enabled_notification_listeners")
         return flat != null && flat.contains(cn.flattenToString())
+    }
+}
+
+
+/**
+ * Rendered app icons on disk. Rendering every icon (adaptive layers, fit,
+ * dark or tinted style) takes seconds for a full phone; after the launcher
+ * process was restarted the icons are simply read back instead.
+ * One file per app; the key in its name covers icon style and app version, so
+ * a stale file is just not found (and replaced on the next write).
+ */
+private class DiskIconCache(context: Context) {
+    private val dir: java.io.File = run {
+        val version = runCatching {
+            androidx.core.content.pm.PackageInfoCompat.getLongVersionCode(context.packageManager.getPackageInfo(context.packageName, 0))
+        }.getOrDefault(0L)
+        val current = java.io.File(context.cacheDir, "icons_v$version")
+        // Icons drawn by an older launcher version may look different: drop them.
+        context.cacheDir.listFiles { f -> f.isDirectory && f.name.startsWith("icons_v") && f.name != current.name }?.forEach { it.deleteRecursively() }
+        current.apply { mkdirs() }
+    }
+
+    private fun file(pkg: String, key: String) = java.io.File(dir, "${pkg}__${Integer.toHexString(key.hashCode())}.png")
+
+    fun read(pkg: String, key: String): ImageBitmap? = runCatching {
+        val f = file(pkg, key)
+        if (!f.exists()) null else BitmapFactory.decodeFile(f.path)?.asImageBitmap()
+    }.getOrNull()
+
+    fun write(pkg: String, key: String, icon: ImageBitmap) {
+        runCatching {
+            dir.listFiles { f -> f.name.startsWith("${pkg}__") }?.forEach { it.delete() }
+            val tmp = java.io.File(dir, "${pkg}.tmp")
+            tmp.outputStream().use { icon.asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, it) }
+            tmp.renameTo(file(pkg, key))
+        }
     }
 }

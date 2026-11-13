@@ -174,10 +174,10 @@ fun IosWidget(kind: WidgetKind, size: WidgetSize, env: WidgetEnv, modifier: Modi
 @Composable
 private fun rememberNow(periodMs: Long): Long {
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(periodMs) {
+    com.tms.os.launcher.ui.theme.WhileResumed(periodMs) {
         while (true) {
-            delay(periodMs - System.currentTimeMillis() % periodMs)
             now = System.currentTimeMillis()
+            delay(periodMs - System.currentTimeMillis() % periodMs)
         }
     }
     return now

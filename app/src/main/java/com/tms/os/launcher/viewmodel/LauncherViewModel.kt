@@ -86,9 +86,12 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     )
     val uiState: StateFlow<LauncherUiState> = _uiState.asStateFlow()
 
+    private var packageRefresh: kotlinx.coroutines.Job? = null
     private val packageReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            refreshApps()
+            // An app update arrives as several broadcasts in a row: reload once, afterwards.
+            packageRefresh?.cancel()
+            packageRefresh = viewModelScope.launch { kotlinx.coroutines.delay(600); refreshApps() }
         }
     }
 
@@ -131,15 +134,25 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             prevSettings.iconThemeMode != loadedSettings.iconThemeMode ||
             prevSettings.tintAccentColor != loadedSettings.tintAccentColor
 
-        _uiState.update {
-            it.copy(
-                settings = loadedSettings,
-                isDefaultLauncher = repository.isDefaultLauncher(),
-                isBadgeServiceEnabled = repository.isNotificationListenerEnabled(),
-                isUsageStatsGranted = repository.isUsageStatsPermissionGranted(),
-                batteryPercent = repository.getDeviceBatteryPercent(),
-                storageRamInfo = repository.getStorageAndRamInfo()
-            )
+        _uiState.update { it.copy(settings = loadedSettings) }
+        // System queries are cross-process calls: not on the main thread while the
+        // return-to-home animation is running.
+        viewModelScope.launch {
+            val status = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                SystemStatus(
+                    repository.isDefaultLauncher(), repository.isNotificationListenerEnabled(), repository.isUsageStatsPermissionGranted(),
+                    repository.getDeviceBatteryPercent(), repository.getStorageAndRamInfo()
+                )
+            }
+            _uiState.update {
+                it.copy(
+                    isDefaultLauncher = status.defaultLauncher,
+                    isBadgeServiceEnabled = status.badgeService,
+                    isUsageStatsGranted = status.usageStats,
+                    batteryPercent = status.battery,
+                    storageRamInfo = status.storage
+                )
+            }
         }
 
         if (iconsChanged) {
@@ -825,3 +838,12 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         }
     }
 }
+
+
+private class SystemStatus(
+    val defaultLauncher: Boolean,
+    val badgeService: Boolean,
+    val usageStats: Boolean,
+    val battery: Int,
+    val storage: SystemStorageRamInfo
+)
