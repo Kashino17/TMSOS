@@ -8,6 +8,9 @@ Ein maßgeschneiderter, werbefreier und kostenloser **iOS-Style Homescreen-Launc
 
 ---
 
+## Neu in v5.8.5
+- Solvado-Widgets ohne Beschriftung „Solvado Shop“ / „Solvado Admin“ darunter.
+
 ## Neu in v5.8.4 – Widget-Einstellungen nur beim Bearbeiten
 - Ein Tipp auf ein Widget öffnet die Einstellungen nur noch im Bearbeiten-Modus; sonst macht der Tipp, was das Widget tut (Wetter → Wetter-App, Solvado → nichts).
 - Solvado-Widget: schlichterer, dünner Aktualisieren-Pfeil.

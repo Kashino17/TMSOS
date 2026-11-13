@@ -1049,7 +1049,11 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                                                 folderTarget = drag.folderTarget == p.item.id,
                                                 env = widgetEnv,
                                                 // A spacer is invisible: it has a name only while editing.
-                                                widgetLabel = (p.item as? HomeGridItem.WidgetItem)?.takeIf { it.kind != WidgetKind.SPACER || state.isJiggleMode }?.let { hs.widgetName(it.kind) },
+                                                widgetLabel = (p.item as? HomeGridItem.WidgetItem)?.takeIf {
+                                                    // Solvado widgets name themselves (shop or "TMS Solvado") – no label under them.
+                                                    it.kind != WidgetKind.SOLVADO_SHOP && it.kind != WidgetKind.SOLVADO_ADMIN &&
+                                                        (it.kind != WidgetKind.SPACER || state.isJiggleMode)
+                                                }?.let { hs.widgetName(it.kind) },
                                                 dragEnabled = !anyOverlay || state.selectedAppForMenu != null,
                                                 actions = actions
                                             )
