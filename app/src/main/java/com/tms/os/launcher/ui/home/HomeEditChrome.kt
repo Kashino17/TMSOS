@@ -46,6 +46,7 @@ import androidx.compose.material.icons.rounded.ChevronLeft
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.CropPortrait
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Widgets
 import androidx.compose.material3.Icon
@@ -102,6 +103,7 @@ fun IosEditTopBar(
     strings: HomeStrings,
     onAddWidget: () -> Unit,
     onCustomize: () -> Unit,
+    onMinimal: () -> Unit,
     onDone: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -147,6 +149,8 @@ fun IosEditTopBar(
                 MenuRow(strings.addWidget, Icons.Rounded.Widgets) { menuOpen = false; onAddWidget() }
                 Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(0.5.dp).background(Color.White.copy(alpha = 0.15f)))
                 MenuRow(strings.customize, Icons.Rounded.Palette) { menuOpen = false; onCustomize() }
+                Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(0.5.dp).background(Color.White.copy(alpha = 0.15f)))
+                MenuRow(strings.minimal, Icons.Rounded.CropPortrait) { menuOpen = false; onMinimal() }
             }
         }
     }
@@ -394,6 +398,17 @@ private fun GalleryHome(
                     FeaturedWidget(WidgetKind.BATTERY, WidgetSize.SMALL, env, strings, Modifier.weight(1f), onAdd)
                     FeaturedWidget(WidgetKind.NOTES, WidgetSize.SMALL, env, strings, Modifier.weight(1f), onAdd)
                 }
+                Spacer(Modifier.height(22.dp))
+                FeaturedWidget(WidgetKind.MINIMAL, WidgetSize.MEDIUM, env, strings, Modifier.fillMaxWidth(), onAdd)
+                Spacer(Modifier.height(22.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                    FeaturedWidget(WidgetKind.DIGITAL, WidgetSize.SMALL, env, strings, Modifier.weight(1f), onAdd)
+                    FeaturedWidget(WidgetKind.DATE, WidgetSize.SMALL, env, strings, Modifier.weight(1f), onAdd)
+                }
+                Spacer(Modifier.height(22.dp))
+                FeaturedWidget(WidgetKind.SCREENTIME, WidgetSize.MEDIUM, env, strings, Modifier.fillMaxWidth(), onAdd)
+                Spacer(Modifier.height(22.dp))
+                FeaturedWidget(WidgetKind.YEAR, WidgetSize.MEDIUM, env, strings, Modifier.fillMaxWidth(), onAdd)
                 Spacer(Modifier.height(26.dp))
             }
             Column(Modifier.clip(RoundedCornerShape(26.dp)).background(Color(0xFF2C2C2E))) {
@@ -508,6 +523,24 @@ fun KindTile(kind: WidgetKind, modifier: Modifier) {
         WidgetKind.SUGGESTIONS -> Box(
             modifier.clip(shape).background(Brush.linearGradient(listOf(Color(0xFF5E5CE6), Color(0xFFBF5AF2), Color(0xFFFF375F))))
         )
+        WidgetKind.DIGITAL, WidgetKind.MINIMAL -> Box(modifier.clip(shape).background(Color(0xFF1C1C1E)), contentAlignment = Alignment.Center) {
+            Text("12:00", style = IosText.footnote.copy(color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 10.sp))
+        }
+        WidgetKind.DATE -> Box(modifier.clip(shape).background(Color(0xFF1C1C1E)), contentAlignment = Alignment.Center) {
+            Text(java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_MONTH).toString(), style = IosText.title3.copy(color = Color(0xFFFF453A), fontWeight = FontWeight.Normal))
+        }
+        WidgetKind.YEAR -> Box(modifier.clip(shape).background(Color(0xFF1C1C1E)), contentAlignment = Alignment.Center) {
+            Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.Bottom) {
+                listOf(14, 14, 14, 8, 4).forEach { h -> Box(Modifier.width(3.dp).height(h.dp).clip(RoundedCornerShape(1.dp)).background(Color.White.copy(alpha = if (h > 8) 1f else 0.4f))) }
+            }
+        }
+        WidgetKind.SCREENTIME -> Box(modifier.clip(shape).background(Color(0xFF5E5CE6)), contentAlignment = Alignment.Center) {
+            Canvas(Modifier.size(20.dp)) {
+                drawCircle(Color.White, style = Stroke(2.dp.toPx()))
+                drawLine(Color.White, center, Offset(center.x, size.height * 0.24f), strokeWidth = 2.dp.toPx())
+                drawLine(Color.White, center, Offset(size.width * 0.7f, center.y), strokeWidth = 2.dp.toPx())
+            }
+        }
         WidgetKind.NOTES -> Box(modifier.clip(shape).background(Color.White)) {
             Box(Modifier.fillMaxWidth().height(9.dp).background(Color(0xFFFFCC00)))
             Column(Modifier.offset(y = 13.dp).padding(horizontal = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {

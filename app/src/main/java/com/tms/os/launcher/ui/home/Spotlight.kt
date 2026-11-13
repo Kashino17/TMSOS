@@ -229,16 +229,41 @@ fun IosSpotlight(
                     }
                 } else {
                     if (mathResult != null) {
+                        // Tap the result to copy it; the expression is shown the way it was understood.
+                        val calc = remember(q) { com.tms.os.launcher.domain.SpotlightCalculator.evaluate(q) }
+                        val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+                        val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+                        var copied by remember(q) { mutableStateOf(false) }
+                        LaunchedEffect(copied) { if (copied) { delay(1400); copied = false } }
                         Header(strings.calculator)
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = Side).height(91.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(remember { MutableInteractionSource() }, null) {
+                                    clipboard.setText(androidx.compose.ui.text.AnnotatedString(calc?.plain ?: mathResult))
+                                    haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                    copied = true
+                                }
+                                .padding(horizontal = Side)
+                                .height(91.dp)
+                        ) {
                             Box(Modifier.size(RowIcon).clip(IosSquircle).background(Color(0xFF2C2C2E)), contentAlignment = Alignment.Center) {
                                 Icon(Icons.Rounded.Calculate, null, tint = Color(0xFFFF9F0A), modifier = Modifier.size(34.dp))
                             }
                             Spacer(Modifier.width(12.dp))
-                            Column {
-                                Text("$q =", style = IosText.footnote.copy(color = HeaderColor), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text(mathResult, style = IosText.title2.copy(color = Color.White))
+                            Column(Modifier.weight(1f)) {
+                                Text("${calc?.expression ?: q} =", style = IosText.footnote.copy(color = HeaderColor), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(mathResult, style = IosText.title2.copy(color = Color.White), maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
+                            Text(
+                                if (copied) hs.copied else hs.copy,
+                                style = IosText.footnote.copy(color = if (copied) Color(0xFF30D158) else Color(0xFF0A84FF), fontWeight = FontWeight.SemiBold),
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = 0.10f))
+                                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                            )
                         }
                         Spacer(Modifier.height(10.dp))
                     }

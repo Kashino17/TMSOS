@@ -99,7 +99,10 @@ data class WidgetEnv(
     val batteryPercent: Int,
     val note: String,
     val suggestedApps: List<AppInfo>,
-    val onAppClick: (AppInfo) -> Unit = {}
+    val onAppClick: (AppInfo) -> Unit = {},
+    /** Today's usage: total minutes and the most used apps; null until usage access is granted. */
+    val screenMinutes: Int? = null,
+    val screenTop: List<Pair<AppInfo, Int>> = emptyList()
 ) {
     val locale: Locale get() = Locale.forLanguageTag(language.code)
     fun t(c: Int) = if (fahrenheit) c * 9 / 5 + 32 else c
@@ -144,7 +147,11 @@ fun IosWidget(kind: WidgetKind, size: WidgetSize, env: WidgetEnv, modifier: Modi
                 Modifier
                     .requiredSize(size.canonicalWidth(), size.canonicalHeight())
                     .clip(RoundedCornerShape(WidgetCorner))
-                    .border(0.6.dp, if (env.dark) Color.White.copy(alpha = 0.14f) else Color.Black.copy(alpha = 0.06f), RoundedCornerShape(WidgetCorner))
+                    .then(
+                        // The minimal widget is bare text on the wallpaper: no plate, no outline.
+                        if (kind == WidgetKind.MINIMAL) Modifier
+                        else Modifier.border(0.6.dp, if (env.dark) Color.White.copy(alpha = 0.14f) else Color.Black.copy(alpha = 0.06f), RoundedCornerShape(WidgetCorner))
+                    )
             ) {
                 when (kind) {
                     WidgetKind.WEATHER -> WeatherWidget(size, env)
@@ -153,6 +160,11 @@ fun IosWidget(kind: WidgetKind, size: WidgetSize, env: WidgetEnv, modifier: Modi
                     WidgetKind.BATTERY -> BatteryWidget(size, env)
                     WidgetKind.SUGGESTIONS -> SuggestionsWidget(size, env)
                     WidgetKind.NOTES -> NotesWidget(size, env)
+                    WidgetKind.DIGITAL -> DigitalWidget(size, env)
+                    WidgetKind.DATE -> DateWidget(env)
+                    WidgetKind.YEAR -> YearWidget(size, env)
+                    WidgetKind.SCREENTIME -> ScreenTimeWidget(size, env)
+                    WidgetKind.MINIMAL -> MinimalWidget(size, env)
                 }
             }
         }
@@ -643,6 +655,214 @@ private fun SuggestionsWidget(size: WidgetSize, env: WidgetEnv) {
                     }
                 }
             }
+        }
+    }
+}
+
+/* -------------------------------------------------------------------------- */
+/*                 Digital clock · Date · Year · Screen Time · Minimal        */
+/* -------------------------------------------------------------------------- */
+
+private fun WidgetEnv.format(pattern: String, millis: Long): String =
+    java.text.SimpleDateFormat(pattern, locale).format(java.util.Date(millis))
+
+/** "13. November" / "November 13" / "13 Kasım". */
+private fun WidgetEnv.dayMonth(millis: Long): String = format(
+    when (language) { AppLanguage.EN -> "MMMM d"; AppLanguage.TR -> "d MMMM"; else -> "d. MMMM" }, millis
+)
+
+private fun WidgetEnv.duration(minutes: Int): String =
+    if (minutes >= 60) String.format(Locale.ROOT, strings.hoursMinutes, minutes / 60, minutes % 60) else String.format(Locale.ROOT, strings.minutesOnly, minutes)
+
+private fun digits(size: TextUnit, color: Color, weight: FontWeight = FontWeight.Light) = TextStyle(
+    fontFamily = com.tms.os.launcher.ui.theme.SfLightFamily, fontWeight = weight, fontSize = size, color = color, letterSpacing = (-1).sp
+)
+
+@Composable
+private fun DigitalWidget(size: WidgetSize, env: WidgetEnv) {
+    val now = rememberNow(60_000)
+    val dark = env.dark
+    val time = env.format("HH:mm", now)
+    val weekday = env.format("EEEE", now).uppercase(env.locale)
+    Box(Modifier.fillMaxSize().background(bg(dark)).padding(WidgetPadding)) {
+        if (size == WidgetSize.SMALL) {
+            Column(Modifier.fillMaxSize()) {
+                Text(weekday, style = ts(12.sp, FontWeight.SemiBold, IosRed, 0.3.sp), maxLines = 1)
+                Spacer(Modifier.weight(1f))
+                Text(time, style = digits(47.sp, fg(dark)), maxLines = 1, softWrap = false)
+                Text(env.dayMonth(now), style = ts(14.sp, FontWeight.Medium, fg2(dark)), maxLines = 1)
+            }
+        } else {
+            Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+                Text(time, style = digits(78.sp, fg(dark)).copy(letterSpacing = (-2).sp), maxLines = 1, softWrap = false)
+                Spacer(Modifier.weight(1f))
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(weekday, style = ts(12.sp, FontWeight.SemiBold, IosRed, 0.3.sp), maxLines = 1)
+                    Text(env.dayMonth(now), style = ts(17.sp, FontWeight.SemiBold, fg(dark)), maxLines = 1)
+                    Spacer(Modifier.height(10.dp))
+                    Text("${env.t(env.tempC)}° ${env.city}", style = ts(13.sp, FontWeight.Medium, fg2(dark)), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DateWidget(env: WidgetEnv) {
+    val now = rememberNow(60_000)
+    val dark = env.dark
+    val cal = Calendar.getInstance(env.locale).apply { timeInMillis = now }
+    Column(Modifier.fillMaxSize().background(bg(dark)).padding(WidgetPadding)) {
+        Text(env.format("EEEE", now).uppercase(env.locale), style = ts(12.sp, FontWeight.SemiBold, IosRed, 0.3.sp), maxLines = 1)
+        Text(cal.get(Calendar.DAY_OF_MONTH).toString(), style = digits(64.sp, fg(dark)).copy(lineHeight = 68.sp), maxLines = 1)
+        Spacer(Modifier.weight(1f))
+        Text(env.format("LLLL yyyy", now), style = ts(14.sp, FontWeight.Medium, fg(dark)), maxLines = 1)
+        Text(String.format(Locale.ROOT, env.strings.week, cal.get(Calendar.WEEK_OF_YEAR)), style = ts(13.sp, FontWeight.Medium, fg2(dark)), maxLines = 1)
+    }
+}
+
+@Composable
+private fun YearWidget(size: WidgetSize, env: WidgetEnv) {
+    val now = rememberNow(60_000)
+    val dark = env.dark
+    val cal = Calendar.getInstance(env.locale).apply { timeInMillis = now }
+    val dayOfYear = cal.get(Calendar.DAY_OF_YEAR)
+    val daysInYear = cal.getActualMaximum(Calendar.DAY_OF_YEAR)
+    val fraction = dayOfYear.toFloat() / daysInYear
+    val track = fg(dark).copy(alpha = 0.14f)
+
+    @Composable
+    fun Summary(modifier: Modifier) = Column(modifier) {
+        Text(cal.get(Calendar.YEAR).toString(), style = ts(13.sp, FontWeight.SemiBold, fg2(dark)), maxLines = 1)
+        Spacer(Modifier.weight(1f))
+        Text("${(fraction * 100).toInt()} %", style = TextStyle(fontFamily = SfDisplayFamily, fontWeight = FontWeight.SemiBold, fontSize = 38.sp, color = fg(dark)), maxLines = 1)
+        Spacer(Modifier.height(8.dp))
+        Box(Modifier.fillMaxWidth().height(7.dp).clip(CircleShape).background(track)) {
+            Box(Modifier.fillMaxWidth(fraction).height(7.dp).clip(CircleShape).background(fg(dark)))
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(String.format(Locale.ROOT, env.strings.daysLeft, daysInYear - dayOfYear), style = ts(13.sp, FontWeight.Medium, fg2(dark)), maxLines = 1)
+    }
+
+    Box(Modifier.fillMaxSize().background(bg(dark)).padding(WidgetPadding)) {
+        if (size == WidgetSize.SMALL) Summary(Modifier.fillMaxSize())
+        else Row(Modifier.fillMaxSize()) {
+            Summary(Modifier.width(118.dp).fillMaxSize())
+            Spacer(Modifier.width(18.dp))
+            // One bar per month, filled as far as the year has come.
+            val month = cal.get(Calendar.MONTH)
+            val monthFraction = cal.get(Calendar.DAY_OF_MONTH).toFloat() / cal.getActualMaximum(Calendar.DAY_OF_MONTH)
+            Row(Modifier.weight(1f).fillMaxSize(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
+                for (m in 0..11) Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    val fill = when { m < month -> 1f; m == month -> monthFraction; else -> 0f }
+                    Box(Modifier.width(9.dp).height(96.dp).clip(RoundedCornerShape(4.dp)).background(track), contentAlignment = Alignment.BottomCenter) {
+                        Box(Modifier.fillMaxWidth().height(96.dp * fill).background(if (m == month) IosOrange else fg(dark)))
+                    }
+                    Spacer(Modifier.height(5.dp))
+                    val initial = Calendar.getInstance(env.locale).apply { set(Calendar.DAY_OF_MONTH, 1); set(Calendar.MONTH, m) }
+                        .let { env.format("LLLLL", it.timeInMillis) }
+                    Text(initial, style = ts(10.sp, FontWeight.Medium, if (m == month) fg(dark) else fg2(dark)), maxLines = 1)
+                }
+            }
+        }
+    }
+}
+
+private val UsageColors = listOf(Color(0xFF0A84FF), Color(0xFF30D158), Color(0xFFFF9F0A), Color(0xFFBF5AF2))
+
+@Composable
+private fun ScreenTimeWidget(size: WidgetSize, env: WidgetEnv) {
+    val dark = env.dark
+    val total = env.screenMinutes
+    val top = env.screenTop
+    Box(Modifier.fillMaxSize().background(bg(dark)).padding(WidgetPadding)) {
+        if (total == null) {
+            Column(Modifier.fillMaxSize()) {
+                Text(env.strings.screenTime, style = ts(13.sp, FontWeight.SemiBold, fg2(dark)), maxLines = 1)
+                Spacer(Modifier.weight(1f))
+                Text(env.strings.allowAccess, style = ts(15.sp, FontWeight.Medium, fg(dark)))
+            }
+            return@Box
+        }
+        val sum = top.sumOf { it.second }.coerceAtLeast(1)
+
+        @Composable
+        fun Summary(modifier: Modifier) = Column(modifier) {
+            Text(env.strings.screenTime, style = ts(13.sp, FontWeight.SemiBold, fg2(dark)), maxLines = 1)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                env.duration(total),
+                style = TextStyle(fontFamily = SfDisplayFamily, fontWeight = FontWeight.SemiBold, fontSize = if (total >= 60) 24.sp else 30.sp, color = fg(dark)),
+                maxLines = 1
+            )
+            Text(env.strings.today, style = ts(13.sp, FontWeight.Medium, fg2(dark)), maxLines = 1)
+            Spacer(Modifier.weight(1f))
+            // What the time went into, as one segmented bar.
+            Row(Modifier.fillMaxWidth().height(8.dp).clip(CircleShape).background(fg(dark).copy(alpha = 0.14f))) {
+                top.forEachIndexed { i, (_, minutes) ->
+                    Box(Modifier.weight(minutes.coerceAtLeast(1).toFloat()).height(8.dp).background(UsageColors[i % UsageColors.size]))
+                }
+            }
+            if (size == WidgetSize.SMALL) {
+                Spacer(Modifier.height(7.dp))
+                Text(top.firstOrNull()?.first?.displayLabel.orEmpty(), style = ts(13.sp, FontWeight.Medium, fg2(dark)), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+
+        if (size == WidgetSize.SMALL) Summary(Modifier.fillMaxSize())
+        else Row(Modifier.fillMaxSize()) {
+            Summary(Modifier.width(128.dp).fillMaxSize())
+            Spacer(Modifier.width(18.dp))
+            Column(Modifier.weight(1f).fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
+                top.take(3).forEachIndexed { i, (app, minutes) ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(30.dp)) {
+                            app.iconBitmap?.let { Image(it, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
+                        }
+                        Spacer(Modifier.width(9.dp))
+                        Column(Modifier.weight(1f)) {
+                            Row {
+                                Text(app.displayLabel, style = ts(13.sp, FontWeight.SemiBold, fg(dark)), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                                Text(env.duration(minutes), style = ts(12.sp, FontWeight.Medium, fg2(dark)), maxLines = 1)
+                            }
+                            Spacer(Modifier.height(4.dp))
+                            Box(Modifier.fillMaxWidth().height(4.dp).clip(CircleShape).background(fg(dark).copy(alpha = 0.12f))) {
+                                Box(Modifier.fillMaxWidth((minutes.toFloat() / top.first().second.coerceAtLeast(1)).coerceIn(0.04f, 1f)).height(4.dp).clip(CircleShape).background(UsageColors[i % UsageColors.size]))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Shared by the Minimal widget and the minimalist home screen: white type that stays legible on any wallpaper. */
+val MinimalShadow = androidx.compose.ui.graphics.Shadow(Color.Black.copy(alpha = 0.38f), Offset(0f, 1f), 10f)
+
+@Composable
+private fun MinimalWidget(size: WidgetSize, env: WidgetEnv) {
+    val now = rememberNow(60_000)
+    val time = env.format("HH:mm", now)
+    val date = "${env.format("EEEE", now)}, ${env.dayMonth(now)}"
+    val info = "${env.t(env.tempC)}° ${env.city}  ·  ${env.strings.battery} ${env.batteryPercent.coerceIn(0, 100)} %"
+    val white = Color.White
+    val soft = Color.White.copy(alpha = 0.78f)
+    when (size) {
+        WidgetSize.SMALL -> Column(Modifier.fillMaxSize().padding(6.dp), verticalArrangement = Arrangement.Center) {
+            Text(time, style = digits(50.sp, white).copy(shadow = MinimalShadow), maxLines = 1, softWrap = false)
+            Text(env.dayMonth(now), style = ts(15.sp, FontWeight.Medium, soft).copy(shadow = MinimalShadow), maxLines = 1)
+        }
+        WidgetSize.MEDIUM -> Column(Modifier.fillMaxSize().padding(horizontal = 6.dp), verticalArrangement = Arrangement.Center) {
+            Text(time, style = digits(84.sp, white).copy(shadow = MinimalShadow, letterSpacing = (-2).sp, lineHeight = 88.sp), maxLines = 1, softWrap = false)
+            Text(date, style = ts(18.sp, FontWeight.Medium, white).copy(shadow = MinimalShadow), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Spacer(Modifier.height(3.dp))
+            Text(info, style = ts(13.sp, FontWeight.Medium, soft).copy(shadow = MinimalShadow), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        WidgetSize.LARGE -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(date, style = ts(20.sp, FontWeight.Medium, white).copy(shadow = MinimalShadow), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(time, style = digits(124.sp, white).copy(shadow = MinimalShadow, letterSpacing = (-3).sp, lineHeight = 130.sp), maxLines = 1, softWrap = false)
+            Text(info, style = ts(15.sp, FontWeight.Medium, soft).copy(shadow = MinimalShadow), maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }

@@ -8,6 +8,12 @@ Ein maßgeschneiderter, werbefreier und kostenloser **iOS-Style Homescreen-Launc
 
 ---
 
+## Neu in v5.5.0 – Minimalistischer Modus, mehr Widgets, besserer Rechner
+- **Minimalistischer Home-Bildschirm** (Bearbeiten → „Minimalistisch“): wichtigste Apps aus einer durchsuchbaren Liste wählen, drei Vorlagen – **Liste** (Uhr + App-Namen), **Symbole** (Uhr + Icons ohne Beschriftung), **Fokus** (nur Uhr, Apps im Dock). Der normale Home-Bildschirm bleibt gespeichert; zum Ändern den Hintergrund gedrückt halten.
+- **Fünf neue Widgets**: Minimal (nur Schrift, ohne Hintergrund), Digitaluhr, Datum, Jahr (Fortschritt), Bildschirmzeit (braucht den Nutzungszugriff).
+- **Rechner in Spotlight** versteht jetzt `10x10`, `39-18`, `3,5+2`, `200+19%`, `19% von 250`, `2^10`, `√81`, Klammern und Wörter („5 mal 3“); Tippen auf das Ergebnis kopiert es.
+- **TMS OS** erscheint nicht mehr in Spotlight, nur noch in der App-Mediathek.
+
 ## Neu in v5.4.0 – Ordner wie bei iOS
 - **Apps in Ordnern verschieben**: im Ordner per Ziehen umsortieren; aus dem Ordner herausziehen – er klappt zu und die App hängt auf dem Home-Bildschirm am Finger (Seiten wechseln, ablegen, in andere Ordner ziehen).
 - **Ordner springen auf**: eine App länger über einen Ordner halten öffnet ihn, die Position im Ordner lässt sich direkt bestimmen.

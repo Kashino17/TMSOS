@@ -103,7 +103,10 @@ class LauncherRepository(private val context: Context) {
             useFahrenheit = prefs.getBoolean("useFahrenheit", false),
             glassOpacity = prefs.getFloat("glassOpacity", 0.78f),
             blurIntensity = prefs.getFloat("blurIntensity", 0.88f),
-            appLanguage = AppLanguage.fromCode(prefs.getString("appLanguage", AppLanguage.DE.code) ?: "de")
+            appLanguage = AppLanguage.fromCode(prefs.getString("appLanguage", AppLanguage.DE.code) ?: "de"),
+            minimalMode = prefs.getBoolean("minimalMode", false),
+            minimalTemplate = com.tms.os.launcher.model.MinimalTemplate.fromId(prefs.getString("minimalTemplate", null)),
+            minimalApps = prefs.getString("minimalApps", "").orEmpty().split('|').filter { it.isNotBlank() }
         )
     }
 
@@ -149,6 +152,9 @@ class LauncherRepository(private val context: Context) {
             putFloat("glassOpacity", settings.glassOpacity)
             putFloat("blurIntensity", settings.blurIntensity)
             putString("appLanguage", settings.appLanguage.code)
+            putBoolean("minimalMode", settings.minimalMode)
+            putString("minimalTemplate", settings.minimalTemplate.id)
+            putString("minimalApps", settings.minimalApps.joinToString("|"))
             apply()
         }
     }
@@ -326,6 +332,51 @@ class LauncherRepository(private val context: Context) {
             map
         } catch (_: Exception) {
             emptyMap()
+        }
+    }
+
+    /** Foreground time per app since midnight, for the Screen Time widget. */
+    fun todayScreenTime(): com.tms.os.launcher.model.ScreenTime {
+        if (!isUsageStatsPermissionGranted()) return com.tms.os.launcher.model.ScreenTime(granted = false)
+        return try {
+            val usm = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+            val midnight = java.util.Calendar.getInstance().apply {
+                set(java.util.Calendar.HOUR_OF_DAY, 0); set(java.util.Calendar.MINUTE, 0)
+                set(java.util.Calendar.SECOND, 0); set(java.util.Calendar.MILLISECOND, 0)
+            }.timeInMillis
+            val now = System.currentTimeMillis()
+            // Events, not the daily buckets: buckets do not start at local midnight.
+            val events = usm.queryEvents(midnight, now)
+            val event = android.app.usage.UsageEvents.Event()
+            val startedAt = HashMap<String, Long>()
+            val millis = HashMap<String, Long>()
+            var lastResumed: String? = null
+            while (events.hasNextEvent()) {
+                events.getNextEvent(event)
+                val pkg = event.packageName ?: continue
+                when (event.eventType) {
+                    android.app.usage.UsageEvents.Event.ACTIVITY_RESUMED -> { startedAt[pkg] = event.timeStamp; lastResumed = pkg }
+                    android.app.usage.UsageEvents.Event.ACTIVITY_PAUSED, android.app.usage.UsageEvents.Event.ACTIVITY_STOPPED ->
+                        startedAt.remove(pkg)?.let { millis[pkg] = (millis[pkg] ?: 0L) + (event.timeStamp - it).coerceAtLeast(0L) }
+                }
+            }
+            // Only the app in front right now is still running; other open ends are lost pause events.
+            lastResumed?.let { pkg -> startedAt[pkg]?.let { since -> millis[pkg] = (millis[pkg] ?: 0L) + (now - since).coerceAtLeast(0L) } }
+            millis.remove(context.packageName)
+            val minutes = millis.mapValues { (it.value / 60_000L).toInt() }.filterValues { it > 0 }
+            com.tms.os.launcher.model.ScreenTime(
+                granted = true,
+                totalMinutes = (millis.values.sum() / 60_000L).toInt(),
+                top = minutes.entries.sortedByDescending { it.value }.take(4).map { it.key to it.value }
+            )
+        } catch (_: Exception) {
+            com.tms.os.launcher.model.ScreenTime(granted = true)
+        }
+    }
+
+    fun openUsageAccessSettings() {
+        runCatching {
+            context.startActivity(Intent(android.provider.Settings.ACTION_USAGE_ACCESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }
     }
 

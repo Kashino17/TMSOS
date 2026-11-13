@@ -247,7 +247,13 @@ enum class WidgetKind(val id: String, val sizes: List<WidgetSize>) {
     CLOCK("clock", listOf(WidgetSize.SMALL, WidgetSize.MEDIUM)),
     BATTERY("battery", listOf(WidgetSize.SMALL, WidgetSize.MEDIUM)),
     SUGGESTIONS("suggestions", listOf(WidgetSize.MEDIUM, WidgetSize.LARGE)),
-    NOTES("notes", listOf(WidgetSize.SMALL, WidgetSize.MEDIUM));
+    NOTES("notes", listOf(WidgetSize.SMALL, WidgetSize.MEDIUM)),
+    DIGITAL("digital", listOf(WidgetSize.SMALL, WidgetSize.MEDIUM)),
+    DATE("date", listOf(WidgetSize.SMALL)),
+    YEAR("year", listOf(WidgetSize.SMALL, WidgetSize.MEDIUM)),
+    SCREENTIME("screentime", listOf(WidgetSize.SMALL, WidgetSize.MEDIUM)),
+    /** Text only, no plate: time, date and a line of weather and battery. */
+    MINIMAL("minimal", listOf(WidgetSize.SMALL, WidgetSize.MEDIUM, WidgetSize.LARGE));
 
     companion object {
         fun fromId(id: String): WidgetKind? = entries.find { it.id == id }
@@ -349,5 +355,27 @@ data class LauncherSettings(
     val useFahrenheit: Boolean = false,
     val glassOpacity: Float = 0.78f,
     val blurIntensity: Float = 0.88f,
-    val appLanguage: AppLanguage = AppLanguage.DE
+    val appLanguage: AppLanguage = AppLanguage.DE,
+    /** Minimalist home screen: one calm page built from [minimalApps] instead of the icon grid. */
+    val minimalMode: Boolean = false,
+    val minimalTemplate: MinimalTemplate = MinimalTemplate.LIST,
+    val minimalApps: List<String> = emptyList()
 )
+
+
+/** Layouts of the minimalist home screen. */
+enum class MinimalTemplate(val id: String, val maxApps: Int) {
+    /** Clock on top, the apps as a plain list of names. */
+    LIST("list", 10),
+    /** Clock on top, a few rows of icons without labels at the bottom. */
+    ICONS("icons", 12),
+    /** Only the clock; the apps sit in the dock. */
+    FOCUS("focus", 4);
+
+    companion object {
+        fun fromId(id: String?): MinimalTemplate = entries.find { it.id == id } ?: LIST
+    }
+}
+
+/** Today's screen time; [granted] is false until usage access is allowed. */
+data class ScreenTime(val granted: Boolean = false, val totalMinutes: Int = 0, val top: List<Pair<String, Int>> = emptyList())

@@ -62,6 +62,7 @@ data class LauncherUiState(
     val isBadgeServiceEnabled: Boolean = false,
     val isUsageStatsGranted: Boolean = false,
     val batteryPercent: Int = 85,
+    val screenTime: com.tms.os.launcher.model.ScreenTime = com.tms.os.launcher.model.ScreenTime(),
     val storageRamInfo: SystemStorageRamInfo = SystemStorageRamInfo(6.4f, 12.0f, 128, 512),
     val isWeatherRefreshing: Boolean = false
 ) {
@@ -400,7 +401,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             it.copy(
                 isSpotlightOpen = true,
                 spotlightQuery = "",
-                spotlightResults = SpotlightSearchEngine.searchApps("", apps),
+                spotlightResults = SpotlightSearchEngine.searchApps("", apps.forSpotlight()),
                 spotlightShortcuts = emptyList(),
                 spotlightContacts = emptyList(),
                 spotlightMathResult = null,
@@ -408,6 +409,19 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             )
         }
     }
+
+    /** Screen Time widget: re-read whenever the home screen comes back to the front. */
+    fun refreshScreenTime() {
+        viewModelScope.launch {
+            val st = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { repository.todayScreenTime() }
+            _uiState.update { it.copy(screenTime = st, batteryPercent = repository.getDeviceBatteryPercent()) }
+        }
+    }
+
+    fun openUsageAccessSettings() = repository.openUsageAccessSettings()
+
+    /** The launcher itself is found in the App Library, not in Spotlight. */
+    private fun List<AppInfo>.forSpotlight() = filterNot { it.packageName == getApplication<Application>().packageName }
 
     fun closeSpotlight() {
         _uiState.update {
@@ -423,7 +437,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     fun updateSpotlightQuery(query: String) {
         val state = _uiState.value
-        val results = SpotlightSearchEngine.searchApps(query, state.allApps)
+        val results = SpotlightSearchEngine.searchApps(query, state.allApps.forSpotlight())
         val shortcuts = SpotlightSearchEngine.generateQuickShortcuts(query, results)
         val contacts = SpotlightSearchEngine.searchContacts(query, state.allContacts)
         val mathResult = SpotlightSearchEngine.evaluateMathOrConversion(query)

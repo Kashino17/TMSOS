@@ -196,6 +196,7 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
     val lifecycleOwner = LocalLifecycleOwner.current
 
     var showCustomizeSheet by remember { mutableStateOf(false) }
+    var showMinimalSetup by remember { mutableStateOf(false) }
     var showGallery by remember { mutableStateOf(false) }
     var removeTarget by remember { mutableStateOf<HomeGridItem?>(null) }
     var menuAnchor by remember { mutableStateOf<Pair<String, Rect>?>(null) }
@@ -228,6 +229,7 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
             when (event) {
                 Lifecycle.Event.ON_STOP -> leftToApp = true
                 Lifecycle.Event.ON_RESUME -> {
+                    viewModel.refreshScreenTime()
                     scope.launch { refreshStatusBarTone() }
                     if (leftToApp || homeZoom.value != 1f) {
                         leftToApp = false
@@ -265,16 +267,19 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
         batteryPercent = state.batteryPercent,
         note = settings.quickNoteText,
         suggestedApps = suggestions,
-        onAppClick = { viewModel.launchApp(it.packageName) }
+        onAppClick = { viewModel.launchApp(it.packageName) },
+        screenMinutes = state.screenTime.takeIf { it.granted }?.totalMinutes,
+        screenTop = remember(state.screenTime, state.appMap) { state.screenTime.top.mapNotNull { (pkg, m) -> state.appMap[pkg]?.let { it to m } } }
     )
 
     fun appForWidget(kind: WidgetKind): AppInfo? {
         val keys = when (kind) {
             WidgetKind.WEATHER -> listOf("weather")
             WidgetKind.CALENDAR -> listOf("calendar")
-            WidgetKind.CLOCK -> listOf("deskclock", "clock")
             WidgetKind.NOTES -> listOf("keep", "notes", "memo")
-            WidgetKind.BATTERY, WidgetKind.SUGGESTIONS -> emptyList()
+            WidgetKind.CLOCK, WidgetKind.DIGITAL, WidgetKind.MINIMAL -> listOf("deskclock", "clock")
+            WidgetKind.DATE, WidgetKind.YEAR -> listOf("calendar")
+            WidgetKind.BATTERY, WidgetKind.SUGGESTIONS, WidgetKind.SCREENTIME -> emptyList()
         }
         return keys.firstNotNullOfOrNull { k -> state.allApps.firstOrNull { it.packageName.contains(k) } }
     }
@@ -307,7 +312,12 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
         // and App Library run underneath it to the bottom edge like on iOS.
         val chromeHeight = PillAreaHeight + dockHeight + dockBottomGap
 
-        val displayOrder = drag.order ?: state.homeGridItems
+        // Minimalist mode: one calm page instead of the icon grid. The grid itself stays
+        // stored untouched, so switching back brings everything back.
+        val minimal = settings.minimalMode
+        val minimalApps = remember(settings.minimalApps, state.appMap) { settings.minimalApps.mapNotNull { state.appMap[it] } }
+        val minimalDock = minimal && settings.minimalTemplate == com.tms.os.launcher.model.MinimalTemplate.FOCUS
+        val displayOrder = if (minimal) emptyList() else drag.order ?: state.homeGridItems
         val pages = remember(displayOrder, columns, rows) {
             packIntoPages(displayOrder, columns, { rows }) { it.span() }
         }
@@ -324,13 +334,14 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
 
         LaunchedEffect(state.homePressGeneration) {
             if (state.homePressGeneration > 0) {
-                showCustomizeSheet = false; showGallery = false
+                showCustomizeSheet = false; showGallery = false; showMinimalSetup = false
                 if (openPod != null) { podProgress.animateTo(0f, spring(dampingRatio = 1f, stiffness = 260f, visibilityThreshold = 0.004f)); openPod = null }
                 if (pagerState.currentPage != 1) pagerState.animateScrollToPage(1, animationSpec = spring(dampingRatio = 1f, stiffness = 300f))
             }
         }
-        BackHandler(enabled = showCustomizeSheet || pagerState.settledPage != 1 || state.isAnyOverlayOpen || state.isJiggleMode) {
+        BackHandler(enabled = showCustomizeSheet || showMinimalSetup || pagerState.settledPage != 1 || state.isAnyOverlayOpen || state.isJiggleMode) {
             when {
+                showMinimalSetup -> showMinimalSetup = false
                 showCustomizeSheet -> showCustomizeSheet = false
                 state.isAnyOverlayOpen || state.isJiggleMode -> viewModel.handleBackOrHomePress()
                 else -> scope.launch { pagerState.animateScrollToPage(1) }
@@ -338,7 +349,7 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
         }
 
         val anyOverlay = state.isSpotlightOpen || state.activeFolder != null ||
-            state.activeCategoryModal != null || state.selectedAppForMenu != null || showCustomizeSheet || showGallery || openPod != null
+            state.activeCategoryModal != null || state.selectedAppForMenu != null || showCustomizeSheet || showMinimalSetup || showGallery || openPod != null
         // Folder, menu and gallery sit on a frosted home screen. The frost is the
         // home content redrawn at 1/8 size and blurred there (64x fewer pixels than a
         // full-size blur, and nothing is read back from the GPU), then stretched back.
@@ -388,7 +399,8 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
         }
 
         val dockPkgs = drag.dockOrder ?: state.dockPackages
-        val dockApps = remember(dockPkgs, state.appMap) { dockPkgs.take(dockCount).mapNotNull { state.appMap[it] } }
+        val dockApps = if (minimalDock) minimalApps.take(dockCount)
+        else remember(dockPkgs, state.appMap) { dockPkgs.take(dockCount).mapNotNull { state.appMap[it] } }
         var dockRect by remember { mutableStateOf(Rect.Zero) }
         val dockIconRects = remember { androidx.compose.runtime.mutableStateMapOf<String, Rect>() }
         // Folder whose panel owns the running gesture: it must stay composed until the drop.
@@ -647,7 +659,10 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
             override fun openApp(app: AppInfo, bounds: Rect) = openAppWithAnimation(app, bounds)
             override fun appMenu(app: AppInfo, bounds: Rect) { menuAnchor = app.packageName to bounds; viewModel.selectAppForContextMenu(app) }
             override fun folder(folder: HomeGridItem.FolderItem, bounds: Rect) = openFolder(folder, bounds)
-            override fun widgetTap(kind: WidgetKind) { appForWidget(kind)?.let { leftToApp = true; viewModel.launchApp(it.packageName) } }
+            override fun widgetTap(kind: WidgetKind) {
+                if (kind == WidgetKind.SCREENTIME) { if (!state.screenTime.granted) viewModel.openUsageAccessSettings() }
+                else appForWidget(kind)?.let { leftToApp = true; viewModel.launchApp(it.packageName) }
+            }
             override fun enterJiggle() { haptic.performHapticFeedback(HapticFeedbackType.LongPress); viewModel.setJiggleMode(true) }
             override fun exitJiggle() { if (state.isJiggleMode) viewModel.setJiggleMode(false) }
             override fun remove(item: HomeGridItem) { removeTarget = item }
@@ -679,6 +694,11 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                 drag.order = (drag.order ?: state.homeGridItems).withoutFolderApp(app.packageName)
                 fs.clear()
                 if (state.activeFolder?.folderId == id) viewModel.openFolder(null)
+            }
+            override fun minimalSetup() {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                viewModel.setJiggleMode(false)
+                showMinimalSetup = true
             }
             override fun spotlight() { viewModel.openSpotlight() }
             override fun pod(title: String, apps: List<AppInfo>, origin: Rect) {
@@ -865,7 +885,18 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                                     onAppLongClick = actions.appMenu,
                                     onOpenPod = actions.pod
                                 )
-                                else -> Row(
+                                else -> if (minimal) com.tms.os.launcher.ui.home.MinimalHomePage(
+                                    template = settings.minimalTemplate,
+                                    apps = minimalApps,
+                                    env = widgetEnv,
+                                    iconSize = iconSize,
+                                    // Without a dock only the search pill is left at the bottom.
+                                    bottomInset = if (minimalDock) chromeHeight else PillAreaHeight + dockBottomGap,
+                                    onAppClick = actions.openApp,
+                                    onAppLongClick = actions.appMenu,
+                                    onClock = actions.clock,
+                                    onSetup = actions.minimalSetup
+                                ) else Row(
                                     Modifier
                                         .fillMaxSize()
                                         .combinedClickable(
@@ -912,7 +943,7 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                             .homeDragGesture(
                                 key = "dock",
                                 jiggle = state.isJiggleMode,
-                                enabled = !anyOverlay || state.selectedAppForMenu != null,
+                                enabled = !minimal && (!anyOverlay || state.selectedAppForMenu != null),
                                 onStart = { downAt, at ->
                                     dockIconRects.entries.firstOrNull { it.value.contains(downAt) }?.let { (pkg, r) ->
                                         actions.startExternalDrag(pkg, r.topLeft, downAt, at)
@@ -927,6 +958,7 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                         dockMargin = dockMargin,
                         // Dock icons stand in the grid columns when the counts match.
                         slotWidth = if (!isUnfolded && dockCount == columns) with(density) { geometry.cellW.toDp() } else Dp.Unspecified,
+                        showDock = !minimal || minimalDock,
                         pageCount = homePageCount,
                         currentPage = actions.pageForDots,
                         isPaging = actions.isPaging,
@@ -1012,7 +1044,7 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
             results = state.spotlightResults,
             contacts = state.spotlightContacts,
             mathResult = state.spotlightMathResult,
-            history = remember(state.spotlightHistory, state.appMap) { state.spotlightHistory.mapNotNull { state.appMap[it] } },
+            history = remember(state.spotlightHistory, state.appMap) { state.spotlightHistory.filterNot { it == context.packageName }.mapNotNull { state.appMap[it] } },
             settings = settings,
             strings = strings,
             hs = hs,
@@ -1127,6 +1159,15 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
             onDismiss = { showCustomizeSheet = false }
         )
 
+        com.tms.os.launcher.ui.home.MinimalSetupSheet(
+            visible = showMinimalSetup,
+            settings = settings,
+            allApps = state.allApps,
+            strings = hs,
+            onSettingsChange = { transform -> viewModel.updateSettings(transform) },
+            onDismiss = { showMinimalSetup = false }
+        )
+
         IosWidgetGallery(
             visible = showGallery,
             env = widgetEnv,
@@ -1193,6 +1234,7 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
             strings = hs,
             onAddWidget = { showGallery = true },
             onCustomize = { showCustomizeSheet = true },
+            onMinimal = actions.minimalSetup,
             onDone = { viewModel.setJiggleMode(false) },
             modifier = Modifier.align(Alignment.TopCenter).padding(top = 12.dp)
         )
@@ -1324,6 +1366,7 @@ private fun HomeChrome(
     bottomGap: Dp,
     dockMargin: Dp,
     slotWidth: Dp,
+    showDock: Boolean,
     pageCount: Int,
     currentPage: () -> Int,
     isPaging: () -> Boolean,
@@ -1363,7 +1406,7 @@ private fun HomeChrome(
             }
         }
 
-        BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = dockMargin), contentAlignment = Alignment.Center) {
+        if (showDock) BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = dockMargin), contentAlignment = Alignment.Center) {
             val dockWidth = if (isUnfolded) maxWidth * 0.84f else maxWidth
             val slot = if (slotWidth != Dp.Unspecified) minOf(slotWidth, dockWidth / dockApps.size.coerceAtLeast(1)) else Dp.Unspecified
             Row(
@@ -1448,6 +1491,7 @@ private interface HomeOps {
     fun endDrag()
     fun springFolder(itemId: String)
     fun leaveFolder()
+    fun minimalSetup()
     fun spotlight()
     fun pod(title: String, apps: List<AppInfo>, origin: Rect)
     fun dockIconBounds(pkg: String, r: Rect)
@@ -1477,6 +1521,8 @@ private class HomeActions(ops: androidx.compose.runtime.State<HomeOps>?) {
     val moveDrag: (Offset) -> Unit = { a -> ops?.value?.moveDrag(a) }
     val endDrag: () -> Unit = { ops?.value?.endDrag() }
     val spotlight: () -> Unit = { ops?.value?.spotlight() }
+    val minimalSetup: () -> Unit = { ops?.value?.minimalSetup() }
+    val clock: () -> Unit = { ops?.value?.widgetTap(WidgetKind.CLOCK) }
     val pod: (String, List<AppInfo>, Rect) -> Unit = { t, a, o -> ops?.value?.pod(t, a, o) }
     val dockIconBounds: (String, Rect) -> Unit = { p, r -> ops?.value?.dockIconBounds(p, r) }
     val edgeFraction: () -> Float = { ops?.value?.edge() ?: 0f }

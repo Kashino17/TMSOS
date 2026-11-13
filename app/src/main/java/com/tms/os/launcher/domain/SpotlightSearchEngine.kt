@@ -195,7 +195,7 @@ object SpotlightSearchEngine {
         if (qLower.isEmpty()) return null
 
         // 1. Check Currency & Unit Conversion Patterns
-        val convRegex = Regex("^([0-9]+(?:\\.[0-9]+)?)\\s*([a-z€$£]+)(?:\\s+(?:in|to|nach|=)\\s+([a-z€$£]+))?$")
+        val convRegex = Regex("^(-?[0-9]+(?:\\.[0-9]+)?)\\s*([a-z€$£°]+)(?:\\s+(?:in|to|nach|=)\\s+([a-z€$£°]+))?$")
         val convMatch = convRegex.find(qLower)
         if (convMatch != null) {
             val amount = convMatch.groupValues[1].toDoubleOrNull()
@@ -219,23 +219,8 @@ object SpotlightSearchEngine {
             }
         }
 
-        // 3. Standard Math Expression
-        val cleaned = qLower
-            .replace("×", "*")
-            .replace("÷", "/")
-            .trim()
-
-        if (!cleaned.matches(Regex("^[0-9.+\\-*/()%\\s]+$"))) return null
-        if (!cleaned.any { it in charArrayOf('+', '-', '*', '/', '%') }) return null
-        if (cleaned.all { it.isDigit() || it == '.' || it == '-' }) return null
-
-        return try {
-            val result = SimpleMathParser(cleaned).parse()
-            if (result.isNaN() || result.isInfinite()) null
-            else formatNumber(result)
-        } catch (_: Exception) {
-            null
-        }
+        // 3. Arithmetic
+        return SpotlightCalculator.evaluate(query)?.display
     }
 
     private fun tryConvertCurrencyOrUnit(amount: Double, from: String, toRaw: String): String? {
@@ -266,6 +251,16 @@ object SpotlightSearchEngine {
 
         // Distance & Weight units
         return when {
+            from in setOf("c", "°c") && (toRaw in setOf("f", "°f")) -> "${formatNumber(amount * 9 / 5 + 32)} °F"
+            from in setOf("f", "°f") && (toRaw in setOf("c", "°c")) -> "${formatNumber((amount - 32) * 5 / 9)} °C"
+            from == "cm" && (toRaw.isEmpty() || toRaw in setOf("in", "inch", "zoll")) -> "${formatNumber(amount / 2.54)} in"
+            from in setOf("inch", "zoll") && (toRaw.isEmpty() || toRaw == "cm") -> "${formatNumber(amount * 2.54)} cm"
+            from == "m" && (toRaw == "ft") -> "${formatNumber(amount * 3.28084)} ft"
+            from == "ft" && (toRaw.isEmpty() || toRaw == "m") -> "${formatNumber(amount * 0.3048)} m"
+            from == "g" && (toRaw == "oz") -> "${formatNumber(amount * 0.035274)} oz"
+            from == "oz" && (toRaw.isEmpty() || toRaw == "g") -> "${formatNumber(amount * 28.3495)} g"
+            from == "l" && (toRaw == "gal") -> "${formatNumber(amount * 0.264172)} gal"
+            from == "gal" && (toRaw.isEmpty() || toRaw == "l") -> "${formatNumber(amount * 3.78541)} l"
             from == "km" && (toRaw.isEmpty() || toRaw == "mi") -> "${formatNumber(amount * 0.621371)} mi"
             from == "mi" && (toRaw.isEmpty() || toRaw == "km") -> "${formatNumber(amount * 1.60934)} km"
             from == "kg" && (toRaw.isEmpty() || toRaw == "lb" || toRaw == "lbs") -> "${formatNumber(amount * 2.20462)} lb"
@@ -279,68 +274,4 @@ object SpotlightSearchEngine {
         else String.format(Locale.GERMANY, "%.4f", value).trimEnd('0').trimEnd(',')
     }
 
-    private class SimpleMathParser(private val str: String) {
-        private var pos = -1
-        private var ch = 0
-
-        private fun nextChar() {
-            ch = if (++pos < str.length) str[pos].code else -1
-        }
-
-        private fun eat(charToEat: Int): Boolean {
-            while (ch == ' '.code) nextChar()
-            if (ch == charToEat) {
-                nextChar()
-                return true
-            }
-            return false
-        }
-
-        fun parse(): Double {
-            nextChar()
-            val x = parseExpression()
-            if (pos < str.length) throw RuntimeException("Unexpected")
-            return x
-        }
-
-        private fun parseExpression(): Double {
-            var x = parseTerm()
-            while (true) {
-                when {
-                    eat('+'.code) -> x += parseTerm()
-                    eat('-'.code) -> x -= parseTerm()
-                    else -> return x
-                }
-            }
-        }
-
-        private fun parseTerm(): Double {
-            var x = parseFactor()
-            while (true) {
-                when {
-                    eat('*'.code) -> x *= parseFactor()
-                    eat('/'.code) -> x /= parseFactor()
-                    eat('%'.code) -> x %= parseFactor()
-                    else -> return x
-                }
-            }
-        }
-
-        private fun parseFactor(): Double {
-            if (eat('+'.code)) return parseFactor()
-            if (eat('-'.code)) return -parseFactor()
-            var x: Double
-            val startPos = pos
-            if (eat('('.code)) {
-                x = parseExpression()
-                eat(')'.code)
-            } else if ((ch in '0'.code..'9'.code) || ch == '.'.code) {
-                while ((ch in '0'.code..'9'.code) || ch == '.'.code) nextChar()
-                x = str.substring(startPos, pos).toDouble()
-            } else {
-                throw RuntimeException("Unexpected")
-            }
-            return x
-        }
-    }
 }
