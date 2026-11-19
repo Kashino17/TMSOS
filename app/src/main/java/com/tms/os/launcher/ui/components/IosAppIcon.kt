@@ -99,8 +99,6 @@ fun IosAppIcon(
     onClickWithBounds: ((Rect) -> Unit)? = null,
     onLongClickWithBounds: ((Rect) -> Unit)? = null,
     onDeleteOrMenuClick: (() -> Unit)? = null,
-    /** Read per frame: lets an animation fade the name without touching the icon. */
-    labelAlpha: (() -> Float)? = null,
     modifier: Modifier = Modifier
 ) {
     val settings = LocalLauncherSettings.current
@@ -222,7 +220,7 @@ fun IosAppIcon(
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center,
-                modifier = Modifier.width(iconSize + 26.dp).then(if (labelAlpha != null) Modifier.graphicsLayer { alpha = labelAlpha() } else Modifier)
+                modifier = Modifier.width(iconSize + 26.dp)
             ) {
                 Text(
                     text = app.displayLabel,

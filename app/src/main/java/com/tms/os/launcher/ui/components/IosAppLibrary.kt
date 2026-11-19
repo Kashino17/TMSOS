@@ -196,7 +196,6 @@ fun IosAppLibraryPage(
         allApps.filter { !it.isHidden && it.displayLabel.contains(query.trim(), ignoreCase = true) }
             .sortedBy { it.displayLabel.lowercase(Locale.getDefault()) }
     }
-    var pageTop by remember { mutableStateOf(0f) }
     // iOS: pull the library down and its search opens, like Spotlight on the home screen.
     val pull = remember { Animatable(0f) }
     val pullScope = rememberCoroutineScope()
@@ -243,18 +242,13 @@ fun IosAppLibraryPage(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .onGloballyPositioned { pageTop = it.positionInRoot().y }
             .graphicsLayer {
                 val p = podProgress().coerceIn(0f, 1f)
                 if (p > 0f) {
-                    alpha = (1f - p * 1.35f).coerceIn(0f, 1f)
-                    val s = 1f + 0.14f * p
-                    scaleX = s; scaleY = s
-                    podOrigin?.let { o ->
-                        transformOrigin = TransformOrigin((o.center.x / size.width).coerceIn(0f, 1f), ((o.center.y - pageTop) / size.height).coerceIn(0f, 1f))
-                    }
-                    // iOS: the library blurs away while the category grows out of its pod.
-                    if (canBlur) renderEffect = androidx.compose.ui.graphics.BlurEffect(p * 28.dp.toPx(), p * 28.dp.toPx(), androidx.compose.ui.graphics.TileMode.Decal)
+                    // iOS: the library stays where it is and fades out under the growing category,
+                    // softening a little; it is gone at about four fifths.
+                    alpha = (1f - p * 1.25f).coerceIn(0f, 1f)
+                    if (canBlur) renderEffect = androidx.compose.ui.graphics.BlurEffect(p * 8.dp.toPx(), p * 8.dp.toPx(), androidx.compose.ui.graphics.TileMode.Decal)
                 } else renderEffect = null
             }
     ) {
@@ -445,8 +439,6 @@ private fun LibraryCategoryPod(
                     .wallpaperGlass(RoundedCornerShape(25.dp), tint = PodTint, rim = 0.16f)
                     .clickable(remember { MutableInteractionSource() }, null, onClick = open)
                     .padding(12.dp)
-                    // While its category is open the icons fly as part of it; the glass stays.
-                    .graphicsLayer { alpha = if (iconsAway()) 0f else 1f }
             ) {
                 // "Hidden": never shows what is inside, only a closed eye.
                 if (pod.id == HiddenPodId) {
@@ -473,7 +465,11 @@ private fun LibraryCategoryPod(
                             // The small icons are not buttons: the cluster opens the category.
                             Box(
                                 contentAlignment = Alignment.Center,
-                                modifier = Modifier.size(large).clickable(remember { MutableInteractionSource() }, null, onClick = open)
+                                modifier = Modifier
+                                    .size(large)
+                                    .clickable(remember { MutableInteractionSource() }, null, onClick = open)
+                                    // While its category is open these fly as part of it (iOS); the big ones stay.
+                                    .graphicsLayer { alpha = if (iconsAway()) 0f else 1f }
                             ) {
                                 Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                                     for (row in 0..1) Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -681,12 +677,12 @@ private fun LibraryAlphabeticalList(
 /* -------------------------------------------------------------------------- */
 
 /**
- * A category opened from the App Library, as on iOS: every app flies on its own out of
- * its place in the pod (the three large icons and the four small ones from exactly where
- * they sit, the rest grow out of the small cluster) to its place in the full-screen grid;
- * the title fades in as they arrive. Closing runs the same flight backwards, into the pod.
- * [progress] is owned by the caller so the library behind can zoom and blur in step.
- * [fromPodIcons] is false for a pod that shows no icons (Hidden): all apps then grow out of its centre.
+ * A category opened from the App Library, as on iOS: the whole category page (title, grid,
+ * names) starts as a small, see-through miniature inside its pod and grows to full screen;
+ * closing shrinks it back into the pod. Only the pod's small 2 x 2 icons fly on their own,
+ * fully opaque above the page, from the cluster to their places in the grid and back.
+ * [progress] is owned by the caller so the library behind can fade in step.
+ * [fromPodIcons] is false for a pod that shows no icons (Hidden): nothing flies separately.
  */
 @Composable
 fun IosLibraryCategoryView(
@@ -706,61 +702,57 @@ fun IosLibraryCategoryView(
     BackHandler(onBack = onRequestClose)
     val interactive by remember { androidx.compose.runtime.derivedStateOf { progress() > 0.3f } }
     val density = LocalDensity.current
-    // Where each app sits in the pod (root pixels, at library scale 1): centre and icon size.
-    val sources = remember(origin, apps.size, fromPodIcons, density) { podIconSlots(origin, apps.size, fromPodIcons, density) }
     val iconPx = with(density) { iconSize.toPx() }
+    // The small cluster icons of the pod (root pixels): these fly on their own.
+    val heroes = remember(origin, apps.size, fromPodIcons, density) {
+        podIconSlots(origin, apps.size, fromPodIcons, density).withIndex().filter { (i, slot) -> slot.visible && slot.size < iconPx && i in 3..6 && apps.size > 4 }
+    }
+    val heroIndices = remember(heroes) { heroes.map { it.index }.toSet() }
+    // Flying = on the way, not resting open or closed.
+    val inFlight: (Float) -> Boolean = { p -> p > 0f && p < 0.999f }
+
+    var pageRoot by remember { mutableStateOf(Offset.Zero) }
+    var inner by remember { mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null) }
+    val heroCells = remember { androidx.compose.runtime.mutableStateMapOf<Int, androidx.compose.ui.layout.LayoutCoordinates>() }
 
     BoxWithConstraints(
         Modifier
             .fillMaxSize()
+            .onGloballyPositioned { pageRoot = it.positionInRoot() }
             // Only once it is (almost) there: a category caught at progress 0 must not block the screen.
             .clickable(remember { MutableInteractionSource() }, null, enabled = interactive, onClick = onRequestClose)
     ) {
+        val pageW = constraints.maxWidth.toFloat()
+        val pageH = constraints.maxHeight.toFloat()
+        val pivot = Offset(pageW / 2f, pageH / 2f)
+        // iOS: at the start the page is about half a pod wide, sitting in the pod.
+        val startScale = if (origin.width > 0f) (origin.width * 0.5f / pageW).coerceIn(0.12f, 0.4f) else 0.3f
+        val podCentre = if (origin.width > 0f) origin.center else pageRoot + pivot
+        val zoomAt: (Float) -> Float = { p -> startScale + (1f - startScale) * p }
+        val shiftAt: (Float) -> Offset = { p -> (podCentre - (pageRoot + pivot)) * (1f - p) }
+        // Where a point of the full-size page is on screen at progress p (root pixels).
+        val toScreen: (Offset, Float) -> Offset = { local, p -> pageRoot + pivot + (local - pivot) * zoomAt(p) + shiftAt(p) }
+
         val cell = (maxWidth - sidePadding * 2) / columns
         val rows = (apps.size + columns - 1) / columns
         val titleStyle = IosText.title1.copy(color = Color.White, fontSize = 28.sp, lineHeight = 34.sp, fontWeight = FontWeight.Bold)
-        val titleModifier = Modifier
-            .padding(start = (cell - iconSize) / 2, end = 24.dp, bottom = 20.dp)
-            .graphicsLayer {
-                // iOS: the title comes last on the way in and goes first on the way out.
-                val p = progress()
-                alpha = ((p - 0.45f) / 0.45f).coerceIn(0f, 1f)
-                translationY = (1f - p.coerceIn(0f, 1f)) * 10.dp.toPx()
-            }
+        val titleModifier = Modifier.padding(start = (cell - iconSize) / 2, end = 24.dp, bottom = 20.dp)
         val fits = 54.dp + cell * rows + 118.dp <= maxHeight
         val cellPx = with(density) { cell.toPx() }
-        val labelAlpha = remember(progress) { { ((progress() - 0.35f) / 0.45f).coerceIn(0f, 1f) } }
 
         @Composable
         fun Cell(index: Int, app: AppInfo) {
-            // Where the icon rests in the grid (root pixels, centre of the icon itself).
-            var target by remember { mutableStateOf(Offset.Unspecified) }
+            val hero = index in heroIndices
             Box(
                 Modifier
                     .width(cell).height(cell)
-                    .onGloballyPositioned { c -> target = c.positionInRoot() + Offset(cellPx / 2f, iconPx / 2f) }
-                    .graphicsLayer {
-                        val p = progress()
-                        val src = sources.getOrNull(index) ?: sources.lastOrNull()
-                        if (src == null || target == Offset.Unspecified) {
-                            alpha = if (p > 0.99f) 1f else 0f
-                            return@graphicsLayer
-                        }
-                        // The library zooms by up to 14 % around the pod while this opens; the
-                        // pod's icons move with it, so the flight starts where they really are.
-                        val zoom = 1f + 0.14f * p.coerceIn(0f, 1f)
-                        val podCentre = origin.center
-                        val start = podCentre + (src.centre - podCentre) * zoom
-                        val startScale = src.size * zoom / iconPx
-                        val q = 1f - p
-                        translationX = (start.x - target.x) * q
-                        translationY = (start.y - target.y) * q
-                        val k = startScale + (1f - startScale) * p
-                        scaleX = k; scaleY = k
-                        transformOrigin = TransformOrigin(0.5f, (iconPx / 2f) / size.height.coerceAtLeast(1f))
-                        // Apps the pod does not show appear out of the small cluster as they leave it.
-                        alpha = if (src.visible) 1f else (p * 2.4f - 0.15f).coerceIn(0f, 1f)
-                    },
+                    .then(
+                        if (hero) Modifier
+                            .onGloballyPositioned { heroCells[index] = it }
+                            // Its icon is the one flying above the page.
+                            .graphicsLayer { alpha = if (inFlight(progress())) 0f else 1f }
+                        else Modifier
+                    ),
                 contentAlignment = Alignment.TopCenter
             ) {
                 IosAppIcon(
@@ -771,32 +763,73 @@ fun IosLibraryCategoryView(
                     onClick = { onAppClick(app, Rect.Zero) },
                     onClickWithBounds = { b -> onAppClick(app, b) },
                     onLongClick = { onAppLongClick(app, Rect.Zero) },
-                    onLongClickWithBounds = { b -> onAppLongClick(app, b) },
-                    // Pods show no names: they appear on the way out and are gone before the icons land back.
-                    labelAlpha = labelAlpha
+                    onLongClickWithBounds = { b -> onAppLongClick(app, b) }
                 )
             }
         }
 
-        if (fits) {
-            Column(
-                verticalArrangement = Arrangement.Center,
-                modifier = Modifier.fillMaxSize().padding(start = sidePadding, end = sidePadding, top = 70.dp, bottom = 48.dp)
-            ) {
-                Text(title, style = titleStyle, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = titleModifier)
-                apps.chunked(columns).forEachIndexed { r, row -> Row { row.forEachIndexed { c, app -> Cell(r * columns + c, app) } } }
-            }
-        } else {
-            // Long categories: only what is on screen gets composed.
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(columns),
-                contentPadding = PaddingValues(start = sidePadding, end = sidePadding, top = 70.dp, bottom = 48.dp),
-                modifier = Modifier.fillMaxSize()
-            ) {
-                item(span = { GridItemSpan(maxLineSpan) }, key = "title") {
-                    Text(title, style = titleStyle, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = titleModifier)
+        // ------------------------------------------------------------- the page
+        Box(
+            Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    val p = progress()
+                    val z = zoomAt(p)
+                    scaleX = z; scaleY = z
+                    val t = shiftAt(p)
+                    translationX = t.x; translationY = t.y
+                    // See-through while small, solid from a little past halfway.
+                    alpha = ((p - 0.05f) / 0.5f).coerceIn(0f, 1f)
                 }
-                itemsIndexed(apps, key = { _, a -> a.packageName }) { i, a -> Cell(i, a) }
+                .onGloballyPositioned { inner = it }
+        ) {
+            if (fits) {
+                Column(
+                    verticalArrangement = Arrangement.Center,
+                    modifier = Modifier.fillMaxSize().padding(start = sidePadding, end = sidePadding, top = 70.dp, bottom = 48.dp)
+                ) {
+                    Text(title, style = titleStyle, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = titleModifier)
+                    apps.chunked(columns).forEachIndexed { r, row -> Row { row.forEachIndexed { c, app -> Cell(r * columns + c, app) } } }
+                }
+            } else {
+                // Long categories: only what is on screen gets composed.
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(columns),
+                    contentPadding = PaddingValues(start = sidePadding, end = sidePadding, top = 70.dp, bottom = 48.dp),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    item(span = { GridItemSpan(maxLineSpan) }, key = "title") {
+                        Text(title, style = titleStyle, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = titleModifier)
+                    }
+                    itemsIndexed(apps, key = { _, a -> a.packageName }) { i, a -> Cell(i, a) }
+                }
+            }
+        }
+
+        // ---------------------------------------------------- the flying icons
+        heroes.forEach { (index, slot) ->
+            val app = apps[index]
+            Box(
+                Modifier
+                    .size(iconSize)
+                    .graphicsLayer {
+                        val p = progress()
+                        val c = heroCells[index]; val i = inner
+                        if (!inFlight(p) || c == null || i == null || !c.isAttached || !i.isAttached) {
+                            alpha = 0f
+                            return@graphicsLayer
+                        }
+                        val target = toScreen(i.localPositionOf(c, Offset.Zero) + Offset(cellPx / 2f, iconPx / 2f), p)
+                        val centre = slot.centre + (target - slot.centre) * p
+                        val edge = slot.size + (iconPx * zoomAt(p) - slot.size) * p
+                        alpha = 1f
+                        scaleX = edge / iconPx; scaleY = edge / iconPx
+                        translationX = centre.x - pageRoot.x - iconPx / 2f
+                        translationY = centre.y - pageRoot.y - iconPx / 2f
+                    }
+            ) {
+                if (app.iconBitmap != null) Image(app.iconBitmap, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                else Box(Modifier.clip(IosSquircle)) { LibraryLetterIcon(app.displayLabel, iconSize) }
             }
         }
     }

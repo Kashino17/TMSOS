@@ -429,7 +429,7 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
         LaunchedEffect(state.homePressGeneration) {
             if (state.homePressGeneration > 0) {
                 showCustomizeSheet = false; showGallery = false; showMinimalSetup = false; solvadoWidgetId = null
-                if (openPod != null) { podProgress.animateTo(0f, spring(dampingRatio = 1f, stiffness = 260f, visibilityThreshold = 0.004f)); openPod = null }
+                if (openPod != null) { podProgress.animateTo(0f, PodCloseSpring); openPod = null }
                 if (pagerState.currentPage != 1) pagerState.animateScrollToPage(1, animationSpec = spring(dampingRatio = 1f, stiffness = 300f))
             }
         }
@@ -878,7 +878,7 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
             override fun spotlight() { viewModel.openSpotlight() }
             override fun pod(title: String, apps: List<AppInfo>, origin: Rect) {
                 openPod = OpenPod(title, apps, origin)
-                scope.launch { podProgress.animateTo(1f, spring(dampingRatio = 0.86f, stiffness = 190f)) }
+                scope.launch { podProgress.animateTo(1f, spring(dampingRatio = 0.9f, stiffness = 230f)) }  // iOS: ~0.3 s
             }
             override fun dockIconBounds(pkg: String, r: Rect) { dockIconRects[pkg] = r }
             override fun edge(): Float = edgeFraction()
@@ -1427,7 +1427,7 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                 onRequestClose = {
                     scope.launch {
                         try {
-                            podProgress.animateTo(0f, spring(dampingRatio = 1f, stiffness = 260f, visibilityThreshold = 0.004f))
+                            podProgress.animateTo(0f, PodCloseSpring)
                         } finally {
                             // Interrupted on its way out: still gone, never a hidden layer over the screen.
                             if (podProgress.value < 0.5f) openPod = null
@@ -1926,6 +1926,9 @@ private val InertActions = HomeActions(null)
 
 /** A category opened from the App Library and the pod it grows out of. */
 private data class OpenPod(val title: String, val apps: List<AppInfo>, val origin: Rect)
+
+/** iOS closes a library category much faster than it opens it: back in the pod after ~0.25 s. */
+private val PodCloseSpring = spring(dampingRatio = 1f, stiffness = 700f, visibilityThreshold = 0.004f)
 
 /** iOS' standard ease curve for fades. */
 private val IosEase = CubicBezierEasing(0.25f, 0.1f, 0.25f, 1f)
