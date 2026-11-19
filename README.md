@@ -8,6 +8,11 @@ Ein maßgeschneiderter, werbefreier und kostenloser **iOS-Style Homescreen-Launc
 
 ---
 
+## Neu in v5.12.3 – Ordner der App-Mediathek öffnen wie auf dem iPhone
+- Beim Öffnen eines Ordners in der App-Mediathek fliegt jetzt jede App einzeln aus dem Ordner an ihren Platz: die großen und kleinen Icons genau von dort, wo sie im Ordner liegen, weitere Apps wachsen aus dem kleinen Viererfeld. Die Mediathek dahinter zoomt und verschwimmt, der Titel und die App-Namen blenden erst zum Schluss ein.
+- Beim Schließen läuft alles rückwärts: Namen und Titel verschwinden zuerst, die Icons schrumpfen zurück in den Ordner, die Mediathek kommt scharf zurück.
+- Kein Einblenden der ganzen Seite mehr.
+
 ## Neu in v5.12.2 – Suche der App-Mediathek bleibt offen
 - Behoben: Die Suche der App-Mediathek schloss sich immer wieder von selbst, sobald die Tastatur erschien. Die Tastatur machte das Fenster kurz kleiner, dadurch verschob sich die Seitennummer der Mediathek, und die Suche hielt das für „weggewischt“.
 - Die Startseiten werden nicht mehr neu aufgeteilt, wenn die Tastatur das Fenster verkleinert.

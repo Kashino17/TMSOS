@@ -56,6 +56,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -132,6 +133,7 @@ private data class LibraryPod(
 )
 
 private const val HiddenPodId = "pod_hidden"
+private val NeverAway: () -> Boolean = { false }
 private val LibrarySideMargin = 33.dp
 private val PodGap = 22.dp
 /** Lighter than the dock: the pods read as frosted glass over the wallpaper, as on iOS. */
@@ -153,6 +155,8 @@ fun IosAppLibraryPage(
     /** 0..1 while a category grows out of its pod: the library zooms past and fades. */
     podProgress: () -> Float,
     podOrigin: Rect?,
+    /** Title of the pod that is open right now: its icons are in flight, the pod shows them not. */
+    openPodTitle: String? = null,
     onAppClick: (AppInfo, Rect) -> Unit,
     onAppLongClick: (AppInfo, Rect) -> Unit,
     onOpenPod: (String, List<AppInfo>, Rect) -> Unit,
@@ -288,6 +292,7 @@ fun IosAppLibraryPage(
                 items(pods, key = { it.id }) { pod ->
                     LibraryCategoryPod(
                         pod = pod,
+                        iconsAway = if (pod.title == openPodTitle) ({ podProgress() > 0f }) else NeverAway,
                         onAppClick = onAppClick,
                         onAppLongClick = onAppLongClick,
                         onOpen = { origin -> if (pod.id == HiddenPodId) onOpenHidden(origin) else onOpenPod(pod.title, pod.all, origin) }
@@ -421,6 +426,7 @@ private fun buildLibraryPods(
 @Composable
 private fun LibraryCategoryPod(
     pod: LibraryPod,
+    iconsAway: () -> Boolean,
     onAppClick: (AppInfo, Rect) -> Unit,
     onAppLongClick: (AppInfo, Rect) -> Unit,
     onOpen: (Rect) -> Unit
@@ -439,6 +445,8 @@ private fun LibraryCategoryPod(
                     .wallpaperGlass(RoundedCornerShape(25.dp), tint = PodTint, rim = 0.16f)
                     .clickable(remember { MutableInteractionSource() }, null, onClick = open)
                     .padding(12.dp)
+                    // While its category is open the icons fly as part of it; the glass stays.
+                    .graphicsLayer { alpha = if (iconsAway()) 0f else 1f }
             ) {
                 // "Hidden": never shows what is inside, only a closed eye.
                 if (pod.id == HiddenPodId) {
@@ -673,10 +681,12 @@ private fun LibraryAlphabeticalList(
 /* -------------------------------------------------------------------------- */
 
 /**
- * A category opened from the App Library, as on iOS: it grows out of its pod
- * to full screen (title top-left, all apps in the home-screen grid) and shrinks
- * back into it. Short categories sit centred vertically, long ones scroll.
- * [progress] is owned by the caller so the library behind can move in step.
+ * A category opened from the App Library, as on iOS: every app flies on its own out of
+ * its place in the pod (the three large icons and the four small ones from exactly where
+ * they sit, the rest grow out of the small cluster) to its place in the full-screen grid;
+ * the title fades in as they arrive. Closing runs the same flight backwards, into the pod.
+ * [progress] is owned by the caller so the library behind can zoom and blur in step.
+ * [fromPodIcons] is false for a pod that shows no icons (Hidden): all apps then grow out of its centre.
  */
 @Composable
 fun IosLibraryCategoryView(
@@ -690,36 +700,69 @@ fun IosLibraryCategoryView(
     labelFontSizeSp: Float,
     onAppClick: (AppInfo, Rect) -> Unit,
     onAppLongClick: (AppInfo, Rect) -> Unit,
-    onRequestClose: () -> Unit
+    onRequestClose: () -> Unit,
+    fromPodIcons: Boolean = true
 ) {
     BackHandler(onBack = onRequestClose)
     val interactive by remember { androidx.compose.runtime.derivedStateOf { progress() > 0.3f } }
+    val density = LocalDensity.current
+    // Where each app sits in the pod (root pixels, at library scale 1): centre and icon size.
+    val sources = remember(origin, apps.size, fromPodIcons, density) { podIconSlots(origin, apps.size, fromPodIcons, density) }
+    val iconPx = with(density) { iconSize.toPx() }
 
     BoxWithConstraints(
         Modifier
             .fillMaxSize()
-            .graphicsLayer {
-                val p = progress()
-                val start = if (origin.width > 0f) (origin.width / size.width).coerceIn(0.3f, 0.7f) else 0.6f
-                val s = start + (1f - start) * p
-                scaleX = s; scaleY = s
-                alpha = (p * 1.8f - 0.1f).coerceIn(0f, 1f)
-                if (origin.width > 0f) transformOrigin = TransformOrigin(
-                    (origin.center.x / size.width).coerceIn(0f, 1f), (origin.center.y / size.height).coerceIn(0f, 1f)
-                )
-            }
             // Only once it is (almost) there: a category caught at progress 0 must not block the screen.
             .clickable(remember { MutableInteractionSource() }, null, enabled = interactive, onClick = onRequestClose)
     ) {
         val cell = (maxWidth - sidePadding * 2) / columns
         val rows = (apps.size + columns - 1) / columns
         val titleStyle = IosText.title1.copy(color = Color.White, fontSize = 28.sp, lineHeight = 34.sp, fontWeight = FontWeight.Bold)
-        val titlePadding = Modifier.padding(start = (cell - iconSize) / 2, end = 24.dp, bottom = 20.dp)
+        val titleModifier = Modifier
+            .padding(start = (cell - iconSize) / 2, end = 24.dp, bottom = 20.dp)
+            .graphicsLayer {
+                // iOS: the title comes last on the way in and goes first on the way out.
+                val p = progress()
+                alpha = ((p - 0.45f) / 0.45f).coerceIn(0f, 1f)
+                translationY = (1f - p.coerceIn(0f, 1f)) * 10.dp.toPx()
+            }
         val fits = 54.dp + cell * rows + 118.dp <= maxHeight
+        val cellPx = with(density) { cell.toPx() }
+        val labelAlpha = remember(progress) { { ((progress() - 0.35f) / 0.45f).coerceIn(0f, 1f) } }
 
         @Composable
-        fun Cell(app: AppInfo) {
-            Box(Modifier.width(cell).height(cell), contentAlignment = Alignment.TopCenter) {
+        fun Cell(index: Int, app: AppInfo) {
+            // Where the icon rests in the grid (root pixels, centre of the icon itself).
+            var target by remember { mutableStateOf(Offset.Unspecified) }
+            Box(
+                Modifier
+                    .width(cell).height(cell)
+                    .onGloballyPositioned { c -> target = c.positionInRoot() + Offset(cellPx / 2f, iconPx / 2f) }
+                    .graphicsLayer {
+                        val p = progress()
+                        val src = sources.getOrNull(index) ?: sources.lastOrNull()
+                        if (src == null || target == Offset.Unspecified) {
+                            alpha = if (p > 0.99f) 1f else 0f
+                            return@graphicsLayer
+                        }
+                        // The library zooms by up to 14 % around the pod while this opens; the
+                        // pod's icons move with it, so the flight starts where they really are.
+                        val zoom = 1f + 0.14f * p.coerceIn(0f, 1f)
+                        val podCentre = origin.center
+                        val start = podCentre + (src.centre - podCentre) * zoom
+                        val startScale = src.size * zoom / iconPx
+                        val q = 1f - p
+                        translationX = (start.x - target.x) * q
+                        translationY = (start.y - target.y) * q
+                        val k = startScale + (1f - startScale) * p
+                        scaleX = k; scaleY = k
+                        transformOrigin = TransformOrigin(0.5f, (iconPx / 2f) / size.height.coerceAtLeast(1f))
+                        // Apps the pod does not show appear out of the small cluster as they leave it.
+                        alpha = if (src.visible) 1f else (p * 2.4f - 0.15f).coerceIn(0f, 1f)
+                    },
+                contentAlignment = Alignment.TopCenter
+            ) {
                 IosAppIcon(
                     app = app,
                     iconSize = iconSize,
@@ -728,7 +771,9 @@ fun IosLibraryCategoryView(
                     onClick = { onAppClick(app, Rect.Zero) },
                     onClickWithBounds = { b -> onAppClick(app, b) },
                     onLongClick = { onAppLongClick(app, Rect.Zero) },
-                    onLongClickWithBounds = { b -> onAppLongClick(app, b) }
+                    onLongClickWithBounds = { b -> onAppLongClick(app, b) },
+                    // Pods show no names: they appear on the way out and are gone before the icons land back.
+                    labelAlpha = labelAlpha
                 )
             }
         }
@@ -738,8 +783,8 @@ fun IosLibraryCategoryView(
                 verticalArrangement = Arrangement.Center,
                 modifier = Modifier.fillMaxSize().padding(start = sidePadding, end = sidePadding, top = 70.dp, bottom = 48.dp)
             ) {
-                Text(title, style = titleStyle, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = titlePadding)
-                apps.chunked(columns).forEach { row -> Row { row.forEach { Cell(it) } } }
+                Text(title, style = titleStyle, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = titleModifier)
+                apps.chunked(columns).forEachIndexed { r, row -> Row { row.forEachIndexed { c, app -> Cell(r * columns + c, app) } } }
             }
         } else {
             // Long categories: only what is on screen gets composed.
@@ -749,9 +794,41 @@ fun IosLibraryCategoryView(
                 modifier = Modifier.fillMaxSize()
             ) {
                 item(span = { GridItemSpan(maxLineSpan) }, key = "title") {
-                    Text(title, style = titleStyle, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = titlePadding)
+                    Text(title, style = titleStyle, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = titleModifier)
                 }
-                items(apps, key = { it.packageName }) { Cell(it) }
+                itemsIndexed(apps, key = { _, a -> a.packageName }) { i, a -> Cell(i, a) }
+            }
+        }
+    }
+}
+
+/** One app's place in a pod: icon centre and edge length in root pixels; [visible] = drawn in the pod. */
+private class PodSlot(val centre: Offset, val size: Float, val visible: Boolean)
+
+/**
+ * Mirrors [LibraryCategoryPod]'s layout: 12 dp padding, 12 dp gap, two large icons per row;
+ * from five apps on, the fourth quarter is a 2 x 2 cluster of small icons (5 dp apart).
+ * Apps after the seventh are not in the pod: they start as tiny icons in the cluster's middle.
+ */
+private fun podIconSlots(pod: Rect, count: Int, withIcons: Boolean, density: androidx.compose.ui.unit.Density): List<PodSlot> {
+    if (pod.width <= 0f || count == 0) return emptyList()
+    with(density) {
+        val pad = 12.dp.toPx(); val gap = 12.dp.toPx(); val miniGap = 5.dp.toPx()
+        val large = (pod.width - 2 * pad - gap) / 2f
+        val mini = (large - 9.dp.toPx()) / 2f
+        fun largeAt(col: Int, row: Int) = Offset(pod.left + pad + col * (large + gap) + large / 2f, pod.top + pad + row * (large + gap) + large / 2f)
+        val clusterCentre = largeAt(1, 1)
+        if (!withIcons) return List(count) { PodSlot(pod.center, mini * 0.6f, false) }
+        return List(count) { i ->
+            when {
+                i < 3 -> PodSlot(largeAt(i % 2, i / 2), large, true)
+                i == 3 && count <= 4 -> PodSlot(clusterCentre, large, true)
+                i < 7 -> {
+                    val c = (i - 3) % 2; val r = (i - 3) / 2
+                    val off = (mini + miniGap) / 2f
+                    PodSlot(clusterCentre + Offset(if (c == 0) -off else off, if (r == 0) -off else off), mini, true)
+                }
+                else -> PodSlot(clusterCentre, mini * 0.6f, false)
             }
         }
     }

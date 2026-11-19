@@ -1105,6 +1105,7 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                                     isUnfolded = isUnfolded,
                                     podProgress = podProgressRead,
                                     podOrigin = openPod?.origin,
+                                    openPodTitle = openPod?.title,
                                     onAppClick = actions.openApp,
                                     onAppLongClick = actions.appMenu,
                                     onOpenPod = actions.pod,
@@ -1420,6 +1421,7 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                 sidePadding = sidePadding,
                 iconSize = iconSize,
                 labelFontSizeSp = settings.labelFontSizeSp,
+                fromPodIcons = pod.title != hs.hidden,
                 onAppClick = actions.openApp,
                 onAppLongClick = actions.appMenu,
                 onRequestClose = {
