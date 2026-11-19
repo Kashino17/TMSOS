@@ -752,7 +752,10 @@ fun IosLibraryCategoryView(
         val rows = (apps.size + columns - 1) / columns
         val cellPx = with(density) { cell.toPx() }
         val titleStyle = IosText.title1.copy(color = Color.White, fontSize = 28.sp, lineHeight = 34.sp, fontWeight = FontWeight.Bold)
-        val titleModifier = Modifier.padding(start = (cell - iconSize) / 2, end = 24.dp, bottom = 20.dp)
+        val titleModifier = Modifier
+            .padding(start = (cell - iconSize) / 2, end = 24.dp, bottom = 20.dp)
+            // Closing: the title is gone well before the page reaches the pod - it does not go in.
+            .graphicsLayer { alpha = if (closing) ((progress() - 0.55f) / 0.45f).coerceIn(0f, 1f) else 1f }
         val fits = 54.dp + cell * rows + 118.dp <= maxHeight
 
         // The grid's icon-centre span on the full-size page (page px): centre and width.
@@ -814,9 +817,15 @@ fun IosLibraryCategoryView(
                     val home = pageRoot + gc
                     val now = sourceCentre + (home - sourceCentre) * p
                     translationX = now.x - home.x; translationY = now.y - home.y
-                    // iOS: faintly there at once, nearly solid by a third, solid a little past half.
-                    val a = (p / 0.55f).coerceIn(0f, 1f)
-                    alpha = 1f - (1f - a) * (1f - a)
+                    alpha = if (closing) {
+                        // iOS: on the way back the page turns see-through at once and is only a
+                        // soft ghost by the time it reaches the pod (0.57 at 80 %, 0.26 at 58 %).
+                        p.coerceIn(0f, 1f).let { it * it * kotlin.math.sqrt(it) }
+                    } else {
+                        // Opening: faintly there at once, nearly solid by a third, solid a little past half.
+                        val a = (p / 0.55f).coerceIn(0f, 1f)
+                        1f - (1f - a) * (1f - a)
+                    }
                 }
                 .onGloballyPositioned { inner = it }
         ) {

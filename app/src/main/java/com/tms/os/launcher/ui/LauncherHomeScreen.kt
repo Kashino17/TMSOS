@@ -1933,8 +1933,8 @@ private val InertActions = HomeActions(null)
 /** A category opened from the App Library and the pod it grows out of. */
 private data class OpenPod(val title: String, val apps: List<AppInfo>, val origin: Rect)
 
-/** Closing a library category: a little quicker than opening, back in the pod after ~0.4 s. */
-private val PodCloseSpring = spring(dampingRatio = 1f, stiffness = 300f, visibilityThreshold = 0.004f)
+/** Closing a library category: calm, back in the pod after ~0.55 s. */
+private val PodCloseSpring = spring(dampingRatio = 1f, stiffness = 170f, visibilityThreshold = 0.004f)
 
 /** iOS' standard ease curve for fades. */
 private val IosEase = CubicBezierEasing(0.25f, 0.1f, 0.25f, 1f)

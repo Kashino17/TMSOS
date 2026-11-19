@@ -8,6 +8,11 @@ Ein maßgeschneiderter, werbefreier und kostenloser **iOS-Style Homescreen-Launc
 
 ---
 
+## Neu in v5.12.11 – Ordner schließen weicher
+- Beim Schließen wird die Kategorie-Seite sofort durchscheinend und ist nur noch ein Hauch, wenn sie den Ordner erreicht – wie auf dem iPhone, statt als voller Block hineinzuschrumpfen.
+- Der Titel verblasst früh und geht nicht mehr mit in den Ordner.
+- Schließen läuft ruhiger (etwa 0,55 s).
+
 ## Neu in v5.12.10 – Ordner schließen wie auf dem iPhone
 - Beim Schließen einer Kategorie stehen die drei großen Icons des Ordners sofort wieder da.
 - Die vier kleinen Icons fliegen aus der schrumpfenden Seite in ihre Mini-Plätze im Ordner und werden dabei kleiner – ohne Ein- oder Ausblenden, ohne Sprung am Ende.
