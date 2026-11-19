@@ -8,6 +8,11 @@ Ein maßgeschneiderter, werbefreier und kostenloser **iOS-Style Homescreen-Launc
 
 ---
 
+## Neu in v5.12.10 – Ordner schließen wie auf dem iPhone
+- Beim Schließen einer Kategorie stehen die drei großen Icons des Ordners sofort wieder da.
+- Die vier kleinen Icons fliegen aus der schrumpfenden Seite in ihre Mini-Plätze im Ordner und werden dabei kleiner – ohne Ein- oder Ausblenden, ohne Sprung am Ende.
+- Das Öffnen bleibt unverändert.
+
 ## Neu in v5.12.9 – Keine doppelten App-Icons beim Öffnen eines Ordners
 - Tippt man in der App-Mediathek auf einen Ordner, verschwinden dessen Icons sofort – ohne Vergrößern oder Ausblenden. Zu sehen ist nur noch die Kategorie-Seite, die sich aus dem Ordner auffächert; keine App erscheint doppelt.
 - Beim Schließen tauchen die Icons erst wieder auf, wenn die Seite ganz im Ordner verschwunden ist.

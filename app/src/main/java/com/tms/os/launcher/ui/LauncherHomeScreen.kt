@@ -213,6 +213,8 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
     val folderOrigins = remember { androidx.compose.runtime.mutableStateMapOf<String, Rect>() }
     /** Category opened from the App Library: title and its apps. */
     var openPod by remember { mutableStateOf<OpenPod?>(null) }
+    // Direction of the category animation: closing brings the pod's icons back differently.
+    var podClosing by remember { mutableStateOf(false) }
     val podProgress = remember { Animatable(0f) }
     val podProgressRead = remember { { podProgress.value } }
     var statusBarLightContent by remember { mutableStateOf(true) }
@@ -429,7 +431,7 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
         LaunchedEffect(state.homePressGeneration) {
             if (state.homePressGeneration > 0) {
                 showCustomizeSheet = false; showGallery = false; showMinimalSetup = false; solvadoWidgetId = null
-                if (openPod != null) { podProgress.animateTo(0f, PodCloseSpring); openPod = null }
+                if (openPod != null) { podClosing = true; podProgress.animateTo(0f, PodCloseSpring); openPod = null }
                 if (pagerState.currentPage != 1) pagerState.animateScrollToPage(1, animationSpec = spring(dampingRatio = 1f, stiffness = 300f))
             }
         }
@@ -878,6 +880,7 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
             override fun spotlight() { viewModel.openSpotlight() }
             override fun pod(title: String, apps: List<AppInfo>, origin: Rect) {
                 openPod = OpenPod(title, apps, origin)
+                podClosing = false
                 scope.launch { podProgress.animateTo(1f, spring(dampingRatio = 0.9f, stiffness = 140f)) }  // calm grow, ~0.5 s
             }
             override fun dockIconBounds(pkg: String, r: Rect) { dockIconRects[pkg] = r }
@@ -1106,6 +1109,7 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                                     podProgress = podProgressRead,
                                     podOrigin = openPod?.origin,
                                     openPodTitle = openPod?.title,
+                                    podClosing = podClosing,
                                     onAppClick = actions.openApp,
                                     onAppLongClick = actions.appMenu,
                                     onOpenPod = actions.pod,
@@ -1422,11 +1426,13 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                 iconSize = iconSize,
                 labelFontSizeSp = settings.labelFontSizeSp,
                 fromPodIcons = pod.title != hs.hidden,
+                closing = podClosing,
                 onAppClick = actions.openApp,
                 onAppLongClick = actions.appMenu,
                 onRequestClose = {
                     scope.launch {
                         try {
+                            podClosing = true
                             podProgress.animateTo(0f, PodCloseSpring)
                         } finally {
                             // Interrupted on its way out: still gone, never a hidden layer over the screen.
