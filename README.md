@@ -8,6 +8,13 @@ Ein maßgeschneiderter, werbefreier und kostenloser **iOS-Style Homescreen-Launc
 
 ---
 
+## Neu in v5.10.0 – Suche und App-Mediathek wie auf dem iPhone
+- **Spotlight neu gebaut**: Der Home-Bildschirm verschwimmt dahinter, das Suchfeld wächst aus der „Suchen“-Pille und sitzt direkt über der Tastatur. Ohne Eingabe: „Siri-Vorschläge“ (8 Apps, Weniger/Mehr) und Kurzbefehl-Vorschläge der Apps.
+- **Beim Tippen**: „Toptreffer“ mit bis zu drei Schnellaktionen der App als runde Glas-Knöpfe, „Vorschläge“ (Websuche ↗), „Einstellungen“ (Systemseiten wie WLAN, Bluetooth, Akku … und „Einstellungen für X öffnen“), Apps mit „Mehr“, Kontakte, **Dateien** und **Fotos**, „Mehr Ergebnisse anzeigen“ und „In Apps suchen“. Im Feld steht die Vervollständigung („gm — Google Maps“), Return öffnet sie; das Mikrofon diktiert.
+- Beim Scrollen geht die Tastatur weg und das Suchfeld wird zur Leiste unten.
+- Dateien und Fotos erscheinen erst, nachdem du unten in der Suche „Erlauben“ getippt hast.
+- **App-Mediathek**: Die Suche zeigt eine flache A–Z-Liste über der verschwommenen Mediathek, die A–Z-Leiste lässt sich antippen und entlangwischen. Die Ordner scrollen unter die „App-Mediathek“-Pille und scheinen verschwommen durch. Beim Öffnen einer Kategorie verschwimmt die Mediathek, der Titel ist fett. Ordner-Kacheln etwas heller, wie Glas.
+
 ## Neu in v5.9.1
 - Das Home-Raster wird an der Fensterhöhe gemessen: eine offene Tastatur (Suche, Spotlight) packt die Seiten nicht mehr um, und die App-Mediathek bleibt dort, wo sie ist.
 - Ändert sich die Zahl der Home-Seiten, während die Mediathek offen ist, bleibt man auf der Mediathek.

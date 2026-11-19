@@ -204,6 +204,8 @@ fun IosSpotlight(
     // Scrolling the results puts the keyboard away (the field drops to the bottom bar).
     // Whatever upward drag the list cannot use (at its end, or nothing to scroll) closes Spotlight.
     val closeNow by rememberUpdatedState(onClose)
+    // Only the suggestions close when pushed past their end; results just stop, as on iOS.
+    val closeOnOverscroll by rememberUpdatedState(query.isBlank())
     val dismissPx = with(LocalDensity.current) { 52.dp.toPx() }
     val scrollLink = remember(dismissPx) {
         object : NestedScrollConnection {
@@ -213,7 +215,7 @@ fun IosSpotlight(
                 return Offset.Zero
             }
             override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
-                if (source != NestedScrollSource.UserInput) return Offset.Zero
+                if (source != NestedScrollSource.UserInput || !closeOnOverscroll) return Offset.Zero
                 if (available.y < 0f) {
                     pulled -= available.y
                     if (pulled > dismissPx) { pulled = 0f; closeNow() }
