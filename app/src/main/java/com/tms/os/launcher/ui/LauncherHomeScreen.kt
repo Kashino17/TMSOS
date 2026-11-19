@@ -878,7 +878,7 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
             override fun spotlight() { viewModel.openSpotlight() }
             override fun pod(title: String, apps: List<AppInfo>, origin: Rect) {
                 openPod = OpenPod(title, apps, origin)
-                scope.launch { podProgress.animateTo(1f, spring(dampingRatio = 0.9f, stiffness = 230f)) }  // iOS: ~0.3 s
+                scope.launch { podProgress.animateTo(1f, spring(dampingRatio = 0.9f, stiffness = 140f)) }  // calm grow, ~0.5 s
             }
             override fun dockIconBounds(pkg: String, r: Rect) { dockIconRects[pkg] = r }
             override fun edge(): Float = edgeFraction()
@@ -1927,8 +1927,8 @@ private val InertActions = HomeActions(null)
 /** A category opened from the App Library and the pod it grows out of. */
 private data class OpenPod(val title: String, val apps: List<AppInfo>, val origin: Rect)
 
-/** iOS closes a library category much faster than it opens it: back in the pod after ~0.25 s. */
-private val PodCloseSpring = spring(dampingRatio = 1f, stiffness = 700f, visibilityThreshold = 0.004f)
+/** Closing a library category: a little quicker than opening, back in the pod after ~0.4 s. */
+private val PodCloseSpring = spring(dampingRatio = 1f, stiffness = 300f, visibilityThreshold = 0.004f)
 
 /** iOS' standard ease curve for fades. */
 private val IosEase = CubicBezierEasing(0.25f, 0.1f, 0.25f, 1f)

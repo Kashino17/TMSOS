@@ -8,6 +8,9 @@ Ein maßgeschneiderter, werbefreier und kostenloser **iOS-Style Homescreen-Launc
 
 ---
 
+## Neu in v5.12.5 – Ordner-Animation ruhiger
+- Öffnen und Schließen der Ordner in der App-Mediathek laufen langsamer und ruhiger (Öffnen etwa 0,5 s, Schließen etwa 0,4 s).
+
 ## Neu in v5.12.4 – Ordner-Animation der App-Mediathek nachjustiert
 - Wie auf dem iPhone erscheint beim Öffnen die ganze Kategorie-Seite (Titel, Icons, Namen) als kleine, durchscheinende Miniatur im Ordner und wächst auf Vollbild; beim Schließen schrumpft sie zurück in den Ordner.
 - Nur die vier kleinen Icons des Ordners fliegen einzeln und voll sichtbar an ihren Platz; die großen Icons bleiben im Ordner.
