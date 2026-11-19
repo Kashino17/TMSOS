@@ -88,7 +88,26 @@ class NotesActivity : ComponentActivity() {
     override fun onPause() {
         super.onPause()
         NoteStore.get(this).flush()
+        NotesDiagnostics.event("Pause")
+        NotesDiagnostics.flush()
     }
+
+    override fun onResume() {
+        super.onResume()
+        NotesDiagnostics.event("Fortgesetzt")
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        NotesDiagnostics.event(if (hasFocus) "Fenster hat Fokus" else "Fenster hat Fokus VERLOREN (Berührungen gehen an ein anderes Fenster)")
+    }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        NotesDiagnostics.event("Bildschirm geändert: ${newConfig.screenWidthDp}x${newConfig.screenHeightDp} dp")
+    }
+
+    override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean = recordTouch(ev) { super.dispatchTouchEvent(ev) }
 }
 
 @Composable
@@ -99,8 +118,8 @@ private fun NotesApp(activity: ComponentActivity, store: NoteStore, intent: Inte
     val stack = remember { mutableStateListOf<Route>(Route.Folders, Route.Folder(prefs.lastFolder)) }
     var forward by remember { mutableStateOf(true) }
 
-    fun push(r: Route) { forward = true; stack.add(r); (r as? Route.Folder)?.let { prefs.lastFolder = it.id } }
-    fun pop() { if (stack.size > 1) { forward = false; stack.removeAt(stack.lastIndex) } else activity.finish() }
+    fun push(r: Route) { NotesDiagnostics.event("Öffne $r"); forward = true; stack.add(r); (r as? Route.Folder)?.let { prefs.lastFolder = it.id } }
+    fun pop() { NotesDiagnostics.event("Zurück von ${stack.lastOrNull()}"); if (stack.size > 1) { forward = false; stack.removeAt(stack.lastIndex) } else activity.finish() }
     fun compose(folderId: String) {
         val n = store.createNote(folderId)
         push(Route.Editor(n.id, focus = true))

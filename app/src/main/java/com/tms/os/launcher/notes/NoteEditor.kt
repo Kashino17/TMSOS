@@ -298,7 +298,7 @@ fun NoteEditorScreen(
     // Back leaves the note the same way the back button does: editing ends first.
     BackHandler { done(); onBack() }
     BackHandler(enabled = formatPanel) { formatPanel = false; activeId?.let { editors[it] }?.let { imm.showSoftInput(it, 0) } }
-    LaunchedEffect(imeUp) { if (imeUp) formatPanel = false }
+    LaunchedEffect(imeUp) { NotesDiagnostics.event("Tastatur sichtbar=$imeUp"); if (imeUp) formatPanel = false }
 
     Box(Modifier.fillMaxSize().background(c.background)) {
         // -------------------------------------------------------------- content
@@ -335,6 +335,7 @@ fun NoteEditorScreen(
                                             if (viewport > 0 && target > scroll.value + viewport - margin) scope.launch { scroll.animateScrollTo((target - viewport + margin).toInt()) }
                                         }
                                         ed.setOnFocusChangeListener { _, f ->
+                                            NotesDiagnostics.event("Textfeld Fokus=$f")
                                             if (f) { activeId = block.id; editorState = ed.state() }
                                             focused = editors.values.any { it.hasFocus() }
                                         }

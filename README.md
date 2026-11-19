@@ -8,6 +8,11 @@ Ein maßgeschneiderter, werbefreier und kostenloser **iOS-Style Homescreen-Launc
 
 ---
 
+## Neu in v5.11.3 – Notizen: Diagnose-Rekorder
+- Die Notizen-App zeichnet die letzten Minuten auf: jede Berührung (wann sie ankam, wie lange die App brauchte), jeden Klick, Seitenwechsel, Tastatur und Fokus. Bei jeder Stockung über 0,05 s auf dem Hauptthread steht dazu, welcher Code gerade lief.
+- Die Aufzeichnung steht in `Download/TMS-Notizen-Diagnose.txt` und wird alle paar Sekunden aktualisiert.
+- Hintergrund: Die Probleme mit verzögerten oder verschluckten Berührungen treten im Emulator in keinem Test auf (Kaltstart, Fold-Auflösung, schnelles Tippen, mehrere Finger, Speicherzugriffe). Die Aufzeichnung vom Gerät zeigt, wo es hängt.
+
 ## Neu in v5.11.2 – Notizen: Fehler behoben, echtes Icon
 - **Notizen werden gespeichert**: Beim Verlassen einer Notiz wurde ihr Text mit dem leeren Anfangszustand überschrieben und die Notiz als „leer“ gelöscht. Behoben – auch nach dem Beenden der App ist alles da.
 - **Enter macht immer eine neue Zeile**: Tastaturen wie die Samsung-Tastatur senden bei Enter zusätzlich „Fertig“, was die Tastatur schloss. Das wird jetzt abgefangen.

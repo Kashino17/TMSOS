@@ -118,7 +118,7 @@ fun Modifier.pressable(onClick: () -> Unit, enabled: Boolean = true): Modifier {
     val pressed by source.collectIsPressedAsState()
     return this
         .graphicsLayer { val s = if (pressed) 0.92f else 1f; scaleX = s; scaleY = s }
-        .clickable(source, null, enabled = enabled, onClick = onClick)
+        .clickable(source, null, enabled = enabled) { NotesDiagnostics.event("Klick auf Button"); onClick() }
 }
 
 @Composable
