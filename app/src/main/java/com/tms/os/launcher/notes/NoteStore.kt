@@ -169,6 +169,13 @@ class NoteStore private constructor(context: Context) {
         return note
     }
 
+    /** Adds imported notes (Samsung Notes and other apps). */
+    fun addNotes(notes: List<Note>) {
+        if (notes.isEmpty()) return
+        _state.update { it.copy(notes = it.notes + notes) }
+        scheduleSave()
+    }
+
     /** Replaces the note's content; only bumps the date when something really changed. */
     fun updateBlocks(id: String, blocks: List<NoteBlock>) {
         _state.update { s ->

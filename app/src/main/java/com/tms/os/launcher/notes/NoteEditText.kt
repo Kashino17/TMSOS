@@ -50,6 +50,10 @@ class NoteEditText(context: Context, val m: NoteMetrics) : EditText(context) {
     private var endListAt = -1
     private var keepParagraphAt = -1
     private var pressedCheck: NoteParaSpan? = null
+    /** A link pressed while the note is only being read (not edited): it opens on release. */
+    private var pressedLink: NoteLinkSpan? = null
+    private var downX = 0f
+    private var downY = 0f
     /** False while the EditText constructor still runs (it already reports selections then). */
     private var ready = false
 
@@ -105,6 +109,7 @@ class NoteEditText(context: Context, val m: NoteMetrics) : EditText(context) {
                     }
                     endListAt = -1
                     normalize(s)
+                    relink(s)
                     keepParagraphAt = -1
                 } finally {
                     normalizing = false
@@ -298,6 +303,40 @@ class NoteEditText(context: Context, val m: NoteMetrics) : EditText(context) {
         report()
     }
 
+    /* --------------------------------------------------------------- links */
+
+    /** Marks web addresses, e-mail addresses and phone numbers as links (display only). */
+    private fun relink(e: Editable) {
+        e.getSpans(0, e.length, NoteLinkSpan::class.java).forEach { e.removeSpan(it) }
+        if (e.isEmpty()) return
+        val probe = android.text.SpannableString(e.toString())
+        if (!android.text.util.Linkify.addLinks(probe, android.text.util.Linkify.WEB_URLS or android.text.util.Linkify.EMAIL_ADDRESSES or android.text.util.Linkify.PHONE_NUMBERS)) return
+        probe.getSpans(0, probe.length, android.text.style.URLSpan::class.java).forEach { u ->
+            e.setSpan(NoteLinkSpan(u.url, m.accent), probe.getSpanStart(u), probe.getSpanEnd(u), CHAR_FLAGS)
+        }
+    }
+
+    /** The link under a touch point, if the point is really on the link's text. */
+    private fun linkAt(x: Float, y: Float): NoteLinkSpan? {
+        val l = layout ?: return null
+        val e = text ?: return null
+        val line = l.getLineForVertical((y - totalPaddingTop + scrollY).toInt())
+        val lx = x - totalPaddingLeft + scrollX
+        if (lx < l.getLineLeft(line) || lx > l.getLineRight(line)) return null
+        val off = l.getOffsetForHorizontal(line, lx)
+        return e.getSpans(off, off, NoteLinkSpan::class.java).firstOrNull { e.getSpanStart(it) <= off && off <= e.getSpanEnd(it) }
+    }
+
+    /** Writing anywhere in the note (any of its text parts has the cursor): links only take the cursor then. */
+    private fun writing(): Boolean = hasFocus() || rootView?.findFocus() is EditText
+
+    private fun open(link: NoteLinkSpan) {
+        performHapticFeedback(HapticFeedbackType)
+        runCatching {
+            context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(link.url)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
+    }
+
     /* ------------------------------------------------------------- reports */
 
     override fun onSelectionChanged(selStart: Int, selEnd: Int) {
@@ -351,6 +390,18 @@ class NoteEditText(context: Context, val m: NoteMetrics) : EditText(context) {
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        // Reading (keyboard closed): a tap on a link opens it, as on iOS. While
+        // writing, a tap on a link just places the cursor.
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> if (!writing()) linkAt(event.x, event.y)?.let { pressedLink = it; downX = event.x; downY = event.y; return true }
+            MotionEvent.ACTION_MOVE -> pressedLink?.let {
+                val slop = android.view.ViewConfiguration.get(context).scaledTouchSlop
+                if (kotlin.math.abs(event.x - downX) > slop || kotlin.math.abs(event.y - downY) > slop) pressedLink = null
+                return true
+            }
+            MotionEvent.ACTION_UP -> pressedLink?.let { link -> pressedLink = null; if (linkAt(event.x, event.y) === link) open(link); return true }
+            MotionEvent.ACTION_CANCEL -> if (pressedLink != null) { pressedLink = null; return true }
+        }
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> checkAt(event.x, event.y)?.let { pressedCheck = it; return true }
             MotionEvent.ACTION_UP -> pressedCheck?.let { sp ->

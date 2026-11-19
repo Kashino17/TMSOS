@@ -45,6 +45,7 @@ import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.DriveFileMove
 import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.RestoreFromTrash
 import androidx.compose.material.icons.rounded.CheckCircle
@@ -197,7 +198,8 @@ fun FoldersScreen(
     onOpenFolder: (String) -> Unit,
     onOpenNote: (String) -> Unit,
     onCompose: () -> Unit,
-    onDictate: ((String) -> Unit) -> Unit
+    onDictate: ((String) -> Unit) -> Unit,
+    onImport: () -> Unit = {}
 ) {
     val c = LocalNotesColors.current
     val list = rememberLazyListState()
@@ -275,6 +277,19 @@ fun FoldersScreen(
                                 }
                                 if (i != rows.lastIndex) RowSeparator(56)
                             }
+                        }
+                    }
+                }
+                item("import") {
+                    InsetGroup(Modifier.padding(top = 24.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth().height(56.dp).clickable(onClick = onImport).padding(start = 16.dp, end = 14.dp)
+                        ) {
+                            Icon(Icons.Outlined.FileDownload, null, tint = c.accent, modifier = Modifier.size(26.dp))
+                            Spacer(Modifier.width(14.dp))
+                            Text("Aus Samsung Notes importieren", style = NotesText.body.copy(color = c.text), modifier = Modifier.weight(1f))
+                            Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, tint = c.tertiary, modifier = Modifier.size(24.dp))
                         }
                     }
                 }

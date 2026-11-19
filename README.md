@@ -8,6 +8,14 @@ Ein maßgeschneiderter, werbefreier und kostenloser **iOS-Style Homescreen-Launc
 
 ---
 
+## Neu in v5.11.5 – Notizen: Links, Import aus Samsung Notes
+- **Links werden automatisch erkannt**: Webadressen, E-Mail-Adressen und Telefonnummern erscheinen gelb unterstrichen wie auf dem iPhone. Beim Lesen öffnet ein Tipp den Browser (bzw. Mail oder Telefon); beim Schreiben setzt ein Tipp nur den Cursor.
+- **Import aus Samsung Notes**: Samsung Notes gibt seine Notizen nicht direkt an andere Apps heraus, aber als Dateien. In Samsung Notes Notizen auswählen → „Teilen“ → „Microsoft Word-Datei“ (mit Bildern und Formatierung) oder „Textdatei“ → „Notizen“ wählen → Zielordner wählen oder neu anlegen.
+  - Word-Dateien: Titel, Fett/Kursiv/Unterstrichen/Durchgestrichen, Überschriften, Aufzählungen, Checklisten (abgehakt oder offen), Tabellen und Bilder.
+  - Text: Zeilen, Aufzählungen und Checklisten. PDF: Seiten als Bilder wie ein Scan. Bilder: als Bild-Notiz.
+- In „Ordner“ gibt es „Aus Samsung Notes importieren“ mit Anleitung, „Samsung Notes öffnen“ und „Dateien auswählen“ (für schon gespeicherte Dateien).
+- Die Notizen-App ist außerdem Ziel im Teilen-Menü für Text, Links und Bilder aus jeder App.
+
 ## Neu in v5.11.4 – Notizen: kein Datenverlust mehr, Scanner, Verschieben
 - **Notizen verschwinden nicht mehr**: Speicherte die App automatisch und ging gleichzeitig in den Hintergrund, schrieben zwei Vorgänge parallel in dieselbe Datei; der Verlierer löschte dabei die Notizdatei. Jetzt wird nacheinander geschrieben, auf den Speicher synchronisiert und atomar ersetzt; die alte Datei wird nie vorher gelöscht. Dazu eine Sicherung (`notes.json.bak`), aus der beim Start automatisch wiederhergestellt wird. Eine unlesbare Datei wird beiseitegelegt, nie überschrieben.
 - Eine Notiz, die Inhalt hatte und geleert wurde, landet in „Zuletzt gelöscht“ statt endgültig zu verschwinden.

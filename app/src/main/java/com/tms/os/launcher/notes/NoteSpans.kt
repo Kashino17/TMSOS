@@ -303,6 +303,18 @@ fun Spanned.toRichText(): RichText {
     return RichText(toString(), out.sortedWith(compareBy({ it.start }, { it.kind })))
 }
 
+/**
+ * A detected link (web address, e-mail, phone number), drawn in the accent
+ * colour and underlined, as in iOS Notes. It is display only: it is found
+ * again after every change and never saved (toRichText ignores it).
+ */
+class NoteLinkSpan(val url: String, private val color: Int) : android.text.style.CharacterStyle(), android.text.style.UpdateAppearance {
+    override fun updateDrawState(tp: TextPaint) {
+        tp.color = color
+        tp.isUnderlineText = true
+    }
+}
+
 /** Character-style keys used by the editor and the Format panel. */
 enum class CharStyle { BOLD, ITALIC, UNDERLINE, STRIKE }
 

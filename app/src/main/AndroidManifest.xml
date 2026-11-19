@@ -86,6 +86,17 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- Share target: notes from Samsung Notes (Word, text, PDF, pictures) and text from any app. -->
+            <intent-filter android:label="Notizen">
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/*" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
+                <data android:mimeType="application/pdf" />
+                <data android:mimeType="image/*" />
+                <data android:mimeType="application/octet-stream" />
+            </intent-filter>
         </activity>
 
         <!-- Lets the camera app write "Foto aufnehmen" straight into the note's storage. -->

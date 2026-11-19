@@ -34,9 +34,35 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import kotlinx.coroutines.launch
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 import com.tms.os.launcher.data.DeviceAuth
+
+/** Files or text shared to Notes (from Samsung Notes or any app), waiting for a folder. */
+private data class ImportRequest(val uris: List<android.net.Uri>, val text: String?, val subject: String?)
+
+private const val SAMSUNG_NOTES = "com.samsung.android.app.notes"
+
+private fun Intent.importRequest(): ImportRequest? {
+    if (action != Intent.ACTION_SEND && action != Intent.ACTION_SEND_MULTIPLE) return null
+    val uris = ArrayList<android.net.Uri>()
+    if (action == Intent.ACTION_SEND_MULTIPLE) {
+        @Suppress("DEPRECATION") getParcelableArrayListExtra<android.net.Uri>(Intent.EXTRA_STREAM)?.let { uris += it }
+    } else {
+        @Suppress("DEPRECATION") (getParcelableExtra<android.net.Uri>(Intent.EXTRA_STREAM))?.let { uris += it }
+    }
+    // Some apps put the files only into the clip data.
+    if (uris.isEmpty()) clipData?.let { c -> for (i in 0 until c.itemCount) c.getItemAt(i).uri?.let { uris += it } }
+    val text = getStringExtra(Intent.EXTRA_TEXT)
+    if (uris.isEmpty() && text.isNullOrBlank()) return null
+    return ImportRequest(uris, text, getStringExtra(Intent.EXTRA_SUBJECT))
+}
 
 private sealed class Route {
     data object Folders : Route()
@@ -125,6 +151,42 @@ private fun NotesApp(activity: ComponentActivity, store: NoteStore, intent: Inte
         push(Route.Editor(n.id, focus = true))
     }
 
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var importRequest by remember { mutableStateOf<ImportRequest?>(null) }
+    var importing by remember { mutableStateOf<String?>(null) }
+    var samsungSheet by remember { mutableStateOf(false) }
+    val samsungInstalled = remember { activity.packageManager.getLaunchIntentForPackage(SAMSUNG_NOTES) != null }
+    val pickFiles = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isNotEmpty()) importRequest = ImportRequest(uris, null, null)
+    }
+    fun runImport(req: ImportRequest, folderId: String) {
+        importRequest = null
+        importing = if (req.uris.size > 1) "${req.uris.size} Dateien werden importiert …" else "Wird importiert …"
+        scope.launch {
+            val result = runCatching { NoteImporter(activity, store).read(req.uris, req.text, req.subject, folderId) }.getOrNull()
+            importing = null
+            if (result == null) { Toast.makeText(activity, "Import fehlgeschlagen.", Toast.LENGTH_LONG).show(); return@launch }
+            store.addNotes(result.notes)
+            NotesDiagnostics.event("Import: ${result.notes.size} Notizen, übersprungen: ${result.skipped}")
+            val msg = buildString {
+                append(if (result.notes.size == 1) "1 Notiz importiert" else "${result.notes.size} Notizen importiert")
+                if (result.skipped.isNotEmpty()) {
+                    append(". Nicht lesbar: ${result.skipped.size}")
+                    if (result.skipped.any { it.endsWith(".sdocx", true) }) append(" (Samsung-Notes-Dateien: bitte als Word- oder Textdatei teilen)")
+                }
+            }
+            Toast.makeText(activity, msg, Toast.LENGTH_LONG).show()
+            if (result.notes.isNotEmpty()) { stack.clear(); stack.addAll(listOf(Route.Folders, Route.Folder(folderId))); forward = true; prefs.lastFolder = folderId }
+        }
+    }
+
+    // Shared to Notes (Samsung Notes "Teilen", or any other app): choose the folder, then import.
+    if (intent != null && state.loaded) intent.importRequest()?.let { req ->
+        importRequest = req
+        onIntentHandled()
+        return@let
+    }
+
     // Launcher widget / Spotlight: open a note directly.
     if (intent != null && state.loaded) {
         val id = intent.getStringExtra(NotesActivity.EXTRA_NOTE)
@@ -192,7 +254,8 @@ private fun NotesApp(activity: ComponentActivity, store: NoteStore, intent: Inte
                     onOpenFolder = { push(Route.Folder(it)) },
                     onOpenNote = { push(Route.Editor(it, false)) },
                     onCompose = { compose(NoteStore.DEFAULT_FOLDER) },
-                    onDictate = ::startDictation
+                    onDictate = ::startDictation,
+                    onImport = { samsungSheet = true }
                 )
                 is Route.Folder -> NoteListScreen(
                     route.id, state, store, prefs,
@@ -222,6 +285,52 @@ private fun NotesApp(activity: ComponentActivity, store: NoteStore, intent: Inte
             if (leaving) Box(Modifier.fillMaxSize().pointerInput(Unit) {
                 awaitPointerEventScope { while (true) awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() } }
             })
+            }
+        }
+
+        SamsungImportSheet(
+            visible = samsungSheet,
+            samsungInstalled = samsungInstalled,
+            onDismiss = { samsungSheet = false },
+            onOpenSamsung = {
+                samsungSheet = false
+                activity.packageManager.getLaunchIntentForPackage(SAMSUNG_NOTES)?.let { runCatching { activity.startActivity(it) } }
+            },
+            onPickFiles = {
+                samsungSheet = false
+                runCatching {
+                    pickFiles.launch(arrayOf(
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "text/plain",
+                        "application/pdf", "image/*", "application/octet-stream"
+                    ))
+                }
+            }
+        )
+
+        val req = importRequest
+        MoveNotesSheet(
+            visible = req != null,
+            count = req?.uris?.size ?: 1,
+            folders = state.folders,
+            currentFolder = null,
+            onDismiss = { importRequest = null },
+            onMove = { folderId -> req?.let { runImport(it, folderId) } },
+            onCreateFolder = { name -> store.createFolder(name).id },
+            title = when (val n = req?.uris?.size ?: 0) { 0, 1 -> "Importieren"; else -> "$n Dateien importieren" }
+        )
+
+        importing?.let { message ->
+            Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.45f)).pointerInput(Unit) {
+                awaitPointerEventScope { while (true) awaitPointerEvent().changes.forEach { it.consume() } }
+            }, contentAlignment = androidx.compose.ui.Alignment.Center) {
+                androidx.compose.foundation.layout.Column(
+                    Modifier.clip(androidx.compose.foundation.shape.RoundedCornerShape(22.dp)).background(colors.elevated).padding(horizontal = 28.dp, vertical = 22.dp),
+                    horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally
+                ) {
+                    androidx.compose.material3.CircularProgressIndicator(color = colors.accent, strokeWidth = 3.dp, modifier = Modifier.size(34.dp))
+                    androidx.compose.foundation.layout.Spacer(Modifier.height(14.dp))
+                    androidx.compose.material3.Text(message, style = NotesText.body.copy(color = colors.text))
+                }
             }
         }
     }

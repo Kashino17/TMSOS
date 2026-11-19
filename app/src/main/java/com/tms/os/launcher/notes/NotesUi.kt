@@ -373,11 +373,12 @@ fun MoveNotesSheet(
     currentFolder: String?,
     onDismiss: () -> Unit,
     onMove: (String) -> Unit,
-    onCreateFolder: (String) -> String
+    onCreateFolder: (String) -> String,
+    title: String? = null
 ) {
     val c = LocalNotesColors.current
     var naming by remember { mutableStateOf(false) }
-    NotesSheet(visible, if (count == 1) "Notiz bewegen" else "$count Notizen bewegen", onDismiss) {
+    NotesSheet(visible, title ?: if (count == 1) "Notiz bewegen" else "$count Notizen bewegen", onDismiss) {
         InsetGroup(color = if (c.dark) c.elevated else c.card) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -423,3 +424,57 @@ fun RowSeparator(start: Int = 16) {
 
 @Composable
 fun Circle(color: Color, size: Int, modifier: Modifier = Modifier) = Box(modifier.size(size.dp).clip(CircleShape).background(color))
+
+/**
+ * "Aus Samsung Notes importieren": Samsung Notes keeps its notes where no other
+ * app can read them, so they come over as files (shared or saved from Samsung
+ * Notes). The sheet explains the steps and offers to open Samsung Notes or to
+ * pick saved files.
+ */
+@Composable
+fun SamsungImportSheet(visible: Boolean, samsungInstalled: Boolean, onDismiss: () -> Unit, onOpenSamsung: () -> Unit, onPickFiles: () -> Unit) {
+    val c = LocalNotesColors.current
+    NotesSheet(visible, "Samsung Notes", onDismiss) {
+        Text(
+            "Samsung Notes gibt seine Notizen nicht direkt an andere Apps weiter. Sie kommen als Dateien herüber, ein Ordner nach dem anderen:",
+            style = NotesText.subhead.copy(color = c.secondary),
+            modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 14.dp)
+        )
+        InsetGroup(color = if (c.dark) c.elevated else c.card) {
+            listOf(
+                "Öffne in Samsung Notes einen Ordner.",
+                "Halte eine Notiz gedrückt und tippe oben auf „Alle“.",
+                "Tippe auf „Teilen“ und wähle „Microsoft Word-Datei“ (mit Bildern und Formatierung) oder „Textdatei“.",
+                "Wähle „Notizen“ (TMS OS) und dann den Ordner, in den die Notizen kommen."
+            ).forEachIndexed { i, step ->
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+                    Box(Modifier.size(24.dp).clip(CircleShape).background(c.accent), contentAlignment = Alignment.Center) {
+                        Text("${i + 1}", style = NotesText.caption.copy(color = c.onAccent))
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Text(step, style = NotesText.body.copy(color = c.text), modifier = Modifier.weight(1f))
+                }
+                if (i < 3) RowSeparator(52)
+            }
+        }
+        Text(
+            "Hast du Notizen schon als Dateien gespeichert („Als Datei speichern“), wähle sie direkt aus. Word, Text, PDF und Bilder werden gelesen.",
+            style = NotesText.footnote.copy(color = c.secondary),
+            modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 16.dp)
+        )
+        Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (samsungInstalled) SheetButton("Samsung Notes öffnen", filled = true, onClick = onOpenSamsung)
+            SheetButton("Dateien auswählen", filled = !samsungInstalled, onClick = onPickFiles)
+        }
+    }
+}
+
+@Composable
+private fun SheetButton(text: String, filled: Boolean, onClick: () -> Unit) {
+    val c = LocalNotesColors.current
+    Box(
+        Modifier.fillMaxWidth().height(50.dp).clip(RoundedCornerShape(25.dp))
+            .background(if (filled) c.accent else c.text.copy(alpha = 0.1f)).clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) { Text(text, style = NotesText.headline.copy(color = if (filled) c.onAccent else c.accent)) }
+}
