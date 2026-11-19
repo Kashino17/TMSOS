@@ -13,6 +13,7 @@ import android.text.style.ForegroundColorSpan
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
@@ -79,6 +80,7 @@ class NoteEditText(context: Context, val m: NoteMetrics) : EditText(context) {
             override fun onTextChanged(s: CharSequence, start: Int, before: Int, count: Int) {
                 if (!ready || normalizing) return
                 val e = text ?: return
+                if (count > 0 && s.subSequence(start, (start + count).coerceAtMost(s.length)).contains('\n')) lastNewlineAt = android.os.SystemClock.uptimeMillis()
                 if (count == 1 && before == 0 && s.getOrNull(start) == '\n') {
                     val pStart = paragraphStart(e, start)
                     val pEnd = start
@@ -367,6 +369,46 @@ class NoteEditText(context: Context, val m: NoteMetrics) : EditText(context) {
         }
         return super.onTouchEvent(event)
     }
+
+    /* ---------------------------------------------------------- Return key */
+
+    private var lastNewlineAt = 0L
+
+    /**
+     * Return always means "new line", whatever the keyboard. Some keyboards
+     * (Samsung) also send an editor action, or an Enter key marked as one, which
+     * an EditText answers by closing the keyboard ("Fertig").
+     */
+    override fun onCreateInputConnection(outAttrs: EditorInfo): android.view.inputmethod.InputConnection? {
+        val ic = super.onCreateInputConnection(outAttrs)
+        outAttrs.imeOptions = (outAttrs.imeOptions and EditorInfo.IME_MASK_ACTION.inv()) or
+            EditorInfo.IME_ACTION_NONE or EditorInfo.IME_FLAG_NO_ENTER_ACTION or EditorInfo.IME_FLAG_NO_EXTRACT_UI
+        return ic
+    }
+
+    override fun onEditorAction(actionCode: Int) {
+        // Never close the keyboard. If the keyboard sent only the action (no line
+        // break), the line break is added here; if it sent both, nothing happens.
+        val at = android.os.SystemClock.uptimeMillis()
+        postDelayed({ if (lastNewlineAt < at - 50) insertNewline() }, 80)
+    }
+
+    private fun insertNewline() {
+        val e = text ?: return
+        val a = selectionStart.coerceAtLeast(0); val b = selectionEnd.coerceAtLeast(a)
+        e.replace(a, b, "\n")
+    }
+
+    private fun plainEnter(event: KeyEvent): KeyEvent =
+        if (event.flags and KeyEvent.FLAG_EDITOR_ACTION != 0) KeyEvent.changeFlags(event, event.flags and KeyEvent.FLAG_EDITOR_ACTION.inv()) else event
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean =
+        if (keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER) super.onKeyDown(keyCode, plainEnter(event))
+        else super.onKeyDown(keyCode, event)
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean =
+        if (keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER) super.onKeyUp(keyCode, plainEnter(event))
+        else super.onKeyUp(keyCode, event)
 
     /** Pasting brings in text, not another app's formatting. */
     override fun onTextContextMenuItem(id: Int): Boolean =

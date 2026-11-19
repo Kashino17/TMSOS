@@ -215,7 +215,8 @@ class LauncherRepository(private val context: Context) {
                 (appInfo.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0
             } else false
 
-            val packageInfo = try { pm.getPackageInfo(pkg, 0) } catch (_: Exception) { null }
+            // Notes has no package of its own: its icon is renewed with every TMS OS update.
+            val packageInfo = try { pm.getPackageInfo(if (isNotes) context.packageName else pkg, 0) } catch (_: Exception) { null }
             val firstInstall = packageInfo?.firstInstallTime ?: 0L
 
             val overrideCat = customCategories[pkg]

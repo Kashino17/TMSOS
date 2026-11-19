@@ -12,6 +12,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.EnterExitState
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -63,6 +66,7 @@ class NotesActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        NotesDiagnostics.install(this)
         enableEdgeToEdge()
         pendingIntent = intent
         val store = NoteStore.get(this)
@@ -158,6 +162,11 @@ private fun NotesApp(activity: ComponentActivity, store: NoteStore, intent: Inte
             },
             label = "notesNav"
         ) { route ->
+            // Only the screen on top may navigate back: a screen that is still sliding
+            // out (or a second quick tap) must not pop the one below it as well.
+            fun popIfTop() { if (stack.lastOrNull() == route) pop() }
+            val leaving = transition.targetState == EnterExitState.PostExit
+            Box(Modifier.fillMaxSize()) {
             when (route) {
                 Route.Folders -> FoldersScreen(
                     state, store, prefs,
@@ -168,7 +177,7 @@ private fun NotesApp(activity: ComponentActivity, store: NoteStore, intent: Inte
                 )
                 is Route.Folder -> NoteListScreen(
                     route.id, state, store, prefs,
-                    onBack = ::pop,
+                    onBack = ::popIfTop,
                     onOpenNote = { push(Route.Editor(it, false)) },
                     onCompose = { compose(route.id) },
                     onDictate = ::startDictation,
@@ -177,8 +186,9 @@ private fun NotesApp(activity: ComponentActivity, store: NoteStore, intent: Inte
                 )
                 is Route.Editor -> NoteEditorScreen(
                     route.id, state, store, route.focus,
-                    onBack = ::pop,
-                    onNewNote = {
+                    onBack = ::popIfTop,
+                    onNewNote = onNew@{
+                        if (stack.lastOrNull() != route) return@onNew
                         val folder = state.notes.firstOrNull { it.id == route.id }?.folderId ?: NoteStore.DEFAULT_FOLDER
                         forward = true
                         stack.removeAt(stack.lastIndex)
@@ -188,6 +198,11 @@ private fun NotesApp(activity: ComponentActivity, store: NoteStore, intent: Inte
                     onToggleLock = ::toggleLock,
                     authenticate = ::authenticate
                 )
+            }
+            // A screen on its way out takes no touches.
+            if (leaving) Box(Modifier.fillMaxSize().pointerInput(Unit) {
+                awaitPointerEventScope { while (true) awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() } }
+            })
             }
         }
     }

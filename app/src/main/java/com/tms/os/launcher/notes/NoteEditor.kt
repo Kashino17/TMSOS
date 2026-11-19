@@ -146,6 +146,16 @@ fun NoteEditorScreen(
     val context = LocalContext.current
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
+    // Saving on leave lives above every early return (locked note, missing note),
+    // so it runs exactly once, when the editor really goes away, with the text
+    // still in the editors (they are kept until then, see onRelease below).
+    val saver = remember(noteId) { object { var snapshot: (() -> List<NoteBlock>)? = null; var readOnly = false } }
+    DisposableEffect(noteId) {
+        onDispose {
+            saver.snapshot?.let { snap -> if (!saver.readOnly) store.updateBlocks(noteId, snap()) }
+            store.discardIfEmpty(noteId)
+        }
+    }
     val note = state.notes.firstOrNull { it.id == noteId }
     if (note == null) { LaunchedEffect(Unit) { onBack() }; return }
 
@@ -186,6 +196,8 @@ fun NoteEditorScreen(
     fun snapshot(): List<NoteBlock> = blocks.map { b ->
         if (b is NoteBlock.Text) NoteBlock.Text(b.id, editors[b.id]?.text?.toRichText() ?: b.rich) else b
     }
+    saver.snapshot = ::snapshot
+    saver.readOnly = readOnly
     fun markDirty() {
         if (!flags.pendingUndo) { undo.add(flags.committed); if (undo.size > 60) undo.removeAt(0); flags.pendingUndo = true }
         dirty++
@@ -198,13 +210,6 @@ fun NoteEditorScreen(
         flags.committed = snap
         flags.pendingUndo = false
     }
-    DisposableEffect(noteId) {
-        onDispose {
-            if (!readOnly) store.updateBlocks(noteId, snapshot())
-            store.discardIfEmpty(noteId)
-        }
-    }
-
     fun restore(list: List<NoteBlock>) {
         blocks.clear(); blocks.addAll(list)
         flags.committed = list
@@ -212,12 +217,14 @@ fun NoteEditorScreen(
         store.updateBlocks(noteId, list)
     }
     fun hideKeyboard() {
-        editors.values.firstOrNull { it.hasFocus() }?.let { imm.hideSoftInputFromWindow(it.windowToken, 0) }
+        val v = editors.values.firstOrNull { it.hasFocus() } ?: editors.values.firstOrNull { it.isAttachedToWindow }
+        v?.let { imm.hideSoftInputFromWindow(it.windowToken, 0) }
     }
     fun done() {
         formatPanel = false
-        editors.values.forEach { it.clearFocus() }
+        // Keyboard first, while an editor still has the focus; then the focus goes.
         hideKeyboard()
+        editors.values.forEach { it.clearFocus() }
         focused = false
     }
     fun focusEnd() {
@@ -288,26 +295,8 @@ fun NoteEditorScreen(
         if (pages.isNotEmpty()) scope.launch { pages.forEach { u -> media.importImage(u)?.let { insertAtCursor(NoteBlock.Image(store.newId(), it, scan = true)) } } }
     }
 
-    if (drawing != null || newDrawing) {
-        DrawingEditor(
-            initial = drawing?.strokes,
-            onCancel = { drawing = null; newDrawing = false },
-            onDone = { strokesJson, png ->
-                scope.launch {
-                    val file = media.saveDrawing(png, drawing?.file)
-                    val old = drawing
-                    if (old != null) {
-                        val i = blocks.indexOfFirst { it.id == old.id }
-                        if (i >= 0) blocks[i] = NoteBlock.Drawing(old.id, file, strokesJson)
-                        markDirty()
-                    } else if (strokesJson.isNotEmpty()) insertAtCursor(NoteBlock.Drawing(store.newId(), file, strokesJson))
-                    drawing = null; newDrawing = false
-                }
-            }
-        )
-        return
-    }
-
+    // Back leaves the note the same way the back button does: editing ends first.
+    BackHandler { done(); onBack() }
     BackHandler(enabled = formatPanel) { formatPanel = false; activeId?.let { editors[it] }?.let { imm.showSoftInput(it, 0) } }
     LaunchedEffect(imeUp) { if (imeUp) formatPanel = false }
 
@@ -328,10 +317,12 @@ fun NoteEditorScreen(
                             is NoteBlock.Text -> AndroidView(
                                 factory = { ctx ->
                                     NoteEditText(ctx, metrics).also { ed ->
+                                        // A re-created editor continues with what was typed, not the text the note opened with.
+                                        val latest = editors[block.id]?.text?.toRichText() ?: (blocks.firstOrNull { it.id == block.id } as? NoteBlock.Text)?.rich ?: block.rich
                                         editors[block.id] = ed
                                         ed.tag = version
                                         flags.loading = true
-                                        ed.setText(block.rich.toSpannable(metrics))
+                                        ed.setText(latest.toSpannable(metrics))
                                         flags.loading = false
                                         ed.isFocusable = !readOnly
                                         ed.isFocusableInTouchMode = !readOnly
@@ -360,7 +351,9 @@ fun NoteEditorScreen(
                                         ed.post { ed.requestFocus(); ed.setSelection(0); imm.showSoftInput(ed, 0) }
                                     }
                                 },
-                                onRelease = { editors.remove(block.id) },
+                                // The editor stays in [editors]: the save on leaving the note reads its text after
+                                // Compose has already released the views. Removed blocks are simply no longer in [blocks].
+                                onRelease = { ed -> ed.onContentChanged = null; ed.onStateChanged = null; ed.onCaret = null; ed.onFocusChangeListener = null },
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).onGloballyPositioned { tops[block.id] = it.positionInParent().y }
                             )
                             is NoteBlock.Table -> TableBlockView(
@@ -478,6 +471,27 @@ fun NoteEditorScreen(
         }
 
         viewer?.let { file -> PictureViewer(file) { viewer = null } }
+
+        // The drawing canvas lies over the note instead of replacing it, so the
+        // text editors (and what was typed) stay alive underneath.
+        if (drawing != null || newDrawing) {
+            DrawingEditor(
+                initial = drawing?.strokes,
+                onCancel = { drawing = null; newDrawing = false },
+                onDone = { strokesJson, png ->
+                    scope.launch {
+                        val file = media.saveDrawing(png, drawing?.file)
+                        val old = drawing
+                        if (old != null) {
+                            val i = blocks.indexOfFirst { it.id == old.id }
+                            if (i >= 0) blocks[i] = NoteBlock.Drawing(old.id, file, strokesJson)
+                            markDirty()
+                        } else if (strokesJson.isNotEmpty()) insertAtCursor(NoteBlock.Drawing(store.newId(), file, strokesJson))
+                        drawing = null; newDrawing = false
+                    }
+                }
+            )
+        }
     }
 }
 

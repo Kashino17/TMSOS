@@ -90,6 +90,8 @@ internal object IosSystemIcons {
 
     private fun kindFor(packageName: String, rawLabel: String): Kind? {
         val pkg = packageName.lowercase(Locale.ROOT)
+        // TMS OS's own Notes app (its id contains "launcher", which is excluded below).
+        if (pkg == com.tms.os.launcher.data.NOTES_PKG) return Kind.NOTES
         if (pkg in excludedPackages) return null
         if (pkg.contains("launcher")) return null
         val label = rawLabel.lowercase(Locale.ROOT).trim()
@@ -593,22 +595,21 @@ internal object IosSystemIcons {
     /* ------------------------------------------------------------------ */
 
     private fun drawNotes(c: Canvas, dark: Boolean) {
+        // Measured on the iPhone (iOS 26): yellow band over the top quarter, a row
+        // of 15 perforation dots under it, two inset ruled lines.
         c.background(
-            if (dark) 0xFF1C1C1E.toInt() else 0xFFFFFFFF.toInt(),
-            if (dark) 0xFF1C1C1E.toInt() else 0xFFFFFFFF.toInt()
+            if (dark) 0xFF2C2C2E.toInt() else 0xFFFFFFFF.toInt(),
+            if (dark) 0xFF1C1C1E.toInt() else 0xFFF4F4F6.toInt()
         )
 
-        c.rrGradient(
-            0f, 0f, 1f, 0.246f, 0f,
-            0xFFFFD60A.toInt(), 0xFFFFC300.toInt()
-        )
-        c.rr(0f, 0.238f, 1f, 0.246f, 0f, 0x1A9A6B00)
+        c.rrGradient(0f, 0f, 1f, 0.265f, 0f, 0xFFFFDE5C.toInt(), 0xFFFFD23C.toInt())
 
-        val line = if (dark) 0xFF3A3A3C.toInt() else 0xFFD8D8DC.toInt()
-        for (i in 0 until 4) {
-            val y = 0.390f + i * 0.162f
-            c.rr(0f, y, 1f, y + 0.012f, 0f, line)
-        }
+        val dot = paint(if (dark) 0xFF636366.toInt() else 0xFFB4B4B9.toInt())
+        for (i in 0 until 15) c.drawCircle(0.066f + i * 0.0623f, 0.29f, 0.0062f, dot)
+
+        val line = if (dark) 0xFF545458.toInt() else 0xFFA9A9AE.toInt()
+        c.rr(0.13f, 0.507f, 0.87f, 0.514f, 0.0035f, line)
+        c.rr(0.13f, 0.757f, 0.87f, 0.764f, 0.0035f, line)
     }
 
     /* ------------------------------------------------------------------ */

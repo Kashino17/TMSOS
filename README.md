@@ -8,6 +8,14 @@ Ein maßgeschneiderter, werbefreier und kostenloser **iOS-Style Homescreen-Launc
 
 ---
 
+## Neu in v5.11.2 – Notizen: Fehler behoben, echtes Icon
+- **Notizen werden gespeichert**: Beim Verlassen einer Notiz wurde ihr Text mit dem leeren Anfangszustand überschrieben und die Notiz als „leer“ gelöscht. Behoben – auch nach dem Beenden der App ist alles da.
+- **Enter macht immer eine neue Zeile**: Tastaturen wie die Samsung-Tastatur senden bei Enter zusätzlich „Fertig“, was die Tastatur schloss. Das wird jetzt abgefangen.
+- **Kein doppeltes Zurückspringen mehr**: Ein Bildschirm, der gerade hinausgleitet, nimmt keine Tipps mehr an; zweimal schnell „Zurück“ springt nicht mehr zwei Ebenen.
+- **Zeichnen**: Die Tastatur schließt sich, und der vorher getippte Text bleibt erhalten. Auch „Fertig“ (gelber Haken) schließt die Tastatur jetzt zuverlässig.
+- **Original-Icon**: Das nachgebaute iOS-Notizen-Icon (gelbes Band, Perforation, zwei Linien) wurde nie benutzt, weil die App intern „…launcher.notes“ heißt. Jetzt wird es überall verwendet.
+- **Diagnose**: Hängt die Notizen-App länger als 5 Sekunden oder stürzt sie ab, steht die genaue Stelle in `Download/TMS-Notizen-Diagnose.txt`.
+
 ## Neu in v5.11.1 – Profilbilder in der Suche
 - **WhatsApp-Kontakte mit Profilbild**: Im Toptreffer erscheinen Chats (WhatsApp, Telegram …) als runde Profilbilder statt als weiße Flächen; Symbole wie „Kamera“ oder „Neuer Tab“ bleiben weiß auf Glas.
 - **Chats in der Suche**: Ein Name findet den passenden Chat, unter dem Namen der App, mit Profilbild; ein Tipp öffnet ihn direkt.
