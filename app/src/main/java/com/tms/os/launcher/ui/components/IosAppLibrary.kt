@@ -85,6 +85,14 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
@@ -126,6 +134,8 @@ private data class LibraryPod(
 private const val HiddenPodId = "pod_hidden"
 private val LibrarySideMargin = 33.dp
 private val PodGap = 22.dp
+/** Lighter than the dock: the pods read as frosted glass over the wallpaper, as on iOS. */
+private val PodTint = Color(0x9E4A4A4F)
 
 /**
  * iOS App Library: a centred search pill and a two-column grid of category
@@ -216,7 +226,17 @@ fun IosAppLibraryPage(
     // 0 = pods, 1 = alphabetical search list. One spring drives pill, button and content.
     val searchT by animateFloatAsState(if (searching) 1f else 0f, spring(dampingRatio = 0.9f, stiffness = 380f), label = "librarySearch")
 
-    Column(
+    // The pods are recorded once per frame; the search pill shows them blurred
+    // where they scroll underneath it, like the iOS material.
+    val canBlur = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
+    val gridLayer = androidx.compose.ui.graphics.rememberGraphicsLayer()
+    val pillLayer = androidx.compose.ui.graphics.rememberGraphicsLayer()
+    var gridOrigin by remember { mutableStateOf(Offset.Zero) }
+    var pillOrigin by remember { mutableStateOf(Offset.Zero) }
+    val density = LocalDensity.current
+    val pillBlurPx = with(density) { 14.dp.toPx() }
+
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .onGloballyPositioned { pageTop = it.positionInRoot().y }
@@ -229,20 +249,105 @@ fun IosAppLibraryPage(
                     podOrigin?.let { o ->
                         transformOrigin = TransformOrigin((o.center.x / size.width).coerceIn(0f, 1f), ((o.center.y - pageTop) / size.height).coerceIn(0f, 1f))
                     }
+                    // iOS: the library blurs away while the category grows out of its pod.
+                    if (canBlur) renderEffect = androidx.compose.ui.graphics.BlurEffect(p * 28.dp.toPx(), p * 28.dp.toPx(), androidx.compose.ui.graphics.TileMode.Decal)
+                } else renderEffect = null
+            }
+    ) {
+        // ------------------------------------------------------------- pods
+        Box(
+            Modifier
+                .fillMaxSize()
+                .onGloballyPositioned { gridOrigin = it.positionInRoot() }
+                .graphicsLayer {
+                    // Behind the search list the library stays, blurred and dimmed.
+                    val t = searchT
+                    alpha = 1f - 0.45f * t
+                    renderEffect = if (canBlur && t > 0.01f) androidx.compose.ui.graphics.BlurEffect(t * 26.dp.toPx(), t * 26.dp.toPx(), androidx.compose.ui.graphics.TileMode.Decal) else null
+                    // Pods fade out at the top edge instead of being cut off.
+                    compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen
+                }
+                .drawWithContent {
+                    gridLayer.record { this@drawWithContent.drawContent() }
+                    drawLayer(gridLayer)
+                    val fade = 12.dp.toPx()
+                    drawRect(
+                        Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Black, startY = 0f, endY = fade),
+                        blendMode = androidx.compose.ui.graphics.BlendMode.DstIn
+                    )
+                }
+        ) {
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(if (isUnfolded) 4 else 2),
+                contentPadding = PaddingValues(start = LibrarySideMargin, end = LibrarySideMargin, top = 9.dp + 43.dp + 34.dp, bottom = 48.dp),
+                verticalArrangement = Arrangement.spacedBy(9.dp),
+                horizontalArrangement = Arrangement.spacedBy(PodGap),
+                userScrollEnabled = !searching,
+                modifier = Modifier.fillMaxSize().nestedScroll(pullToSearch).graphicsLayer { translationY = pull.value }
+            ) {
+                items(pods, key = { it.id }) { pod ->
+                    LibraryCategoryPod(
+                        pod = pod,
+                        onAppClick = onAppClick,
+                        onAppLongClick = onAppLongClick,
+                        onOpen = { origin -> if (pod.id == HiddenPodId) onOpenHidden(origin) else onOpenPod(pod.title, pod.all, origin) }
+                    )
                 }
             }
-            .padding(top = 9.dp)
-    ) {
+        }
+
+        // ------------------------------------------------------ search list
+        // Slides up over the blurred library; holds every touch while it is there.
+        if (searching || searchT > 0.01f) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .padding(top = 9.dp + 43.dp)
+                    .graphicsLayer {
+                        alpha = searchT.coerceIn(0f, 1f)
+                        translationY = (1f - searchT) * 90.dp.toPx()
+                    }
+                    .clickable(remember { MutableInteractionSource() }, null, enabled = searching) {}
+            ) {
+                LibraryAlphabeticalList(
+                    apps = visibleApps,
+                    onAppClick = { app, b -> closeSearch(); onAppClick(app, b) },
+                    onAppLongClick = onAppLongClick,
+                    onScroll = { focus.clearFocus(); keyboard?.hide() },
+                    modifier = Modifier.fillMaxSize().imePadding()
+                )
+            }
+        }
+
         // ----------------------------------------------------------- search pill
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = LibrarySideMargin)
+            modifier = Modifier.fillMaxWidth().padding(top = 9.dp).padding(horizontal = LibrarySideMargin)
         ) {
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .height(43.dp)
-                    .wallpaperGlass(CircleShape, tint = IosMaterial.pod)
+                    .onGloballyPositioned { pillOrigin = it.positionInRoot() }
+                    .then(
+                        if (canBlur) Modifier
+                            .clip(CircleShape)
+                            .wallpaperGlass(CircleShape, tint = IosMaterial.pod.copy(alpha = 0.55f), rim = 0f)
+                            .drawBehind {
+                                // The pods passing underneath, blurred.
+                                if (searchT < 0.99f) {
+                                    pillLayer.renderEffect = androidx.compose.ui.graphics.BlurEffect(pillBlurPx, pillBlurPx, androidx.compose.ui.graphics.TileMode.Clamp)
+                                    pillLayer.record(size = androidx.compose.ui.unit.IntSize(size.width.toInt().coerceAtLeast(1), size.height.toInt().coerceAtLeast(1))) {
+                                        translate(gridOrigin.x - pillOrigin.x, gridOrigin.y - pillOrigin.y) { drawLayer(gridLayer) }
+                                    }
+                                    pillLayer.alpha = 1f - searchT
+                                    drawLayer(pillLayer)
+                                }
+                                drawRect(Color(0xFF2A2A2D).copy(alpha = 0.35f))
+                            }
+                            .border(0.6.dp, Color.White.copy(alpha = IosMaterial.hairline), CircleShape)
+                        else Modifier.wallpaperGlass(CircleShape, tint = IosMaterial.pod)
+                    )
                     .clickable(remember { MutableInteractionSource() }, null) {
                         if (!searching) searching = true else { runCatching { fieldFocus.requestFocus() }; keyboard?.show() }
                     }
@@ -275,49 +380,12 @@ fun IosAppLibraryPage(
             ) {
                 Text(
                     strings.cancel,
-                    style = IosText.subheadline.copy(color = Color.White),
+                    style = IosText.body.copy(color = Color.White),
                     maxLines = 1,
                     softWrap = false,
                     modifier = Modifier.clickable(remember { MutableInteractionSource() }, null, onClick = closeSearch).padding(start = 14.dp, top = 10.dp, bottom = 10.dp)
                 )
             }
-        }
-
-        // Pods and list cross-fade with a slight depth move instead of a hard cut.
-        AnimatedContent(
-            targetState = searching,
-            transitionSpec = {
-                (fadeIn(tween(240, delayMillis = 40, easing = LibraryEase)) + scaleIn(tween(280, easing = LibraryEase), initialScale = if (targetState) 1.04f else 0.96f)) togetherWith
-                    (fadeOut(tween(160, easing = LibraryEase)) + scaleOut(tween(220, easing = LibraryEase), targetScale = if (targetState) 0.96f else 1.04f))
-            },
-            modifier = Modifier.weight(1f),
-            label = "libraryContent"
-        ) { inSearch ->
-        if (inSearch) {
-            LibraryAlphabeticalList(
-                apps = visibleApps,
-                onAppClick = { app, b -> closeSearch(); onAppClick(app, b) },
-                onAppLongClick = onAppLongClick,
-                modifier = Modifier.fillMaxSize().imePadding()
-            )
-        } else {
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(if (isUnfolded) 4 else 2),
-                contentPadding = PaddingValues(start = LibrarySideMargin, end = LibrarySideMargin, top = 34.dp, bottom = 48.dp),
-                verticalArrangement = Arrangement.spacedBy(9.dp),
-                horizontalArrangement = Arrangement.spacedBy(PodGap),
-                modifier = Modifier.fillMaxSize().nestedScroll(pullToSearch).graphicsLayer { translationY = pull.value }
-            ) {
-                items(pods, key = { it.id }) { pod ->
-                    LibraryCategoryPod(
-                        pod = pod,
-                        onAppClick = onAppClick,
-                        onAppLongClick = onAppLongClick,
-                        onOpen = { origin -> if (pod.id == HiddenPodId) onOpenHidden(origin) else onOpenPod(pod.title, pod.all, origin) }
-                    )
-                }
-            }
-        }
         }
     }
 }
@@ -368,7 +436,7 @@ private fun LibraryCategoryPod(
                     .fillMaxWidth()
                     .aspectRatio(1f)
                     .onGloballyPositioned { podBounds = it.boundsInRoot() }
-                    .wallpaperGlass(RoundedCornerShape(25.dp), tint = IosMaterial.pod)
+                    .wallpaperGlass(RoundedCornerShape(25.dp), tint = PodTint, rim = 0.16f)
                     .clickable(remember { MutableInteractionSource() }, null, onClick = open)
                     .padding(12.dp)
             ) {
@@ -475,96 +543,125 @@ private fun LibraryLetterIcon(label: String, size: Dp) {
 /*                              Alphabetical list                             */
 /* -------------------------------------------------------------------------- */
 
-private data class LibraryLetterGroup(val letter: String, val apps: List<AppInfo>)
+private val IndexLetters = ('A'..'Z').map { it.toString() } + "#"
 
+private fun indexLetterOf(app: AppInfo): String {
+    val first = java.text.Normalizer.normalize(app.displayLabel.trim().take(1), java.text.Normalizer.Form.NFD).firstOrNull()?.uppercaseChar() ?: '#'
+    return if (first in 'A'..'Z') first.toString() else "#"
+}
+
+/**
+ * The library's search list as on iOS: one flat alphabetical list (no letter
+ * headings) over the blurred library, and the full A–Z index on the right that
+ * can be tapped or scrubbed.
+ */
 @Composable
 private fun LibraryAlphabeticalList(
     apps: List<AppInfo>,
     onAppClick: (AppInfo, Rect) -> Unit,
     onAppLongClick: (AppInfo, Rect) -> Unit,
+    onScroll: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val groups = remember(apps) {
-        val map = LinkedHashMap<String, MutableList<AppInfo>>()
-        for (app in apps) {
-            val first = app.displayLabel.firstOrNull()?.uppercaseChar() ?: '#'
-            val key = if (first in 'A'..'Z') first.toString() else "#"
-            map.getOrPut(key) { mutableListOf() }.add(app)
-        }
-        map.map { (letter, list) -> LibraryLetterGroup(letter, list) }.sortedBy { it.letter }
+    // "#" (digits, symbols) goes last, as on iOS.
+    val sorted = remember(apps) { apps.sortedWith(compareBy({ indexLetterOf(it) == "#" }, { it.displayLabel.lowercase(Locale.getDefault()) })) }
+    val firstIndex = remember(sorted) {
+        val m = HashMap<String, Int>()
+        sorted.forEachIndexed { i, a -> m.putIfAbsent(indexLetterOf(a), i) }
+        m
     }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
+    val dropKeyboard by rememberUpdatedState(onScroll)
+    val keyboardAway = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (source == NestedScrollSource.UserInput && kotlin.math.abs(available.y) > 1f) dropKeyboard()
+                return Offset.Zero
+            }
+        }
+    }
+    var lastLetter by remember { mutableStateOf("") }
+    fun jumpTo(letter: String) {
+        if (letter == lastLetter) return
+        lastLetter = letter
+        // Letters without apps jump to the next letter that has some.
+        val from = IndexLetters.indexOf(letter).coerceAtLeast(0)
+        val target = IndexLetters.drop(from).firstNotNullOfOrNull { firstIndex[it] } ?: (sorted.size - 1).coerceAtLeast(0)
+        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        scope.launch { listState.scrollToItem(target) }
+    }
 
     Box(modifier.fillMaxWidth()) {
         LazyColumn(
             state = listState,
-            contentPadding = PaddingValues(top = 22.dp, bottom = 24.dp),
-            modifier = Modifier.fillMaxSize()
+            contentPadding = PaddingValues(top = 14.dp, bottom = 24.dp),
+            modifier = Modifier.fillMaxSize().nestedScroll(keyboardAway)
         ) {
-            groups.forEach { group ->
-                item(key = "letter_${group.letter}") {
-                    Text(
-                        group.letter,
-                        style = IosText.headline.copy(color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold),
-                        modifier = Modifier.padding(start = LibrarySideMargin, top = 10.dp, bottom = 6.dp)
-                    )
-                }
-                items(group.apps, key = { it.packageName }) { app ->
-                    var bounds by remember { mutableStateOf(Rect.Zero) }
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(77.dp)
-                            .combinedClickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null,
-                                onClick = { onAppClick(app, bounds) },
-                                onLongClick = { onAppLongClick(app, bounds) }
-                            )
-                            .padding(start = LibrarySideMargin)
-                    ) {
-                        Box(Modifier.size(51.dp).onGloballyPositioned { bounds = it.boundsInRoot() }) {
-                            if (app.iconBitmap != null) Image(app.iconBitmap, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                            else LibraryLetterIcon(app.displayLabel, 51.dp)
-                        }
-                        Spacer(Modifier.width(24.dp))
-                        Box(Modifier.weight(1f).fillMaxHeight().padding(end = 22.dp)) {
-                            Text(
-                                app.displayLabel,
-                                style = IosText.body.copy(color = Color.White),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.align(Alignment.CenterStart)
-                            )
-                            Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(0.5.dp).background(Color.White.copy(alpha = 0.14f)))
-                        }
+            items(sorted, key = { it.packageName }) { app ->
+                var bounds by remember { mutableStateOf(Rect.Zero) }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(64.dp)
+                        .combinedClickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = { onAppClick(app, bounds) },
+                            onLongClick = { onAppLongClick(app, bounds) }
+                        )
+                        .padding(start = 22.dp)
+                ) {
+                    Box(Modifier.size(44.dp).onGloballyPositioned { bounds = it.boundsInRoot() }) {
+                        if (app.iconBitmap != null) Image(app.iconBitmap, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                        else Box(Modifier.clip(IosSquircle)) { LibraryLetterIcon(app.displayLabel, 44.dp) }
+                    }
+                    Spacer(Modifier.width(16.dp))
+                    Box(Modifier.weight(1f).fillMaxHeight().padding(end = 30.dp)) {
+                        Text(
+                            app.displayLabel,
+                            style = IosText.body.copy(color = Color.White),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.align(Alignment.CenterStart)
+                        )
+                        Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(0.5.dp).background(Color.White.copy(alpha = 0.16f)))
                     }
                 }
             }
         }
 
-        // A–Z index
+        // A–Z index: tap a letter or slide along it.
+        var indexHeight by remember { mutableStateOf(1) }
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
-            modifier = Modifier.align(Alignment.CenterEnd).width(20.dp).fillMaxHeight()
-        ) {
-            groups.forEach { group ->
-                Text(
-                    text = group.letter,
-                    style = IosText.caption.copy(color = Color.White.copy(alpha = 0.9f), fontSize = 10.sp, lineHeight = 13.sp, fontWeight = FontWeight.SemiBold),
-                    modifier = Modifier.clickable(remember { MutableInteractionSource() }, null) {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        var index = 0
-                        for (g in groups) {
-                            if (g.letter == group.letter) break
-                            index += 1 + g.apps.size
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .width(22.dp)
+                .onGloballyPositioned { indexHeight = it.size.height.coerceAtLeast(1) }
+                .pointerInput(sorted) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown()
+                        lastLetter = ""
+                        fun at(y: Float) = IndexLetters[((y / indexHeight) * IndexLetters.size).toInt().coerceIn(0, IndexLetters.lastIndex)]
+                        jumpTo(at(down.position.y))
+                        down.consume()
+                        while (true) {
+                            val e = awaitPointerEvent()
+                            val c = e.changes.firstOrNull() ?: break
+                            if (!c.pressed) break
+                            jumpTo(at(c.position.y)); c.consume()
                         }
-                        scope.launch { listState.scrollToItem(index) }
                     }
+                }
+        ) {
+            IndexLetters.forEach { letter ->
+                Text(
+                    text = letter,
+                    style = IosText.caption.copy(color = Color.White.copy(alpha = 0.78f), fontSize = 10.sp, lineHeight = 12.5.sp, fontWeight = FontWeight.SemiBold)
                 )
             }
         }
@@ -616,7 +713,7 @@ fun IosLibraryCategoryView(
     ) {
         val cell = (maxWidth - sidePadding * 2) / columns
         val rows = (apps.size + columns - 1) / columns
-        val titleStyle = IosText.headline.copy(color = Color.White, fontSize = 28.sp, lineHeight = 34.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.2.sp)
+        val titleStyle = IosText.title1.copy(color = Color.White, fontSize = 28.sp, lineHeight = 34.sp, fontWeight = FontWeight.Bold)
         val titlePadding = Modifier.padding(start = (cell - iconSize) / 2, end = 24.dp, bottom = 20.dp)
         val fits = 54.dp + cell * rows + 118.dp <= maxHeight
 
