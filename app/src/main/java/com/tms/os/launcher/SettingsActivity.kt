@@ -25,6 +25,7 @@ class SettingsActivity : ComponentActivity() {
 
         setContent {
             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                com.tms.os.launcher.ui.components.IosTextEditing {
                 IosSettingsScreen(
                     viewModel = viewModel,
                     onBackToHome = {
@@ -35,6 +36,7 @@ class SettingsActivity : ComponentActivity() {
                         finish()
                     }
                 )
+                }
             }
         }
     }

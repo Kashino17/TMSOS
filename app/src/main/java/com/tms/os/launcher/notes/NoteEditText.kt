@@ -18,6 +18,22 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.widget.EditText
+import android.content.Intent
+import androidx.compose.material.icons.outlined.AttachFile
+import androidx.compose.material.icons.outlined.Apps
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.ContentCut
+import androidx.compose.material.icons.outlined.ContentPaste
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.IosShare
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.SelectAll
+import androidx.compose.material.icons.outlined.TextFormat
+import androidx.compose.material.icons.outlined.Translate
+import androidx.compose.material.icons.rounded.FormatBold
+import androidx.compose.material.icons.rounded.FormatItalic
+import androidx.compose.material.icons.rounded.FormatStrikethrough
+import androidx.compose.material.icons.rounded.FormatUnderlined
 
 /** What the Format panel and the toolbar show for the current cursor or selection. */
 data class EditorState(
@@ -59,7 +75,9 @@ class NoteEditText(context: Context, val m: NoteMetrics) : EditText(context) {
 
     init {
         background = null
-        setPadding(0, 0, 0, 0)
+        // Room above and below the text for the iOS selection handles (dot above the start,
+        // dot below the end); the editor overlaps this padding with its neighbours.
+        setPadding(0, HANDLE_ROOM.toPx(), 0, HANDLE_ROOM.toPx())
         typeface = m.regular
         setTextSize(TypedValue.COMPLEX_UNIT_PX, m.size(ParaStyle.BODY))
         setTextColor(m.text)
@@ -75,10 +93,14 @@ class NoteEditText(context: Context, val m: NoteMetrics) : EditText(context) {
         setLineSpacing(m.dp(3f), 1f)
         if (Build.VERSION.SDK_INT >= 29) {
             textCursorDrawable = GradientDrawable().apply { setColor(m.accent); setSize(m.dp(2.2f).toInt(), 1) }
-            textSelectHandle?.setTint(m.accent)
-            textSelectHandleLeft?.setTint(m.accent)
-            textSelectHandleRight?.setTint(m.accent)
+            // Android's teardrop handles stay as invisible touch areas; the iOS handles
+            // (line + dot) are drawn in onDraw.
+            val grip = m.dp(26f).toInt()
+            setTextSelectHandle(GradientDrawable().apply { setColor(0); setSize(grip, grip) })
+            setTextSelectHandleLeft(GradientDrawable().apply { setColor(0); setSize(grip, grip) })
+            setTextSelectHandleRight(GradientDrawable().apply { setColor(0); setSize(grip, grip) })
         }
+
         addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence, start: Int, count: Int, after: Int) = Unit
             override fun onTextChanged(s: CharSequence, start: Int, before: Int, count: Int) {
@@ -116,6 +138,8 @@ class NoteEditText(context: Context, val m: NoteMetrics) : EditText(context) {
                 }
                 onContentChanged?.invoke()
                 reportCaret()
+                // Typing closes the edit menu, as on iOS.
+                hideEditMenu()
             }
         })
         ready = true
@@ -396,6 +420,22 @@ class NoteEditText(context: Context, val m: NoteMetrics) : EditText(context) {
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        // iOS: a tap on the cursor where it already is shows "Auswählen | Alles auswählen | Einsetzen".
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                caretTap = if (hasFocus() && selectionStart == selectionEnd) selectionStart else -1
+                caretTapMenu = menuShown
+                tapX = event.x; tapY = event.y; tapTime = event.eventTime
+            }
+            MotionEvent.ACTION_UP -> if (caretTap >= 0) {
+                val slop = android.view.ViewConfiguration.get(context).scaledTouchSlop
+                val still = kotlin.math.abs(event.x - tapX) < slop && kotlin.math.abs(event.y - tapY) < slop && event.eventTime - tapTime < 350
+                val wasShown = caretTapMenu
+                val at = caretTap
+                caretTap = -1
+                if (still) post { if (selectionStart == at && selectionEnd == at) { if (wasShown) hideEditMenu() else showEditMenu() } }
+            }
+        }
         // Reading (keyboard closed): a tap on a link opens it, as on iOS. While
         // writing, a tap on a link just places the cursor.
         when (event.actionMasked) {
@@ -467,11 +507,180 @@ class NoteEditText(context: Context, val m: NoteMetrics) : EditText(context) {
         if (keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER) super.onKeyUp(keyCode, plainEnter(event))
         else super.onKeyUp(keyCode, event)
 
+    /* ------------------------------------------------------- iOS edit menu */
+
+    /** The iOS edit menu to show (null: hide). Positions are in window pixels. */
+    var onEditMenu: ((com.tms.os.launcher.ui.components.EditMenuSpec?) -> Unit)? = null
+    /** "Datei anhängen" in the edit menu: the note's attach menu. */
+    var onAttachRequest: (() -> Unit)? = null
+    private var menuShown = false
+    private var caretTap = -1
+    private var caretTapMenu = false
+    private var tapX = 0f
+    private var tapY = 0f
+    private var tapTime = 0L
+
+    private val menuModeCallback = object : android.view.ActionMode.Callback2() {
+        override fun onCreateActionMode(mode: android.view.ActionMode, menu: android.view.Menu) = true
+        override fun onPrepareActionMode(mode: android.view.ActionMode, menu: android.view.Menu): Boolean {
+            // An empty system toolbar is not shown; the iOS menu appears instead.
+            menu.clear()
+            post { showEditMenu() }
+            return true
+        }
+        override fun onActionItemClicked(mode: android.view.ActionMode, item: android.view.MenuItem) = false
+        override fun onDestroyActionMode(mode: android.view.ActionMode) { hideEditMenu() }
+    }
+
+    init {
+        // Android's floating copy/paste toolbar is replaced by the iOS edit menu.
+        customSelectionActionModeCallback = menuModeCallback
+        if (Build.VERSION.SDK_INT >= 23) customInsertionActionModeCallback = menuModeCallback
+    }
+
+    fun hideEditMenu() {
+        if (!menuShown) return
+        menuShown = false
+        onEditMenu?.invoke(null)
+    }
+
+    private fun showEditMenu() {
+        if (!hasFocus()) return
+        val spec = editMenuSpec() ?: return
+        menuShown = true
+        onEditMenu?.invoke(spec)
+    }
+
+    private fun editMenuSpec(): com.tms.os.launcher.ui.components.EditMenuSpec? {
+        val l = layout ?: return null
+        val e = text ?: return null
+        val a = selectionStart.coerceIn(0, e.length); val b = selectionEnd.coerceIn(a, e.length)
+        val loc = IntArray(2); getLocationInWindow(loc)
+        val ox = loc[0] + totalPaddingLeft - scrollX
+        val oy = loc[1] + totalPaddingTop - scrollY
+        val la = l.getLineForOffset(a); val lb = l.getLineForOffset(b)
+        val left = if (la == lb) l.getPrimaryHorizontal(a) else 0f
+        val right = if (la == lb) maxOf(l.getPrimaryHorizontal(b), left + 1f) else l.width.toFloat()
+        val anchor = androidx.compose.ui.geometry.Rect(ox + left, (oy + l.getLineTop(la)).toFloat(), ox + right, (oy + l.getLineBottom(lb)).toFloat())
+
+        val clip = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        val canPaste = clip.hasPrimaryClip()
+        val I = androidx.compose.material.icons.Icons.Outlined
+        fun item(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector?, destructive: Boolean = false, run: () -> Unit) =
+            com.tms.os.launcher.ui.components.EditMenuItem(label, icon, destructive) { run() }
+        val cut = item("Ausschneiden", I.ContentCut) { onTextContextMenuItem(android.R.id.cut) }
+        val copy = item("Kopieren", I.ContentCopy) { onTextContextMenuItem(android.R.id.copy) }
+        val paste = item("Einsetzen", I.ContentPaste) { onTextContextMenuItem(android.R.id.paste) }
+        val all = item("Alles auswählen", I.SelectAll) { onTextContextMenuItem(android.R.id.selectAll) }
+
+        if (a == b) {
+            // Cursor only: "Auswählen | Alles auswählen | Einsetzen", as on iOS.
+            val select = item("Auswählen", null) { selectWordAt(a) }
+            val compact = listOfNotNull(select.takeIf { e.isNotBlank() }, all.takeIf { e.isNotEmpty() }, paste.takeIf { canPaste })
+            if (compact.isEmpty()) return null
+            return com.tms.os.launcher.ui.components.EditMenuSpec(anchor, compact,
+                rows = listOfNotNull(onAttachRequest?.let { att -> item("Datei anhängen", I.AttachFile) { att() } }))
+        }
+
+        val selected = e.subSequence(a, b).toString()
+        val rows = ArrayList<com.tms.os.launcher.ui.components.EditMenuItem>()
+        rows += item("Löschen", I.Delete, destructive = true) { text?.delete(a, b) }
+        rows += com.tms.os.launcher.ui.components.EditMenuItem("Format", I.TextFormat, submenu = listOf(
+            item("Fett", androidx.compose.material.icons.Icons.Rounded.FormatBold) { toggleChar(CharStyle.BOLD) },
+            item("Kursiv", androidx.compose.material.icons.Icons.Rounded.FormatItalic) { toggleChar(CharStyle.ITALIC) },
+            item("Unterstrichen", androidx.compose.material.icons.Icons.Rounded.FormatUnderlined) { toggleChar(CharStyle.UNDERLINE) },
+            item("Durchgestrichen", androidx.compose.material.icons.Icons.Rounded.FormatStrikethrough) { toggleChar(CharStyle.STRIKE) }
+        ))
+        onAttachRequest?.let { att -> rows += item("Datei anhängen", I.AttachFile) { att() } }
+        rows += item("Auswahl suchen", I.Search) { searchWeb(selected) }
+        rows += item("Teilen …", I.IosShare) { share(selected) }
+        processTextApps().forEach { (label, intent) -> rows += item(label, if (label.contains("bersetz") || label.contains("ranslat")) I.Translate else I.Apps) { runCatching { context.startActivity(Intent(intent).putExtra(Intent.EXTRA_PROCESS_TEXT, selected).putExtra(Intent.EXTRA_PROCESS_TEXT_READONLY, true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } } }
+        rows += all
+        return com.tms.os.launcher.ui.components.EditMenuSpec(
+            anchor,
+            compact = listOfNotNull(cut, copy, paste.takeIf { canPaste }),
+            topRow = listOfNotNull(cut, copy, paste.takeIf { canPaste }),
+            rows = rows
+        )
+    }
+
+    /** Selects the word at [at] the way a double tap does, with handles (through the accessibility action). */
+    private fun selectWordAt(at: Int) {
+        val e = text ?: return
+        val it = java.text.BreakIterator.getWordInstance()
+        it.setText(e.toString())
+        var end = it.following(at.coerceAtMost(e.length - 1).coerceAtLeast(0)).let { if (it == java.text.BreakIterator.DONE) e.length else it }
+        var start = it.previous().let { if (it == java.text.BreakIterator.DONE) 0 else it }
+        if (start == end || e.subSequence(start, end).isBlank()) { start = (at - 1).coerceAtLeast(0); end = at.coerceAtLeast(start + 1).coerceAtMost(e.length) }
+        performAccessibilityAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SET_SELECTION, android.os.Bundle().apply {
+            putInt(android.view.accessibility.AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, start)
+            putInt(android.view.accessibility.AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, end)
+        })
+    }
+
+    private fun searchWeb(q: String) {
+        val web = Intent(Intent.ACTION_WEB_SEARCH).putExtra(android.app.SearchManager.QUERY, q).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        runCatching { context.startActivity(web) }.onFailure {
+            runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://www.google.com/search?q=" + android.net.Uri.encode(q))).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        }
+    }
+
+    private fun share(t: String) {
+        runCatching { context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, t), null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+    }
+
+    /** Apps that offer text actions ("Übersetzen" from Google Translate and the like), at most two. */
+    private fun processTextApps(): List<Pair<String, Intent>> = cachedProcessText ?: runCatching {
+        val pm = context.packageManager
+        pm.queryIntentActivities(Intent(Intent.ACTION_PROCESS_TEXT).setType("text/plain"), 0)
+            .filter { it.activityInfo.packageName != context.packageName }
+            .take(2)
+            .map { ri -> ri.loadLabel(pm).toString() to Intent(Intent.ACTION_PROCESS_TEXT).setType("text/plain").setClassName(ri.activityInfo.packageName, ri.activityInfo.name) }
+    }.getOrDefault(emptyList()).also { cachedProcessText = it }
+
+    private var cachedProcessText: List<Pair<String, Intent>>? = null
+
+    /* ------------------------------------------------------ iOS handles */
+
+    private val handlePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = m.accent }
+
+    override fun onDraw(canvas: android.graphics.Canvas) {
+        super.onDraw(canvas)
+        val l = layout ?: return
+        val a = selectionStart; val b = selectionEnd
+        if (!hasFocus() || a < 0 || a == b) return
+        val ox = totalPaddingLeft - scrollX.toFloat()
+        val oy = totalPaddingTop - scrollY.toFloat()
+        val w = m.dp(2f); val r = m.dp(5.5f)
+        // Start: line with the dot above; end: line with the dot below (iOS lollipops).
+        val la = l.getLineForOffset(a)
+        val xa = ox + l.getPrimaryHorizontal(a)
+        val ta = oy + l.getLineTop(la); val ba = oy + l.getLineBottom(la) - l.spacingAdd
+        canvas.drawRect(xa - w / 2, ta, xa + w / 2, ba, handlePaint)
+        canvas.drawCircle(xa, ta - r + m.dp(1f), r, handlePaint)
+        // The end at the start of a line belongs to the end of the line before.
+        var lb = l.getLineForOffset(b)
+        var xb = ox + l.getPrimaryHorizontal(b)
+        if (lb > 0 && b == l.getLineStart(lb) && b > a) { lb -= 1; xb = ox + l.getLineRight(lb) }
+        val tb = oy + l.getLineTop(lb); val bb = oy + l.getLineBottom(lb) - l.spacingAdd
+        canvas.drawRect(xb - w / 2, tb, xb + w / 2, bb, handlePaint)
+        canvas.drawCircle(xb, bb + r - m.dp(1f), r, handlePaint)
+    }
+
+    override fun onFocusChanged(focused: Boolean, direction: Int, previouslyFocusedRect: android.graphics.Rect?) {
+        super.onFocusChanged(focused, direction, previouslyFocusedRect)
+        if (!focused) hideEditMenu()
+    }
+
     /** Pasting brings in text, not another app's formatting. */
     override fun onTextContextMenuItem(id: Int): Boolean =
         super.onTextContextMenuItem(if (id == android.R.id.paste) android.R.id.pasteAsPlainText else id)
 
-    private companion object {
-        val HapticFeedbackType = HapticFeedbackConstants.CLOCK_TICK
+    private fun Float.toPx(): Int = m.dp(this).toInt()
+
+    companion object {
+        private val HapticFeedbackType = HapticFeedbackConstants.CLOCK_TICK
+        /** Padding (dp) above and below the text for the iOS selection handles. */
+        const val HANDLE_ROOM = 12f
     }
 }

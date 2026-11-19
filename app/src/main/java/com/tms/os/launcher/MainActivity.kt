@@ -34,6 +34,8 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                // Home and Spotlight are dark glass: the edit menu there is dark too.
+                com.tms.os.launcher.ui.components.IosTextEditing(dark = true) {
                 LauncherHomeScreen(
                     viewModel = viewModel,
                     onOpenSettingsActivity = {
@@ -41,6 +43,7 @@ class MainActivity : ComponentActivity() {
                         startActivity(intent)
                     }
                 )
+                }
             }
         }
     }

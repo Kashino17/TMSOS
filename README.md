@@ -8,6 +8,13 @@ Ein maßgeschneiderter, werbefreier und kostenloser **iOS-Style Homescreen-Launc
 
 ---
 
+## Neu in v5.12.0 – Text markieren wie auf dem iPhone
+- **Notizen**: Markierter Text ist gelb hinterlegt mit iOS-Griffen (Strich mit Punkt oben am Anfang, unten am Ende). Darüber erscheint die Glas-Kapsel „Ausschneiden | Kopieren | Einsetzen | ›“; der Pfeil öffnet die Karte mit den drei Symbol-Knöpfen und Löschen, Format › (Fett, Kursiv, Unterstrichen, Durchgestrichen), Datei anhängen, Auswahl suchen, Teilen, Aktionen anderer Apps (z. B. Übersetzen) und Alles auswählen.
+- Ein Tipp auf den Cursor zeigt „Auswählen | Alles auswählen | Einsetzen“, ein zweiter Tipp blendet es aus; Tippen schließt das Menü.
+- Bei markiertem Text wird die Leiste über der Tastatur zur Format-Leiste: B, I, U, S, Marker, Aa.
+- **Überall in TMS OS** (Spotlight, App-Mediathek, Einstellungen, Suchfelder, Dialoge): dasselbe iOS-Menü statt des Android-Menüs, mit blauer iOS-Markierung (in den Notizen gelb).
+- In anderen Apps zeichnen diese Apps bzw. das System ihr Menü selbst; dort kann TMS OS es nicht ersetzen.
+
 ## Neu in v5.11.6 – Samsung-Import ohne leere Bilder
 - Samsung Notes legt in jede Word-Datei leere Bilder (seine leere Zeichenebene), oben und unten. Der Import erkennt leere Bilder (durchsichtig oder rein weiß) und lässt sie weg; echte Bilder und Zeichnungen bleiben.
 - Kein doppelter Titel mehr: Samsungs Datumsanhang im Dateinamen („_210625_185056“) wird entfernt, der Dateiname steht nur noch vor Notizen, die mit einem Bild beginnen.

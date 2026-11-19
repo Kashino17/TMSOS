@@ -101,7 +101,11 @@ class NotesActivity : ComponentActivity() {
                 LocalLayoutDirection provides LayoutDirection.Ltr,
                 LocalNotesColors provides if (isSystemInDarkTheme()) DarkNotes else LightNotes
             ) {
-                NotesApp(this, store, pendingIntent) { pendingIntent = null }
+                val nc = LocalNotesColors.current
+                // Selection and the edit menu as in iOS Notes: yellow, with the iOS menu.
+                com.tms.os.launcher.ui.components.IosTextEditing(accent = nc.accent, dark = nc.dark) {
+                    NotesApp(this, store, pendingIntent) { pendingIntent = null }
+                }
             }
         }
     }

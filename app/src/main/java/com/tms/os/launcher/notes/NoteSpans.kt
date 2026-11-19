@@ -330,7 +330,8 @@ enum class CharStyle { BOLD, ITALIC, UNDERLINE, STRIKE }
 fun Spannable.charSpansOf(style: CharStyle, start: Int, end: Int): List<Any> = when (style) {
     CharStyle.BOLD -> getSpans(start, end, NoteBoldSpan::class.java).toList()
     CharStyle.ITALIC -> getSpans(start, end, NoteItalicSpan::class.java).toList()
-    CharStyle.UNDERLINE -> getSpans(start, end, UnderlineSpan::class.java).filter { it.javaClass == UnderlineSpan::class.java }
+    // The keyboard's underline while composing a word is not formatting.
+    CharStyle.UNDERLINE -> getSpans(start, end, UnderlineSpan::class.java).filter { it.javaClass == UnderlineSpan::class.java && (getSpanFlags(it) and Spanned.SPAN_COMPOSING) == 0 }
     CharStyle.STRIKE -> getSpans(start, end, StrikethroughSpan::class.java).toList()
 }
 

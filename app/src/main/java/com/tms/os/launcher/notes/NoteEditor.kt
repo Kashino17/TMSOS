@@ -107,6 +107,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.layout.positionInParent
@@ -187,6 +188,8 @@ fun NoteEditorScreen(
     var drawing by remember { mutableStateOf<NoteBlock.Drawing?>(null) }
     var newDrawing by remember { mutableStateOf(false) }
     var viewer by remember { mutableStateOf<String?>(null) }
+    /** The iOS edit menu over a text selection (from the text editors). */
+    var editMenu by remember { mutableStateOf<com.tms.os.launcher.ui.components.EditMenuSpec?>(null) }
     var pendingFocus by remember(noteId) { mutableStateOf(if (focusOnOpen) blocks.firstOrNull { it is NoteBlock.Text }?.id else null) }
     /** A table just inserted: the cursor goes into its first cell, as on iOS. */
     var focusTable by remember(noteId) { mutableStateOf<String?>(null) }
@@ -224,6 +227,7 @@ fun NoteEditorScreen(
         v?.let { imm.hideSoftInputFromWindow(it.windowToken, 0) }
     }
     fun done() {
+        editMenu = null
         formatPanel = false
         // Keyboard first, while an editor still has the focus; then the focus goes.
         hideKeyboard()
@@ -351,6 +355,8 @@ fun NoteEditorScreen(
                                         ed.isFocusableInTouchMode = !readOnly
                                         ed.onContentChanged = { if (!flags.loading) markDirty() }
                                         ed.onStateChanged = { s -> if (ed.hasFocus()) editorState = s }
+                                        ed.onEditMenu = { spec -> editMenu = spec }
+                                        ed.onAttachRequest = { attachMenu = true }
                                         ed.onCaret = { y ->
                                             val top = tops[block.id] ?: 0f
                                             val target = top + y + with(density) { 58.dp.toPx() }
@@ -378,7 +384,15 @@ fun NoteEditorScreen(
                                 // The editor stays in [editors]: the save on leaving the note reads its text after
                                 // Compose has already released the views. Removed blocks are simply no longer in [blocks].
                                 onRelease = { ed -> ed.onContentChanged = null; ed.onStateChanged = null; ed.onCaret = null; ed.onFocusChangeListener = null },
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).onGloballyPositioned { tops[block.id] = it.positionInParent().y }
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)
+                                    // The editor's extra room for the selection handles overlaps its neighbours,
+                                    // so the text keeps its place.
+                                    .layout { m, cons ->
+                                        val room = with(density) { NoteEditText.HANDLE_ROOM.dp.roundToPx() }
+                                        val p = m.measure(cons.copy(maxHeight = androidx.compose.ui.unit.Constraints.Infinity))
+                                        layout(p.width, (p.height - 2 * room).coerceAtLeast(0)) { p.place(0, -room) }
+                                    }
+                                    .onGloballyPositioned { tops[block.id] = it.positionInParent().y }
                             )
                             is NoteBlock.Table -> TableBlockView(
                                 block, readOnly, autoFocus = focusTable == block.id, onAutoFocused = { focusTable = null },
@@ -416,7 +430,12 @@ fun NoteEditorScreen(
         // ------------------------------------------------------------ bottom bars
         Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))) {
             if (!readOnly && !formatPanel) {
-                if (imeUp && editing) KeyboardToolbar(
+                if (imeUp && editing && editorState.hasSelection) SelectionFormatBar(
+                    state = editorState,
+                    onChar = { st -> activeId?.let { editors[it] }?.let { e -> e.toggleChar(st); editorState = e.state() } },
+                    onHighlight = { activeId?.let { editors[it] }?.let { e -> e.toggleHighlight(); editorState = e.state() } },
+                    onFormat = { editMenu = null; formatPanel = true; hideKeyboard() }
+                ) else if (imeUp && editing) KeyboardToolbar(
                     onFormat = { formatPanel = true; hideKeyboard() },
                     onChecklist = { activeId?.let { editors[it] }?.toggleList(ListKind.CHECK) ?: run { focusEnd() } },
                     onTable = { insertAtCursor(NoteBlock.Table(store.newId(), List(2) { List(2) { "" } })) },
@@ -488,6 +507,9 @@ fun NoteEditorScreen(
 
         viewer?.let { file -> PictureViewer(file) { viewer = null } }
 
+        // iOS edit menu over the selected text (cut, copy, paste, format, search …).
+        if (!scroll.isScrollInProgress) com.tms.os.launcher.ui.components.IosEditMenuHost(editMenu, onDismiss = { editMenu = null }, dark = c.dark)
+
         // The drawing canvas lies over the note instead of replacing it, so the
         // text editors (and what was typed) stay alive underneath.
         if (drawing != null || newDrawing) {
@@ -534,6 +556,32 @@ private fun LockedNote(onBack: () -> Unit, onUnlock: () -> Unit) {
 /* -------------------------------------------------------------------------- */
 /*                              Keyboard toolbar                              */
 /* -------------------------------------------------------------------------- */
+
+/** Over the keyboard while text is selected (iOS): B I U S, highlight, and the Format panel. */
+@Composable
+private fun SelectionFormatBar(state: EditorState, onChar: (CharStyle) -> Unit, onHighlight: () -> Unit, onFormat: () -> Unit) {
+    val c = LocalNotesColors.current
+    @Composable
+    fun Btn(on: Boolean, onClick: () -> Unit, content: @Composable () -> Unit) {
+        Box(
+            Modifier.size(42.dp).clip(CircleShape).background(if (on) c.accent.copy(alpha = 0.22f) else Color.Transparent).pressable(onClick),
+            contentAlignment = Alignment.Center
+        ) { content() }
+    }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceEvenly,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp).height(46.dp).notesGlass(c)
+    ) {
+        val tint = { on: Boolean -> if (on) c.accent else c.text }
+        Btn(CharStyle.BOLD in state.chars, { onChar(CharStyle.BOLD) }) { Text("B", style = NotesText.body.copy(color = tint(CharStyle.BOLD in state.chars), fontWeight = FontWeight.Bold, fontSize = 19.sp)) }
+        Btn(CharStyle.ITALIC in state.chars, { onChar(CharStyle.ITALIC) }) { Text("I", style = NotesText.body.copy(color = tint(CharStyle.ITALIC in state.chars), fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, fontSize = 19.sp)) }
+        Btn(CharStyle.UNDERLINE in state.chars, { onChar(CharStyle.UNDERLINE) }) { Text("U", style = NotesText.body.copy(color = tint(CharStyle.UNDERLINE in state.chars), textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline, fontSize = 19.sp)) }
+        Btn(CharStyle.STRIKE in state.chars, { onChar(CharStyle.STRIKE) }) { Text("S", style = NotesText.body.copy(color = tint(CharStyle.STRIKE in state.chars), textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough, fontSize = 19.sp)) }
+        Btn(state.highlight, onHighlight) { Icon(Icons.Rounded.BorderColor, null, tint = tint(state.highlight), modifier = Modifier.size(22.dp)) }
+        Btn(false, onFormat) { Text("Aa", style = NotesText.body.copy(color = c.text, fontWeight = FontWeight.Medium, fontSize = 18.sp)) }
+    }
+}
 
 @Composable
 private fun KeyboardToolbar(onFormat: () -> Unit, onChecklist: () -> Unit, onTable: () -> Unit, onAttach: () -> Unit, onDraw: () -> Unit) {
