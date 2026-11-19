@@ -31,6 +31,7 @@ import java.util.UUID
 
 data class LauncherUiState(
     val isLoading: Boolean = true,
+    val homePressGeneration: Int = 0,
     val allApps: List<AppInfo> = emptyList(),
     val appMap: Map<String, AppInfo> = emptyMap(),
     val allContacts: List<ContactItem> = emptyList(),
@@ -50,12 +51,41 @@ data class LauncherUiState(
     val folderOriginNormalized: Offset = Offset(0.5f, 0.5f),
     val activeCategoryModal: AppCategory? = null,
     val selectedAppForMenu: AppInfo? = null,
+    val todayWidgets: List<HomeGridItem.WidgetItem> = emptyList(),
+    val menuQuickActions: List<com.tms.os.launcher.model.AppQuickAction> = emptyList(),
+    /** Real shortcuts of Spotlight's top hit ("New Tab" for Chrome, …). */
+    val spotlightTopActions: List<com.tms.os.launcher.model.AppQuickAction> = emptyList(),
+    /** Packages recently opened from Spotlight, newest first ("Verlauf"). */
+    val spotlightHistory: List<String> = emptyList(),
+    /** Shortcut rows under the suggestions while the query is empty ("Selfie", "Neuer Tab" …). */
+    val spotlightSuggestedActions: List<com.tms.os.launcher.model.AppQuickAction> = emptyList(),
+    val spotlightSettings: List<com.tms.os.launcher.data.SettingsHit> = emptyList(),
+    val spotlightFiles: List<com.tms.os.launcher.data.FileHit> = emptyList(),
+    val spotlightPhotos: List<com.tms.os.launcher.data.PhotoHit> = emptyList(),
+    val spotlightPhotoAccess: Boolean = false,
+    /** Matching notes of the built-in Notes app (never locked ones). */
+    val spotlightNotes: List<com.tms.os.launcher.ui.home.SpotlightNoteHit> = emptyList(),
+    /** Chats matching the search (WhatsApp …), with profile pictures. */
+    val spotlightPeople: List<com.tms.os.launcher.model.AppQuickAction> = emptyList(),
+    val spotlightFileAccess: Boolean = false,
+    val weatherForecast: com.tms.os.launcher.domain.WeatherForecast? = null,
     val isDefaultLauncher: Boolean = false,
     val isBadgeServiceEnabled: Boolean = false,
     val isUsageStatsGranted: Boolean = false,
     val batteryPercent: Int = 85,
+    val screenTime: com.tms.os.launcher.model.ScreenTime = com.tms.os.launcher.model.ScreenTime(),
+    val solvado: com.tms.os.launcher.model.SolvadoState = com.tms.os.launcher.model.SolvadoState(),
+    /** Apps that open only after Touch ID or the device code. */
+    val securedApps: Set<String> = emptySet(),
+    /** Something waiting for Touch ID; the screen asks the system and answers [LauncherViewModel.authAnswered]. */
+    val authRequest: AuthRequest? = null,
+    /** Free placement of the shown layout, by grid shape ("4x6"): item id -> cell. */
+    val gridAnchors: Map<String, Map<String, com.tms.os.launcher.domain.GridAnchor>> = emptyMap(),
     val storageRamInfo: SystemStorageRamInfo = SystemStorageRamInfo(6.4f, 12.0f, 128, 512),
-    val isWeatherRefreshing: Boolean = false
+    val isWeatherRefreshing: Boolean = false,
+    /** The phone's position is being looked up for the weather (only ever on the user's tap). */
+    val weatherLocating: Boolean = false,
+    val weatherLocateError: Boolean = false
 ) {
     val isAnyOverlayOpen: Boolean
         get() = isSpotlightOpen || activeFolder != null || activeCategoryModal != null || selectedAppForMenu != null
@@ -64,6 +94,9 @@ data class LauncherUiState(
 class LauncherViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = LauncherRepository(application.applicationContext)
+    val spotlightContent = com.tms.os.launcher.data.SpotlightContent(application.applicationContext)
+    private var spotlightMediaJob: kotlinx.coroutines.Job? = null
+    private val solvadoRepo = com.tms.os.launcher.data.SolvadoRepository(application.applicationContext)
 
     private val _uiState = MutableStateFlow(
         LauncherUiState(
@@ -77,9 +110,12 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     )
     val uiState: StateFlow<LauncherUiState> = _uiState.asStateFlow()
 
+    private var packageRefresh: kotlinx.coroutines.Job? = null
     private val packageReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            refreshApps()
+            // An app update arrives as several broadcasts in a row: reload once, afterwards.
+            packageRefresh?.cancel()
+            packageRefresh = viewModelScope.launch { kotlinx.coroutines.delay(600); refreshApps() }
         }
     }
 
@@ -102,8 +138,14 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             }
         }
 
+        repository.layoutProfile = profileOf(_uiState.value.settings)
         refreshApps()
         refreshLiveWeatherIfNeeded()
+        // Solvado widgets show the last known figures at once, fresh ones follow.
+        viewModelScope.launch {
+            val cached = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { solvadoRepo.cachedState() }
+            _uiState.update { if (it.solvado.updatedAt == 0L) it.copy(solvado = cached) else it }
+        }
     }
 
     override fun onCleared() {
@@ -122,15 +164,25 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             prevSettings.iconThemeMode != loadedSettings.iconThemeMode ||
             prevSettings.tintAccentColor != loadedSettings.tintAccentColor
 
-        _uiState.update {
-            it.copy(
-                settings = loadedSettings,
-                isDefaultLauncher = repository.isDefaultLauncher(),
-                isBadgeServiceEnabled = repository.isNotificationListenerEnabled(),
-                isUsageStatsGranted = repository.isUsageStatsPermissionGranted(),
-                batteryPercent = repository.getDeviceBatteryPercent(),
-                storageRamInfo = repository.getStorageAndRamInfo()
-            )
+        _uiState.update { it.copy(settings = loadedSettings) }
+        // System queries are cross-process calls: not on the main thread while the
+        // return-to-home animation is running.
+        viewModelScope.launch {
+            val status = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                SystemStatus(
+                    repository.isDefaultLauncher(), repository.isNotificationListenerEnabled(), repository.isUsageStatsPermissionGranted(),
+                    repository.getDeviceBatteryPercent(), repository.getStorageAndRamInfo()
+                )
+            }
+            _uiState.update {
+                it.copy(
+                    isDefaultLauncher = status.defaultLauncher,
+                    isBadgeServiceEnabled = status.badgeService,
+                    isUsageStatsGranted = status.usageStats,
+                    batteryPercent = status.battery,
+                    storageRamInfo = status.storage
+                )
+            }
         }
 
         if (iconsChanged) {
@@ -143,18 +195,26 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun refreshLiveWeatherIfNeeded(force: Boolean = false) {
         val s = _uiState.value.settings
         val elapsed = System.currentTimeMillis() - s.weatherLastUpdated
-        if (!force && elapsed < 20 * 60 * 1000L && s.weatherLastUpdated > 0L) return
-        refreshLiveWeatherForCity(s.weatherCity)
+        val hasForecast = _uiState.value.weatherForecast != null
+        if (!force && hasForecast && elapsed < 20 * 60 * 1000L && s.weatherLastUpdated > 0L) return
+        // A stored position is used as it is; only a bare city name is looked up again.
+        if (!s.weatherLat.isNaN() && !s.weatherLon.isNaN()) loadWeather { WeatherService.fetchLiveWeatherAt(s.weatherLat.toDouble(), s.weatherLon.toDouble(), s.weatherCity) }
+        else refreshLiveWeatherForCity(s.weatherCity)
     }
 
-    fun refreshLiveWeatherForCity(cityQuery: String) {
+    fun refreshLiveWeatherForCity(cityQuery: String) = loadWeather { WeatherService.fetchLiveWeatherForCity(cityQuery) }
+
+    private fun loadWeather(fetch: suspend () -> com.tms.os.launcher.domain.LiveWeatherData?) {
         viewModelScope.launch {
             _uiState.update { it.copy(isWeatherRefreshing = true) }
-            val data = WeatherService.fetchLiveWeatherForCity(cityQuery)
+            val data = fetch()
             if (data != null) {
+                _uiState.update { it.copy(weatherForecast = data.forecast ?: it.weatherForecast) }
                 updateSettings { current ->
                     current.copy(
                         weatherCity = data.resolvedCity,
+                        weatherLat = data.latitude.toFloat(),
+                        weatherLon = data.longitude.toFloat(),
                         weatherTempCelsius = data.tempCelsius,
                         weatherHighCelsius = data.highCelsius,
                         weatherLowCelsius = data.lowCelsius,
@@ -168,6 +228,26 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    /**
+     * Weather for where the phone is: the position is read once, now, because the
+     * user asked for it. The caller has made sure the location permission is granted.
+     */
+    fun useCurrentLocationForWeather() {
+        if (_uiState.value.weatherLocating) return
+        _uiState.update { it.copy(weatherLocating = true, weatherLocateError = false) }
+        viewModelScope.launch {
+            val place = runCatching { com.tms.os.launcher.data.LocationOnce.find(getApplication()) }.getOrNull()
+            if (place == null) {
+                _uiState.update { it.copy(weatherLocating = false, weatherLocateError = true) }
+                return@launch
+            }
+            val fallback = if (_uiState.value.settings.appLanguage == com.tms.os.launcher.model.AppLanguage.EN) "My Location" else "Mein Standort"
+            val data = WeatherService.fetchLiveWeatherAt(place.latitude, place.longitude, place.name ?: fallback)
+            _uiState.update { it.copy(weatherLocating = false, weatherLocateError = data == null) }
+            if (data != null) loadWeather { data }
+        }
+    }
+
     fun refreshApps() {
         viewModelScope.launch {
             val badges = BadgeNotificationService.badgeCounts.value
@@ -175,6 +255,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             val apps = repository.loadInstalledApps(badges, settings)
             val contacts = repository.loadContactsIfPermitted()
             val appMap = apps.associateBy { it.packageName }
+            restoreMinimalLayoutOnce(settings, apps)
             val dock = repository.loadDockPackages(apps, settings.dockIconCount)
             val grid = repository.loadHomeGridItems(apps, dock)
             val recents = computeRecentPackages(apps, dock)
@@ -191,6 +272,10 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                     appMap = appMap,
                     allContacts = contacts,
                     homeGridItems = grid,
+                    securedApps = repository.getSecuredPackages(),
+                    gridAnchors = loadAnchors(),
+                    todayWidgets = repository.loadTodayWidgets(),
+                    spotlightHistory = repository.loadSpotlightHistory(),
                     dockPackages = dock,
                     recentPackages = recents,
                     categorizedApps = categorized,
@@ -267,8 +352,17 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         return map
     }
 
-    fun launchApp(packageName: String) {
-        val ok = repository.launchApp(packageName)
+    fun launchApp(packageName: String, options: android.os.Bundle? = null) {
+        // A secured app opens only after Touch ID; the request waits for the answer.
+        if (packageName in _uiState.value.securedApps) {
+            _uiState.update { it.copy(authRequest = AuthRequest.Launch(packageName), selectedAppForMenu = null) }
+            return
+        }
+        launchVerified(packageName, options)
+    }
+
+    private fun launchVerified(packageName: String, options: android.os.Bundle? = null) {
+        val ok = repository.launchApp(packageName, options)
         if (ok) {
             _uiState.update { state ->
                 val updatedApps = state.allApps.map { app ->
@@ -287,6 +381,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                     categorizedApps = buildCategoryMap(updatedApps),
                     isSpotlightOpen = false,
                     spotlightQuery = "",
+                    activeFolder = null,
+                    activeCategoryModal = null,
                     selectedAppForMenu = null
                 )
             }
@@ -295,6 +391,11 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     fun dialContact(phone: String) {
         repository.dialPhoneNumber(phone)
+        closeSpotlight()
+    }
+
+    fun messageContact(phone: String) {
+        repository.messagePhoneNumber(phone)
         closeSpotlight()
     }
 
@@ -341,11 +442,126 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         updateSettings { it.copy(quickNoteText = text) }
     }
 
+    /* ------------------------------------------- minimalist layout (iOS style) */
+
+    /** The iOS-style minimalist home screen is a second, freely editable layout of its own. */
+    private fun profileOf(settings: LauncherSettings) = if (settings.minimalMode && settings.minimalTemplate.ios) "min" else ""
+
+    /** Every app the current layout holds: dock first, then the grid in order (folders opened up). */
+    private fun layoutApps(): List<String> = (_uiState.value.dockPackages + _uiState.value.homeGridItems.flatMap {
+        when (it) {
+            is HomeGridItem.AppItem -> listOf(it.packageName)
+            is HomeGridItem.FolderItem -> it.appPackages
+            else -> emptyList()
+        }
+    }).distinct()
+
+    /**
+     * Lays the minimalist home screen out from a template: its widgets on top,
+     * the first apps in the dock, the others on the grid. From then on it is
+     * edited like any home screen (drag, add widgets, add apps).
+     */
+    private fun buildMinimalLayout(template: com.tms.os.launcher.model.MinimalTemplate, apps: List<String>) {
+        val dockSize = _uiState.value.settings.dockIconCount.coerceIn(3, 6)
+        fun widget(kind: com.tms.os.launcher.model.WidgetKind, size: com.tms.os.launcher.model.WidgetSize) =
+            HomeGridItem.WidgetItem("w_${UUID.randomUUID()}", kind, size)
+        val widgets = when (template) {
+            com.tms.os.launcher.model.MinimalTemplate.IOS_WIDGETS -> listOf(
+                widget(com.tms.os.launcher.model.WidgetKind.CALENDAR, com.tms.os.launcher.model.WidgetSize.SMALL),
+                widget(com.tms.os.launcher.model.WidgetKind.WEATHER, com.tms.os.launcher.model.WidgetSize.SMALL)
+            )
+            com.tms.os.launcher.model.MinimalTemplate.IOS_LARGE -> listOf(widget(com.tms.os.launcher.model.WidgetKind.WEATHER, com.tms.os.launcher.model.WidgetSize.LARGE))
+            // Free wallpaper on top: an invisible spacer keeps the upper rows empty.
+            com.tms.os.launcher.model.MinimalTemplate.IOS_BOTTOM -> listOf(widget(com.tms.os.launcher.model.WidgetKind.SPACER, com.tms.os.launcher.model.WidgetSize.LARGE))
+            else -> emptyList()
+        }
+        repository.saveDockPackages(apps.take(dockSize))
+        repository.saveHomeGridItems(widgets + apps.drop(dockSize).map { HomeGridItem.AppItem(it) })
+    }
+
+    /** Called when a setting changed that decides which layout is shown. */
+    private fun switchLayoutIfNeeded(old: LauncherSettings, new: LauncherSettings) {
+        val target = profileOf(new)
+        val templateChanged = target == "min" && profileOf(old) == "min" && old.minimalTemplate != new.minimalTemplate
+        if (target == repository.layoutProfile && !templateChanged) return
+        // What the minimalist layout starts from: its own apps when switching between its
+        // templates, otherwise the apps chosen for the plain templates, otherwise the most used.
+        val carried = if (templateChanged) layoutApps() else emptyList()
+        repository.layoutProfile = target
+        if (target == "min" && (templateChanged || !repository.hasStoredLayout())) {
+            val apps = carried.ifEmpty { new.minimalApps }.ifEmpty {
+                _uiState.value.allApps.filter { !it.isHidden && !it.packageName.contains("launcher") }
+                    .sortedWith(compareByDescending<AppInfo> { it.effectivePriorityScore }.thenByDescending { it.lastLaunchedTime })
+                    .take(8).map { it.packageName }
+            }
+            buildMinimalLayout(new.minimalTemplate, apps)
+        }
+        reloadLayout()
+    }
+
+    private fun reloadLayout() {
+        val apps = _uiState.value.allApps
+        val dock = repository.loadDockPackages(apps, _uiState.value.settings.dockIconCount)
+        val grid = repository.loadHomeGridItems(apps, dock)
+        _uiState.update { it.copy(dockPackages = dock, homeGridItems = grid, gridAnchors = loadAnchors(), activeFolder = null, isJiggleMode = false) }
+    }
+
+    private fun loadAnchors() = repository.anchorShapes().associateWith { repository.loadAnchors(it) }
+
+    /** Saves where every item sits, for one grid shape (after a drag on the home screen). */
+    fun commitAnchors(shape: String, anchors: Map<String, com.tms.os.launcher.domain.GridAnchor>) {
+        repository.saveAnchors(shape, anchors)
+        _uiState.update { it.copy(gridAnchors = it.gridAnchors + (shape to anchors)) }
+    }
+
+    /** A new item takes over another's cell in every shape (a folder made from an app). */
+    private fun moveAnchor(fromId: String, toId: String) {
+        val updated = _uiState.value.gridAnchors.mapValues { (shape, anchors) ->
+            val a = anchors[fromId] ?: return@mapValues anchors
+            (anchors - fromId + (toId to a)).also { repository.saveAnchors(shape, it) }
+        }
+        _uiState.update { it.copy(gridAnchors = updated) }
+    }
+
+    /**
+     * v5.8.0 gave the iOS-style minimalist screen its own storage but did not carry
+     * the apps chosen before over to it, so it came up (nearly) empty after the
+     * update. Once: put every previously chosen app back that is not on it.
+     */
+    private fun restoreMinimalLayoutOnce(settings: LauncherSettings, apps: List<AppInfo>) {
+        if (repository.layoutProfile != "min" || !repository.once("min_layout_restored_v1")) return
+        if (!repository.hasStoredLayout()) { buildMinimalLayout(settings.minimalTemplate, settings.minimalApps); return }
+        val dock = repository.loadDockPackages(apps, settings.dockIconCount)
+        val grid = repository.loadHomeGridItems(apps, dock)
+        val present = (dock + grid.flatMap { if (it is HomeGridItem.AppItem) listOf(it.packageName) else if (it is HomeGridItem.FolderItem) it.appPackages else emptyList() }).toSet()
+        val missing = settings.minimalApps.filter { it !in present }
+        if (missing.isEmpty()) return
+        val room = (settings.dockIconCount.coerceIn(3, 6) - dock.size).coerceAtLeast(0)
+        repository.saveDockPackages(dock + missing.take(room))
+        repository.saveHomeGridItems(grid + missing.drop(room).map { HomeGridItem.AppItem(it) })
+    }
+
+    /** App picker of the iOS-style minimalist home screen: puts an app on it or takes it off. No limit. */
+    fun toggleAppOnMinimalLayout(packageName: String) {
+        val state = _uiState.value
+        if (packageName in layoutApps()) {
+            if (packageName in state.dockPackages) setDockOrder(state.dockPackages - packageName)
+            commitHomeOrder(state.homeGridItems.mapNotNull {
+                when (it) {
+                    is HomeGridItem.AppItem -> if (it.packageName == packageName) null else it
+                    is HomeGridItem.FolderItem -> (it.appPackages - packageName).let { rest -> if (rest.isEmpty()) null else it.copy(appPackages = rest) }
+                    else -> it
+                }
+            })
+        } else commitHomeOrder(state.homeGridItems + HomeGridItem.AppItem(packageName))
+    }
+
     fun updateSettings(transform: (LauncherSettings) -> LauncherSettings) {
         val old = _uiState.value.settings
         val newSettings = transform(old)
         repository.saveSettings(newSettings)
         _uiState.update { it.copy(settings = newSettings) }
+        switchLayoutIfNeeded(old, newSettings)
 
         if (old.useIosSystemIcons != newSettings.useIosSystemIcons ||
             old.fullBleedAdaptiveIcons != newSettings.fullBleedAdaptiveIcons ||
@@ -362,20 +578,235 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         _uiState.update { it.copy(isJiggleMode = enabled, selectedAppForMenu = null) }
     }
 
+    /** Opens an app from Spotlight and remembers it in the search history. */
+    fun launchFromSpotlight(packageName: String) {
+        val history = (listOf(packageName) + _uiState.value.spotlightHistory).distinct().take(8)
+        repository.saveSpotlightHistory(history)
+        _uiState.update { it.copy(spotlightHistory = history) }
+        launchApp(packageName)
+    }
+
+    fun clearSpotlightHistory() {
+        repository.saveSpotlightHistory(emptyList())
+        _uiState.update { it.copy(spotlightHistory = emptyList()) }
+    }
+
     fun openSpotlight() {
+        com.tms.os.launcher.notes.NoteStore.get(getApplication()).reloadIfChanged()
         val apps = _uiState.value.allApps
         _uiState.update {
             it.copy(
                 isSpotlightOpen = true,
                 spotlightQuery = "",
-                spotlightResults = SpotlightSearchEngine.searchApps("", apps),
+                spotlightResults = SpotlightSearchEngine.searchApps("", apps.forSpotlight()),
                 spotlightShortcuts = emptyList(),
                 spotlightContacts = emptyList(),
                 spotlightMathResult = null,
+                spotlightSettings = emptyList(),
+                spotlightFiles = emptyList(),
+                spotlightPhotos = emptyList(),
+                spotlightPhotoAccess = spotlightContent.hasPhotoAccess(),
+                spotlightFileAccess = spotlightContent.hasFileAccess(),
                 selectedAppForMenu = null
             )
         }
+        val suggested = _uiState.value.spotlightResults.take(8)
+        // Chats of messaging apps, read once per Spotlight opening and searched by name while typing.
+        viewModelScope.launch {
+            peopleIndex = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { repository.peopleShortcuts() }
+            val q = _uiState.value.spotlightQuery
+            if (q.isNotBlank()) _uiState.update { it.copy(spotlightPeople = matchPeople(q)) }
+        }
+        viewModelScope.launch {
+            // One shortcut each from the first suggested apps that publish any (like "Selfie" for the camera).
+            val rows = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                suggested.asSequence().mapNotNull { repository.quickActions(it.packageName, limit = 1).firstOrNull() }.take(2).toList()
+            }
+            _uiState.update { if (it.isSpotlightOpen) it.copy(spotlightSuggestedActions = rows) else it }
+        }
     }
+
+    private var peopleIndex: List<com.tms.os.launcher.model.AppQuickAction> = emptyList()
+
+    private fun matchPeople(query: String): List<com.tms.os.launcher.model.AppQuickAction> {
+        val q = query.trim().lowercase()
+        if (q.isEmpty()) return emptyList()
+        return peopleIndex.filter { p -> p.label.lowercase().let { it.startsWith(q) || it.contains(" $q") } }.take(6)
+    }
+
+    /** Notes whose text matches; locked notes stay out of Spotlight entirely. */
+    private fun searchNotesForSpotlight(query: String): List<com.tms.os.launcher.ui.home.SpotlightNoteHit> {
+        if (query.isBlank()) return emptyList()
+        val notes = com.tms.os.launcher.notes.NoteStore.get(getApplication()).state.value
+        val open = notes.live.filterNot { it.locked }
+        return com.tms.os.launcher.notes.searchNotes(open, query).take(12).map { n ->
+            com.tms.os.launcher.ui.home.SpotlightNoteHit(
+                id = n.id,
+                title = n.title.ifEmpty { "Neue Notiz" },
+                subtitle = com.tms.os.launcher.notes.listDate(n.modifiedAt) + "  " + (matchLine(n, query) ?: n.preview ?: "Kein zusätzlicher Text"),
+                folder = notes.folderName(n.folderId)
+            )
+        }
+    }
+
+    private fun matchLine(n: com.tms.os.launcher.notes.Note, query: String): String? {
+        val q = query.trim()
+        return n.blocks.filterIsInstance<com.tms.os.launcher.notes.NoteBlock.Text>()
+            .flatMap { it.rich.text.split('\n') }.drop(1)
+            .firstOrNull { it.contains(q, ignoreCase = true) }?.trim()
+    }
+
+    fun openSpotlightNote(id: String?) {
+        com.tms.os.launcher.notes.NotesActivity.open(getApplication(), id)
+        closeSpotlight()
+    }
+
+    fun openSpotlightSetting(hit: com.tms.os.launcher.data.SettingsHit) { spotlightContent.open(hit); closeSpotlight() }
+    fun openSpotlightFile(hit: com.tms.os.launcher.data.FileHit) { spotlightContent.openFile(hit); closeSpotlight() }
+    fun openSpotlightPhoto(hit: com.tms.os.launcher.data.PhotoHit) { spotlightContent.openPhoto(hit); closeSpotlight() }
+    fun openFilesApp() { spotlightContent.openFilesApp(); closeSpotlight() }
+    fun openGallery() { spotlightContent.openGallery(); closeSpotlight() }
+    fun requestFileAccess() = spotlightContent.openFileAccessSettings()
+
+    /** Called when the screen comes back (e.g. from the access settings) and after a permission answer. */
+    fun refreshSpotlightAccess() {
+        val photo = spotlightContent.hasPhotoAccess()
+        val file = spotlightContent.hasFileAccess()
+        val s = _uiState.value
+        if (photo != s.spotlightPhotoAccess || file != s.spotlightFileAccess) {
+            _uiState.update { it.copy(spotlightPhotoAccess = photo, spotlightFileAccess = file) }
+            if (s.isSpotlightOpen && s.spotlightQuery.isNotBlank()) updateSpotlightQuery(s.spotlightQuery)
+        }
+    }
+
+    /* ---------------------------------------------------------- TMS Solvado */
+
+    private var solvadoJob: kotlinx.coroutines.Job? = null
+    private var solvadoLoadedAt = 0L
+
+    private fun solvadoWidgets(): List<HomeGridItem.WidgetItem> =
+        (_uiState.value.homeGridItems.filterIsInstance<HomeGridItem.WidgetItem>() + _uiState.value.todayWidgets)
+            .filter { it.kind == com.tms.os.launcher.model.WidgetKind.SOLVADO_SHOP || it.kind == com.tms.os.launcher.model.WidgetKind.SOLVADO_ADMIN }
+
+    val solvadoServer: String get() = solvadoRepo.baseUrl
+
+    fun solvadoLogin(email: String, password: String, server: String?) {
+        if (_uiState.value.solvado.busy) return
+        _uiState.update { it.copy(solvado = it.solvado.copy(busy = true, error = null)) }
+        viewModelScope.launch {
+            val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching {
+                    if (!server.isNullOrBlank()) solvadoRepo.baseUrl = server
+                    solvadoRepo.login(email, password)
+                    solvadoRepo.loadAccount()
+                }
+            }
+            result.onSuccess { account ->
+                _uiState.update { it.copy(solvado = account) }
+                // A shop widget placed before signing in gets the first shop.
+                account.shops.firstOrNull()?.let { first ->
+                    solvadoWidgets().filter { it.kind == com.tms.os.launcher.model.WidgetKind.SOLVADO_SHOP }.forEach { w ->
+                        val cfg = com.tms.os.launcher.model.SolvadoWidgetConfig.decode(w.config, admin = false)
+                        if (cfg.shopId.isEmpty()) setWidgetConfig(w.widgetId, cfg.copy(shopId = first.id).encode(), refresh = false)
+                    }
+                }
+                refreshSolvado(force = true)
+            }.onFailure { e ->
+                _uiState.update { it.copy(solvado = it.solvado.copy(busy = false, error = solvadoMessage(e))) }
+            }
+        }
+    }
+
+    fun solvadoLogout() {
+        solvadoJob?.cancel()
+        solvadoRepo.logout()
+        _uiState.update { it.copy(solvado = com.tms.os.launcher.model.SolvadoState()) }
+    }
+
+    /**
+     * Fetches the figures the placed widgets need.
+     *  - [force] = the refresh button on a widget (or a changed setting): now.
+     *  - otherwise (the home screen came to the front): only if automatic refresh is
+     *    on, and at most every 15 minutes. Nothing ever polls in the background.
+     */
+    fun refreshSolvado(force: Boolean = false) {
+        if (!solvadoRepo.connected) return
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (!force && !_uiState.value.settings.solvadoAutoRefresh) return
+        if (!force && (solvadoJob?.isActive == true || (solvadoLoadedAt != 0L && now - solvadoLoadedAt < 15 * 60_000L))) return
+        val widgets = solvadoWidgets()
+        if (widgets.isEmpty() && !force) return
+        solvadoLoadedAt = now
+        solvadoJob?.cancel()
+        _uiState.update { it.copy(solvado = it.solvado.copy(busy = true, error = null)) }
+        solvadoJob = viewModelScope.launch {
+            val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching {
+                    val account = solvadoRepo.loadAccount()
+                    runCatching { solvadoRepo.loadMissingIcons(account.shops.map { it.id }) }
+                    if (account.isAdmin && widgets.any { it.kind == com.tms.os.launcher.model.WidgetKind.SOLVADO_ADMIN }) solvadoRepo.loadAdmin()
+                    widgets.filter { it.kind == com.tms.os.launcher.model.WidgetKind.SOLVADO_SHOP }
+                        .map { com.tms.os.launcher.model.SolvadoWidgetConfig.decode(it.config, admin = false) }
+                        .filter { it.shopId.isNotEmpty() }
+                        .groupBy({ it.range }, { it.shopId })
+                        .forEach { (range, ids) -> solvadoRepo.loadShops(ids, range) }
+                    solvadoRepo.markUpdated()
+                    solvadoRepo.cachedState()
+                }
+            }
+            result.onSuccess { fresh -> _uiState.update { it.copy(solvado = fresh) } }
+                .onFailure { e ->
+                    // A rejected session means signed out; anything else keeps the last figures on screen.
+                    if (e is com.tms.os.launcher.data.SolvadoRepository.ApiError && e.status == 401) solvadoLogout()
+                    else _uiState.update { it.copy(solvado = it.solvado.copy(busy = false, error = solvadoMessage(e))) }
+                }
+        }
+    }
+
+    private fun solvadoMessage(e: Throwable): String = when (e) {
+        is com.tms.os.launcher.data.SolvadoRepository.ApiError -> e.message ?: "Fehler"
+        is java.io.IOException -> "Keine Verbindung zu Solvado."
+        else -> "Solvado ist gerade nicht erreichbar."
+    }
+
+    /** Changes the size of a placed widget (from its "Edit Widget" sheet). */
+    fun setWidgetSize(widgetId: String, size: com.tms.os.launcher.model.WidgetSize) {
+        val today = _uiState.value.todayWidgets
+        if (today.any { it.widgetId == widgetId }) {
+            commitTodayOrder(today.map { if (it.widgetId == widgetId && size in it.kind.sizes) it.copy(size = size) else it })
+        } else {
+            commitHomeOrder(_uiState.value.homeGridItems.map {
+                if (it is HomeGridItem.WidgetItem && it.widgetId == widgetId && size in it.kind.sizes) it.copy(size = size) else it
+            })
+        }
+    }
+
+    /** Saves what a configurable widget shows (home screen or Today view). */
+    fun setWidgetConfig(widgetId: String, config: String, refresh: Boolean = true) {
+        val today = _uiState.value.todayWidgets
+        if (today.any { it.widgetId == widgetId }) {
+            commitTodayOrder(today.map { if (it.widgetId == widgetId) it.copy(config = config) else it })
+        } else {
+            commitHomeOrder(_uiState.value.homeGridItems.map {
+                if (it is HomeGridItem.WidgetItem && it.widgetId == widgetId) it.copy(config = config) else it
+            })
+        }
+        val solvado = solvadoWidgets().any { it.widgetId == widgetId }
+        if (refresh && solvado) refreshSolvado(force = true)
+    }
+
+    /** Screen Time widget: re-read whenever the home screen comes back to the front. */
+    fun refreshScreenTime() {
+        viewModelScope.launch {
+            val st = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { repository.todayScreenTime() }
+            _uiState.update { it.copy(screenTime = st, batteryPercent = repository.getDeviceBatteryPercent()) }
+        }
+    }
+
+    fun openUsageAccessSettings() = repository.openUsageAccessSettings()
+
+    /** The launcher itself is found in the App Library, not in Spotlight. */
+    private fun List<AppInfo>.forSpotlight() = filterNot { it.packageName == getApplication<Application>().packageName }
 
     fun closeSpotlight() {
         _uiState.update {
@@ -384,14 +815,19 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 spotlightQuery = "",
                 spotlightShortcuts = emptyList(),
                 spotlightContacts = emptyList(),
-                spotlightMathResult = null
+                spotlightMathResult = null,
+                spotlightSettings = emptyList(),
+                spotlightFiles = emptyList(),
+                spotlightPhotos = emptyList(),
+                spotlightNotes = emptyList(),
+                spotlightPeople = emptyList()
             )
         }
     }
 
     fun updateSpotlightQuery(query: String) {
         val state = _uiState.value
-        val results = SpotlightSearchEngine.searchApps(query, state.allApps)
+        val results = SpotlightSearchEngine.searchApps(query, state.allApps.forSpotlight())
         val shortcuts = SpotlightSearchEngine.generateQuickShortcuts(query, results)
         val contacts = SpotlightSearchEngine.searchContacts(query, state.allContacts)
         val mathResult = SpotlightSearchEngine.evaluateMathOrConversion(query)
@@ -402,8 +838,27 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 spotlightResults = results,
                 spotlightShortcuts = shortcuts,
                 spotlightContacts = contacts,
-                spotlightMathResult = mathResult
+                spotlightMathResult = mathResult,
+                spotlightTopActions = if (results.firstOrNull()?.packageName == it.spotlightResults.firstOrNull()?.packageName && query.isNotBlank()) it.spotlightTopActions else emptyList()
             )
+        }
+        val appPairs = results.take(4).map { it.packageName to it.displayLabel }
+        _uiState.update { it.copy(spotlightNotes = searchNotesForSpotlight(query), spotlightPeople = matchPeople(query)) }
+        _uiState.update { it.copy(spotlightSettings = spotlightContent.searchSettings(query, appPairs)) }
+        spotlightMediaJob?.cancel()
+        if (query.trim().length < 2) {
+            _uiState.update { it.copy(spotlightFiles = emptyList(), spotlightPhotos = emptyList()) }
+        } else spotlightMediaJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(120) // typing fast: only the last query reads MediaStore
+            val (files, photos) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                spotlightContent.searchFiles(query, 12) to spotlightContent.searchPhotos(query, 24)
+            }
+            _uiState.update { if (it.spotlightQuery == query) it.copy(spotlightFiles = files, spotlightPhotos = photos) else it }
+        }
+        val top = results.firstOrNull()
+        if (top != null && query.isNotBlank()) viewModelScope.launch {
+            val actions = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { repository.quickActions(top.packageName, limit = 3) }
+            _uiState.update { s -> if (s.spotlightResults.firstOrNull()?.packageName == top.packageName) s.copy(spotlightTopActions = actions) else s }
         }
 
         if (state.settings.instantLaunchSingleSearchResult &&
@@ -433,7 +888,20 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun selectAppForContextMenu(app: AppInfo?) {
-        _uiState.update { it.copy(selectedAppForMenu = app) }
+        _uiState.update { it.copy(selectedAppForMenu = app, menuQuickActions = emptyList()) }
+        if (app != null) viewModelScope.launch {
+            val actions = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { repository.quickActions(app.packageName) }
+            _uiState.update { if (it.selectedAppForMenu?.packageName == app.packageName) it.copy(menuQuickActions = actions) else it }
+        }
+    }
+
+    fun runQuickAction(action: com.tms.os.launcher.model.AppQuickAction) {
+        if (action.packageName in _uiState.value.securedApps) {
+            _uiState.update { it.copy(authRequest = AuthRequest.QuickAction(action), selectedAppForMenu = null) }
+            return
+        }
+        repository.startQuickAction(action)
+        _uiState.update { it.copy(selectedAppForMenu = null) }
     }
 
     fun autoOrganizeHomeWithSmartFolders() {
@@ -468,73 +936,107 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
      * - If [mergeAsFolder] is true: merges dragged AppItem into target FolderItem (or creates a new Folder from 2 AppItems).
      * - If [mergeAsFolder] is false: swaps/reorders the dragged item to the target position & page (and pins it if on Page 0!).
      */
-    fun onDragDropGridItem(
-        draggedItemId: String,
-        targetItemId: String,
-        mergeAsFolder: Boolean
-    ) {
-        if (draggedItemId == targetItemId) return
+    /** Persist the order the user produced by dragging (icons, folders, widgets). */
+    fun commitHomeOrder(items: List<HomeGridItem>) {
+        repository.saveHomeGridItems(items)
+        _uiState.update { it.copy(homeGridItems = items) }
+    }
+
+    /**
+     * iOS folder gesture: hold an app over another app (new folder) or over a
+     * folder (add to it). Returns the folder that now contains the app.
+     */
+    fun mergeIntoFolder(draggedItemId: String, targetItemId: String) {
         val current = _uiState.value.homeGridItems.toMutableList()
-        val fromIdx = current.indexOfFirst { it.id == draggedItemId }
+        // The app may come from the dock or a folder and not be in the grid yet.
+        val dragged = current.firstOrNull { it.id == draggedItemId } as? HomeGridItem.AppItem
+            ?: if (draggedItemId.startsWith("app:")) HomeGridItem.AppItem(draggedItemId.removePrefix("app:")) else return
         val toIdx = current.indexOfFirst { it.id == targetItemId }
-        if (fromIdx < 0 || toIdx < 0) return
-
-        val dragged = current[fromIdx]
-        val target = current[toIdx]
-
-        if (mergeAsFolder && dragged is HomeGridItem.AppItem) {
-            when (target) {
-                is HomeGridItem.FolderItem -> {
-                    current.removeAt(fromIdx)
-                    val newToIdx = current.indexOfFirst { it.id == targetItemId }
-                    if (newToIdx >= 0 && !target.appPackages.contains(dragged.packageName)) {
-                        current[newToIdx] = target.copy(appPackages = target.appPackages + dragged.packageName)
-                    }
-                    repository.saveHomeGridItems(current)
-                    _uiState.update { it.copy(homeGridItems = current) }
-                    return
-                }
-                is HomeGridItem.AppItem -> {
-                    val targetApp = _uiState.value.appMap[target.packageName]
-                    val folderTitle = targetApp?.category?.titleDe ?: "Neuer Ordner"
-                    val newFolder = HomeGridItem.FolderItem(
-                        folderId = "folder_${UUID.randomUUID()}",
-                        title = folderTitle,
-                        appPackages = listOf(target.packageName, dragged.packageName).distinct(),
-                        page = target.page,
-                        position = toIdx
-                    )
-                    current[toIdx] = newFolder
-                    current.removeAt(fromIdx)
-                    repository.saveHomeGridItems(current)
-                    _uiState.update { it.copy(homeGridItems = current) }
-                    return
+        if (toIdx < 0 || draggedItemId == targetItemId) return
+        when (val target = current[toIdx]) {
+            is HomeGridItem.FolderItem -> {
+                if (!target.appPackages.contains(dragged.packageName)) {
+                    current[toIdx] = target.copy(appPackages = target.appPackages + dragged.packageName)
                 }
             }
-        }
-
-        // Standard Reorder / Swap between slots
-        val targetPage = when (target) {
-            is HomeGridItem.AppItem -> target.page
-            is HomeGridItem.FolderItem -> target.page
-        }
-        val movedItem = when (dragged) {
             is HomeGridItem.AppItem -> {
-                if (targetPage == 0) {
-                    repository.setAppPinnedOnPageOne(dragged.packageName, true)
-                }
-                dragged.copy(page = targetPage)
+                val targetApp = _uiState.value.appMap[target.packageName]
+                val folderId = "folder_${UUID.randomUUID()}"
+                // The new folder stands where the app stood.
+                moveAnchor(target.id, "folder:$folderId")
+                current[toIdx] = HomeGridItem.FolderItem(
+                    folderId = folderId,
+                    title = targetApp?.category?.titleDe ?: "Ordner",
+                    appPackages = listOf(target.packageName, dragged.packageName).distinct(),
+                    page = target.page,
+                    position = toIdx
+                )
             }
-            is HomeGridItem.FolderItem -> dragged.copy(page = targetPage)
+            is HomeGridItem.WidgetItem -> return
         }
-
-        current.removeAt(fromIdx)
-        current.add(toIdx.coerceIn(0, current.size), movedItem)
+        current.removeAll { it.id == draggedItemId }
         repository.saveHomeGridItems(current)
         _uiState.update { it.copy(homeGridItems = current) }
     }
 
+    /** iOS: drop a widget onto another one of the same size to build a Smart Stack. */
+    fun mergeWidgets(draggedId: String, targetId: String) {
+        val list = _uiState.value.homeGridItems.toMutableList()
+        val dragged = list.firstOrNull { it.id == draggedId } as? HomeGridItem.WidgetItem ?: return
+        val idx = list.indexOfFirst { it.id == targetId }
+        val target = list.getOrNull(idx) as? HomeGridItem.WidgetItem ?: return
+        if (dragged.size != target.size || dragged.id == target.id) return
+        list[idx] = target.copy(stack = (target.kinds + dragged.kinds).distinct())
+        list.removeAll { it.id == draggedId }
+        commitHomeOrder(list)
+    }
+
+    /** Adds a widget like the iOS gallery does: at [index] of the home order, or to Today. */
+    fun addWidget(
+        kind: com.tms.os.launcher.model.WidgetKind,
+        size: com.tms.os.launcher.model.WidgetSize,
+        toToday: Boolean,
+        index: Int,
+        stack: List<com.tms.os.launcher.model.WidgetKind> = emptyList()
+    ) {
+        val firstShop = _uiState.value.solvado.shops.firstOrNull()?.id.orEmpty()
+        val config = when (kind) {
+            com.tms.os.launcher.model.WidgetKind.SOLVADO_SHOP ->
+                com.tms.os.launcher.model.SolvadoWidgetConfig(shopId = firstShop, metrics = com.tms.os.launcher.model.SolvadoMetric.shopDefault).encode()
+            com.tms.os.launcher.model.WidgetKind.SOLVADO_ADMIN ->
+                com.tms.os.launcher.model.SolvadoWidgetConfig(metrics = com.tms.os.launcher.model.SolvadoMetric.adminDefault).encode()
+            else -> ""
+        }
+        val widget = HomeGridItem.WidgetItem("w_${UUID.randomUUID()}", kind, size, stack = stack, config = config)
+        if (toToday) {
+            val list = listOf(widget) + _uiState.value.todayWidgets
+            repository.saveTodayWidgets(list)
+            _uiState.update { it.copy(todayWidgets = list) }
+        } else {
+            val list = _uiState.value.homeGridItems.toMutableList()
+            list.add(index.coerceIn(0, list.size), widget)
+            commitHomeOrder(list)
+        }
+    }
+
+    fun removeWidget(widgetId: String) {
+        val today = _uiState.value.todayWidgets
+        if (today.any { it.widgetId == widgetId }) {
+            val list = today.filterNot { it.widgetId == widgetId }
+            repository.saveTodayWidgets(list)
+            _uiState.update { it.copy(todayWidgets = list) }
+        } else {
+            commitHomeOrder(_uiState.value.homeGridItems.filterNot { it is HomeGridItem.WidgetItem && it.widgetId == widgetId })
+        }
+    }
+
+    fun commitTodayOrder(list: List<HomeGridItem.WidgetItem>) {
+        repository.saveTodayWidgets(list)
+        _uiState.update { it.copy(todayWidgets = list) }
+    }
+
     fun togglePinOnPageOne(packageName: String) {
+        repository.setAppRemovedFromHome(packageName, false)
         val app = _uiState.value.appMap[packageName] ?: return
         val newPinned = !app.isPinnedOnPageOne
         repository.setAppPinnedOnPageOne(packageName, newPinned)
@@ -592,6 +1094,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun moveAppIntoFolder(packageName: String, targetFolderId: String) {
+        repository.setAppRemovedFromHome(packageName, false)
         val current = _uiState.value.homeGridItems.toMutableList()
         current.removeAll { it is HomeGridItem.AppItem && it.packageName == packageName }
         for (i in current.indices) {
@@ -615,6 +1118,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun createNewFolderWithApp(packageName: String, folderName: String) {
+        repository.setAppRemovedFromHome(packageName, false)
         val current = _uiState.value.homeGridItems.toMutableList()
         val existingIdx = current.indexOfFirst { it is HomeGridItem.AppItem && it.packageName == packageName }
         current.removeAll { it is HomeGridItem.AppItem && it.packageName == packageName }
@@ -628,6 +1132,14 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         current.add(newFolder)
         repository.saveHomeGridItems(current)
         _uiState.update { it.copy(homeGridItems = current, selectedAppForMenu = null) }
+    }
+
+    /** Dock order produced by dragging (an app dragged into the dock leaves the grid). */
+    fun setDockOrder(packages: List<String>) {
+        val max = _uiState.value.settings.dockIconCount.coerceIn(3, 6)
+        val dock = packages.distinct().take(max)
+        repository.saveDockPackages(dock)
+        _uiState.update { it.copy(dockPackages = dock) }
     }
 
     fun togglePinToDock(packageName: String) {
@@ -667,6 +1179,45 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         return ok
     }
 
+    fun removeAppFromHome(packageName: String) {
+        repository.setAppRemovedFromHome(packageName, true)
+        val dock = _uiState.value.dockPackages - packageName
+        repository.saveDockPackages(dock)
+        refreshApps()
+    }
+
+    /* ------------------------------------------------------- Touch ID */
+
+    fun isSecured(packageName: String) = packageName in _uiState.value.securedApps
+
+    /** Securing and un-securing an app both need Touch ID, so nobody else can switch it off. */
+    fun toggleSecured(packageName: String) {
+        _uiState.update { it.copy(authRequest = AuthRequest.ToggleSecure(packageName), selectedAppForMenu = null) }
+    }
+
+    /** The hidden apps of the App Library are shown only after Touch ID. */
+    fun requestHiddenApps() {
+        _uiState.update { it.copy(authRequest = AuthRequest.ShowHidden) }
+    }
+
+    /** The system's answer to [LauncherUiState.authRequest]. Returns the request on success. */
+    fun authAnswered(ok: Boolean): AuthRequest? {
+        val request = _uiState.value.authRequest ?: return null
+        _uiState.update { it.copy(authRequest = null) }
+        if (!ok) return null
+        when (request) {
+            is AuthRequest.Launch -> launchVerified(request.packageName)
+            is AuthRequest.QuickAction -> repository.startQuickAction(request.action)
+            is AuthRequest.ToggleSecure -> {
+                val now = request.packageName !in _uiState.value.securedApps
+                repository.setAppSecured(request.packageName, now)
+                _uiState.update { it.copy(securedApps = repository.getSecuredPackages()) }
+            }
+            AuthRequest.ShowHidden -> Unit
+        }
+        return request
+    }
+
     fun hideOrUnhideApp(packageName: String, hidden: Boolean) {
         repository.setAppHidden(packageName, hidden)
         refreshApps()
@@ -675,6 +1226,13 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun openAppInfo(packageName: String) {
         repository.openAppSystemSettings(packageName)
         _uiState.update { it.copy(selectedAppForMenu = null) }
+    }
+
+    /** iOS "Remove Folder": its apps leave the home screen but stay in the App Library. */
+    fun removeFolderFromHome(folderId: String) {
+        val folder = _uiState.value.homeGridItems.firstOrNull { it is HomeGridItem.FolderItem && it.folderId == folderId } as? HomeGridItem.FolderItem ?: return
+        folder.appPackages.forEach { repository.setAppRemovedFromHome(it, true) }
+        commitHomeOrder(_uiState.value.homeGridItems.filterNot { it.id == folder.id })
     }
 
     fun uninstallApp(packageName: String) {
@@ -708,4 +1266,30 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             else -> false
         }
     }
+
+    fun returnHome() {
+        _uiState.update {
+            it.copy(homePressGeneration = it.homePressGeneration + 1,
+                isSpotlightOpen = false, spotlightQuery = "", activeFolder = null,
+                activeCategoryModal = null, selectedAppForMenu = null, isJiggleMode = false)
+        }
+    }
+}
+
+
+private class SystemStatus(
+    val defaultLauncher: Boolean,
+    val badgeService: Boolean,
+    val usageStats: Boolean,
+    val battery: Int,
+    val storage: SystemStorageRamInfo
+)
+
+
+/** What is waiting for Touch ID. */
+sealed class AuthRequest {
+    data class Launch(val packageName: String) : AuthRequest()
+    data class QuickAction(val action: com.tms.os.launcher.model.AppQuickAction) : AuthRequest()
+    data class ToggleSecure(val packageName: String) : AuthRequest()
+    data object ShowHidden : AuthRequest()
 }

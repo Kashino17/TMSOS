@@ -15,8 +15,8 @@ enum class AppLanguage(val code: String, val displayName: String) {
 
 enum class IconThemeMode(val id: String, val titleDe: String, val descDe: String) {
     STANDARD("standard", "Standard (Farbig)", "Originale App-Farben im randlosen Apple-Squircle"),
-    IOS_DARK("ios_dark", "iOS 18 Dunkel (Dark Mode)", "Dunkelt helle Icon-Hintergründe automatisch auf edles iOS-Anthrazit ab"),
-    IOS_TINTED("ios_tinted", "iOS 18 Getönt (Tinted)", "Edler monochromer Apple-Farbverlauf mit deiner Wunsch-Akzentfarbe");
+    IOS_DARK("ios_dark", "iOS Dunkel (Dark Mode)", "Dunkelt helle Icon-Hintergründe automatisch auf edles iOS-Anthrazit ab"),
+    IOS_TINTED("ios_tinted", "iOS Getönt (Tinted)", "Edler monochromer Apple-Farbverlauf mit deiner Wunsch-Akzentfarbe");
 
     companion object {
         fun fromId(id: String): IconThemeMode = entries.find { it.id == id } ?: STANDARD
@@ -177,6 +177,18 @@ data class AppInfo(
         get() = (launchCount * 20) + usageDurationMinutes30d
 }
 
+/** A real app shortcut published through LauncherApps (manifest or dynamic). */
+data class AppQuickAction(
+    val packageName: String,
+    val id: String,
+    val label: String,
+    val icon: androidx.compose.ui.graphics.ImageBitmap?,
+    /** Just the symbol of an adaptive shortcut icon (no backing plate), for white glyphs on glass. */
+    val glyph: androidx.compose.ui.graphics.ImageBitmap? = null,
+    /** A person (WhatsApp chat, contact …): [icon] is their profile picture, shown as a circle. */
+    val photo: Boolean = false
+)
+
 data class AppShortcutItem(
     val packageName: String,
     val shortcutId: String,
@@ -187,7 +199,9 @@ data class AppShortcutItem(
 data class ContactItem(
     val id: String,
     val name: String,
-    val phoneNumber: String
+    val phoneNumber: String,
+    /** The contact's picture (thumbnail), if it has one. */
+    val photoUri: String? = null
 )
 
 sealed class HomeGridItem(val id: String) {
@@ -207,6 +221,57 @@ sealed class HomeGridItem(val id: String) {
         val position: Int = 0,
         val categoryColorHex: Long = 0xFF0A84FF
     ) : HomeGridItem("folder:$folderId")
+
+    /** A WidgetKit-style widget that occupies [size] grid cells, like on iOS. */
+    data class WidgetItem(
+        val widgetId: String,
+        val kind: WidgetKind,
+        val size: WidgetSize,
+        override val page: Int = 0,
+        /** Non-empty = Smart Stack: several widgets of the same size, swiped vertically. */
+        val stack: List<WidgetKind> = emptyList(),
+        /** Settings of a configurable widget (see [SolvadoWidgetConfig]); empty = defaults. */
+        val config: String = ""
+    ) : HomeGridItem("widget:$widgetId") {
+        val kinds: List<WidgetKind> get() = stack.ifEmpty { listOf(kind) }
+        val isStack: Boolean get() = stack.size > 1
+    }
+}
+
+/** iPhone widget families, measured in home-screen icon cells. */
+enum class WidgetSize(val id: String, val cols: Int, val rows: Int) {
+    SMALL("small", 2, 2),
+    MEDIUM("medium", 4, 2),
+    LARGE("large", 4, 4);
+
+    companion object {
+        fun fromId(id: String): WidgetSize = entries.find { it.id == id } ?: SMALL
+    }
+}
+
+enum class WidgetKind(val id: String, val sizes: List<WidgetSize>, val configurable: Boolean = false) {
+    WEATHER("weather", listOf(WidgetSize.SMALL, WidgetSize.MEDIUM, WidgetSize.LARGE), configurable = true),
+    CALENDAR("calendar", listOf(WidgetSize.SMALL, WidgetSize.MEDIUM, WidgetSize.LARGE), configurable = true),
+    CLOCK("clock", listOf(WidgetSize.SMALL, WidgetSize.MEDIUM)),
+    BATTERY("battery", listOf(WidgetSize.SMALL, WidgetSize.MEDIUM)),
+    SUGGESTIONS("suggestions", listOf(WidgetSize.MEDIUM, WidgetSize.LARGE)),
+    NOTES("notes", listOf(WidgetSize.SMALL, WidgetSize.MEDIUM)),
+    DIGITAL("digital", listOf(WidgetSize.SMALL, WidgetSize.MEDIUM)),
+    DATE("date", listOf(WidgetSize.SMALL)),
+    YEAR("year", listOf(WidgetSize.SMALL, WidgetSize.MEDIUM)),
+    SCREENTIME("screentime", listOf(WidgetSize.SMALL, WidgetSize.MEDIUM)),
+    /** Text only, no plate: time, date and a line of weather and battery. */
+    MINIMAL("minimal", listOf(WidgetSize.SMALL, WidgetSize.MEDIUM, WidgetSize.LARGE)),
+    /** TMS Solvado: figures of one shop. What it shows is set per widget. */
+    SOLVADO_SHOP("solvado_shop", listOf(WidgetSize.SMALL, WidgetSize.MEDIUM, WidgetSize.LARGE), configurable = true),
+    /** TMS Solvado: platform figures, for admin accounts only. */
+    SOLVADO_ADMIN("solvado_admin", listOf(WidgetSize.SMALL, WidgetSize.MEDIUM, WidgetSize.LARGE), configurable = true),
+    /** Invisible: keeps cells free, so apps can sit lower on the page (free wallpaper on top). */
+    SPACER("spacer", listOf(WidgetSize.SMALL, WidgetSize.MEDIUM, WidgetSize.LARGE));
+
+    companion object {
+        fun fromId(id: String): WidgetKind? = entries.find { it.id == id }
+    }
 }
 
 enum class FoldPostureMode(val id: String, val titleDe: String, val descDe: String) {
@@ -232,7 +297,7 @@ enum class FoldPostureMode(val id: String, val titleDe: String, val descDe: Stri
 }
 
 enum class PageTransitionEffect(val id: String, val titleDe: String, val descDe: String) {
-    IOS_SLIDE("ios_slide", "iOS 18 Spring Slide", "Authentischer, butterweicher Apple-Seitenübergang"),
+    IOS_SLIDE("ios_slide", "iOS Spring Slide", "Authentischer, butterweicher Apple-Seitenübergang"),
     CUBE_3D("cube_3d", "3D Perspektiv-Würfel", "Dreht die Seiten räumlich wie einen 3D-Würfel"),
     DEPTH_STACK("depth_stack", "Tiefen-Stapel (Depth)", "Hintere Seite gleitet mit Tiefen-Skalierung hervor"),
     ZOOM_FADE("zoom_fade", "Sanfter Zoom & Blend", "Sanftes Ein- und Ausblenden mit Skalierung"),
@@ -273,7 +338,7 @@ data class LauncherSettings(
     val foldMode: FoldPostureMode = FoldPostureMode.IPAD_GRID,
     val pageTransition: PageTransitionEffect = PageTransitionEffect.IOS_SLIDE,
     val iconSizeScale: Float = 1.0f,
-    val labelFontSizeSp: Float = 11.5f,
+    val labelFontSizeSp: Float = 12f,
     val iconThemeMode: IconThemeMode = IconThemeMode.STANDARD,
     val tintAccentColor: TintAccentColor = TintAccentColor.IOS_BLUE,
     val useIosSystemIcons: Boolean = true,
@@ -282,6 +347,7 @@ data class LauncherSettings(
     val showDockLabels: Boolean = false,
     val showRecentInUnfoldedDock: Boolean = true,
     val showTopWidgetsOnFirstPage: Boolean = false,
+    val useSystemWallpaper: Boolean = false,
     val leftWidgetType: LeftWidgetType = LeftWidgetType.CALENDAR_CLOCK,
     val rightWidgetType: RightWidgetType = RightWidgetType.LIVE_WEATHER,
     val quickNoteText: String = "Tippen für Schnell-Notiz…",
@@ -303,5 +369,41 @@ data class LauncherSettings(
     val useFahrenheit: Boolean = false,
     val glassOpacity: Float = 0.78f,
     val blurIntensity: Float = 0.88f,
-    val appLanguage: AppLanguage = AppLanguage.DE
+    val appLanguage: AppLanguage = AppLanguage.DE,
+    /** Minimalist home screen: one calm page built from [minimalApps] instead of the icon grid. */
+    val minimalMode: Boolean = false,
+    val minimalTemplate: MinimalTemplate = MinimalTemplate.LIST,
+    val minimalApps: List<String> = emptyList(),
+    /** Solvado widgets fetch fresh figures when the home screen is looked at (at most every 15 min); off = only on the refresh button. */
+    val solvadoAutoRefresh: Boolean = true,
+    /** Position the weather is for (set by a city search or by the phone's location); NaN = look the city name up. */
+    val weatherLat: Float = Float.NaN,
+    val weatherLon: Float = Float.NaN
 )
+
+
+/** Layouts of the minimalist home screen. */
+enum class MinimalTemplate(val id: String, val maxApps: Int, val usesDock: Boolean = false, val ios: Boolean = false) {
+    /** Clock on top, the apps as a plain list of names. */
+    LIST("list", 10),
+    /** Clock on top, a few rows of icons without labels at the bottom. */
+    ICONS("icons", 12),
+    /** Only the clock; the apps sit in the dock. */
+    FOCUS("focus", 4, usesDock = true),
+
+    // The same idea with the regular iPhone building blocks: widget plates,
+    // labelled icons on the home-screen grid and the glass dock.
+    /** Two small widgets on top, the apps in the grid below, four in the dock. */
+    IOS_WIDGETS("ios_widgets", 12, usesDock = true, ios = true),
+    /** One large widget, a single row of apps, four in the dock. */
+    IOS_LARGE("ios_large", 8, usesDock = true, ios = true),
+    /** Free wallpaper on top, the apps in the rows right above the dock. */
+    IOS_BOTTOM("ios_bottom", 12, usesDock = true, ios = true);
+
+    companion object {
+        fun fromId(id: String?): MinimalTemplate = entries.find { it.id == id } ?: LIST
+    }
+}
+
+/** Today's screen time; [granted] is false until usage access is allowed. */
+data class ScreenTime(val granted: Boolean = false, val totalMinutes: Int = 0, val top: List<Pair<String, Int>> = emptyList())
