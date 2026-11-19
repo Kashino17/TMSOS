@@ -312,26 +312,93 @@ class LauncherRepository(private val context: Context) {
             .sortedWith(compareBy({ !it.isDeclaredInManifest }, { it.rank }))
             .take(limit)
             .map { info ->
-                val icon = runCatching {
-                    la.getShortcutIconDrawable(info, density)?.let { d ->
-                        val px = (24 * context.resources.displayMetrics.density).toInt().coerceAtLeast(1) * 2
-                        val bmp = Bitmap.createBitmap(px, px, Bitmap.Config.ARGB_8888)
-                        d.setBounds(0, 0, px, px); d.draw(android.graphics.Canvas(bmp)); bmp.asImageBitmap()
-                    }
-                }.getOrNull()
-                val glyph = runCatching {
-                    (la.getShortcutIconDrawable(info, density) as? android.graphics.drawable.AdaptiveIconDrawable)?.foreground?.let { fg ->
+                val d = runCatching { la.getShortcutIconDrawable(info, density) }.getOrNull()
+                // People (chats, contacts) carry a profile picture: shown as it is, in a circle.
+                // Symbols (camera, "+", …) become white glyphs on glass instead.
+                val conversation = Build.VERSION.SDK_INT >= 30 &&
+                    info.categories?.contains(android.content.pm.ShortcutInfo.SHORTCUT_CATEGORY_CONVERSATION) == true
+                val photo = conversation || (d != null && !info.isDeclaredInManifest && isBitmapIcon(d) && looksLikePhoto(d))
+                val icon = d?.let { runCatching { if (photo) renderPhoto(it) else renderIcon(it) }.getOrNull() }
+                val glyph = if (photo || d == null) null else runCatching {
+                    (d as? android.graphics.drawable.AdaptiveIconDrawable)?.foreground?.let { fg ->
                         // The symbol sits in the middle third of the 108dp layer: draw it 1.6x so it fills the bitmap.
                         val px = (28 * context.resources.displayMetrics.density).toInt().coerceAtLeast(1)
                         val bmp = Bitmap.createBitmap(px, px, Bitmap.Config.ARGB_8888)
                         val extra = (px * 0.3f).toInt()
                         fg.setBounds(-extra, -extra, px + extra, px + extra); fg.draw(android.graphics.Canvas(bmp)); bmp.asImageBitmap()
                     }
-                }.getOrNull() ?: runCatching { la.getShortcutIconDrawable(info, density)?.let { glyphFromPlate(it) } }.getOrNull()
-                com.tms.os.launcher.model.AppQuickAction(info.`package`, info.id, (info.shortLabel ?: info.longLabel ?: "").toString(), icon, glyph)
+                }.getOrNull() ?: runCatching { glyphFromPlate(d) }.getOrNull()
+                com.tms.os.launcher.model.AppQuickAction(info.`package`, info.id, (info.shortLabel ?: info.longLabel ?: "").toString(), icon, glyph, photo)
             }
             .filter { it.label.isNotBlank() }
     }.getOrDefault(emptyList())
+
+    /**
+     * Chats and people that apps publish as shortcuts (WhatsApp, Telegram, Signal …),
+     * with their profile pictures: Spotlight finds them by name, as iOS does.
+     */
+    fun peopleShortcuts(): List<com.tms.os.launcher.model.AppQuickAction> = runCatching {
+        val la = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as android.content.pm.LauncherApps
+        if (!la.hasShortcutHostPermission()) return@runCatching emptyList()
+        var flags = android.content.pm.LauncherApps.ShortcutQuery.FLAG_MATCH_DYNAMIC or android.content.pm.LauncherApps.ShortcutQuery.FLAG_MATCH_PINNED
+        if (Build.VERSION.SDK_INT >= 30) flags = flags or android.content.pm.LauncherApps.ShortcutQuery.FLAG_MATCH_CACHED
+        val density = context.resources.displayMetrics.densityDpi
+        la.getShortcuts(android.content.pm.LauncherApps.ShortcutQuery().setQueryFlags(flags), Process.myUserHandle()).orEmpty()
+            .filter { it.isEnabled && !it.isDeclaredInManifest }
+            .distinctBy { it.`package` to (it.shortLabel ?: "").toString() }
+            .take(400)
+            .mapNotNull { info ->
+                val label = (info.shortLabel ?: info.longLabel ?: "").toString()
+                if (label.isBlank()) return@mapNotNull null
+                val d = runCatching { la.getShortcutIconDrawable(info, density) }.getOrNull()
+                // A chat: marked as conversation, or carrying a picture instead of a symbol.
+                val person = (Build.VERSION.SDK_INT >= 30 && info.categories?.contains(android.content.pm.ShortcutInfo.SHORTCUT_CATEGORY_CONVERSATION) == true) ||
+                    (d != null && isBitmapIcon(d) && looksLikePhoto(d))
+                if (!person) return@mapNotNull null
+                val icon = d?.let { runCatching { renderPhoto(it) }.getOrNull() }
+                com.tms.os.launcher.model.AppQuickAction(info.`package`, info.id, label, icon, null, photo = true)
+            }
+    }.getOrDefault(emptyList())
+
+    private fun isBitmapIcon(d: android.graphics.drawable.Drawable) =
+        d is android.graphics.drawable.BitmapDrawable ||
+            (d is android.graphics.drawable.AdaptiveIconDrawable && d.foreground is android.graphics.drawable.BitmapDrawable)
+
+    /** A picture rather than a symbol: many different colours (a symbol on a plate has only a few). */
+    private fun looksLikePhoto(d: android.graphics.drawable.Drawable): Boolean {
+        val n = 24
+        val bmp = Bitmap.createBitmap(n, n, Bitmap.Config.ARGB_8888)
+        d.setBounds(0, 0, n, n); d.draw(android.graphics.Canvas(bmp))
+        val colors = HashSet<Int>()
+        for (y in 0 until n) for (x in 0 until n) {
+            val c = bmp.getPixel(x, y)
+            if ((c ushr 24) < 200) continue
+            colors += ((c shr 20 and 0xF) shl 8) or ((c shr 12 and 0xF) shl 4) or (c shr 4 and 0xF)
+        }
+        bmp.recycle()
+        return colors.size > 40
+    }
+
+    private fun renderIcon(d: android.graphics.drawable.Drawable): androidx.compose.ui.graphics.ImageBitmap {
+        val px = (48 * context.resources.displayMetrics.density).toInt().coerceAtLeast(1)
+        val bmp = Bitmap.createBitmap(px, px, Bitmap.Config.ARGB_8888)
+        d.setBounds(0, 0, px, px); d.draw(android.graphics.Canvas(bmp))
+        return bmp.asImageBitmap()
+    }
+
+    /** A profile picture at full size, without the system's icon mask (the UI clips it to a circle). */
+    private fun renderPhoto(d: android.graphics.drawable.Drawable): androidx.compose.ui.graphics.ImageBitmap {
+        val px = (80 * context.resources.displayMetrics.density).toInt().coerceAtLeast(1)
+        val bmp = Bitmap.createBitmap(px, px, Bitmap.Config.ARGB_8888)
+        val c = android.graphics.Canvas(bmp)
+        if (d is android.graphics.drawable.AdaptiveIconDrawable) {
+            // Only the inner 72 of 108dp are meant to be seen.
+            val extra = (px * 0.25f).toInt()
+            d.background?.apply { setBounds(-extra, -extra, px + extra, px + extra); draw(c) }
+            d.foreground?.apply { setBounds(-extra, -extra, px + extra, px + extra); draw(c) }
+        } else { d.setBounds(0, 0, px, px); d.draw(c) }
+        return bmp.asImageBitmap()
+    }
 
     /**
      * The symbol of a flat shortcut icon (a coloured glyph on a round plate, like
@@ -513,19 +580,21 @@ class LauncherRepository(private val context: Context) {
                 arrayOf(
                     ContactsContract.CommonDataKinds.Phone.CONTACT_ID,
                     ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
-                    ContactsContract.CommonDataKinds.Phone.NUMBER
+                    ContactsContract.CommonDataKinds.Phone.NUMBER,
+                    ContactsContract.CommonDataKinds.Phone.PHOTO_THUMBNAIL_URI
                 ),
                 null,
                 null,
                 ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + " ASC"
             )
             val seenNames = mutableSetOf<String>()
-            while (cursor != null && cursor.moveToNext() && list.size < 200) {
+            // All contacts are searchable (it used to stop after the first 200).
+            while (cursor != null && cursor.moveToNext() && list.size < 10_000) {
                 val id = cursor.getString(0) ?: continue
                 val name = cursor.getString(1)?.trim() ?: continue
                 val number = cursor.getString(2)?.trim() ?: continue
                 if (name.isNotBlank() && seenNames.add(name)) {
-                    list.add(ContactItem(id, name, number))
+                    list.add(ContactItem(id, name, number, cursor.getString(3)))
                 }
             }
         } catch (_: Exception) {

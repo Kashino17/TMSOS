@@ -389,7 +389,7 @@ fun IosFolderView(
 
 private enum class MenuPage { Main, More, Folder, Category, Rename }
 
-data class MenuRowSpec(val title: String, val icon: ImageVector, val destructive: Boolean = false, val chevron: Boolean = false, val image: androidx.compose.ui.graphics.ImageBitmap? = null, val onClick: () -> Unit)
+data class MenuRowSpec(val title: String, val icon: ImageVector, val destructive: Boolean = false, val chevron: Boolean = false, val image: androidx.compose.ui.graphics.ImageBitmap? = null, val round: Boolean = false, val onClick: () -> Unit)
 
 /**
  * The iOS 26 Haptic Touch menu: the icon lifts in place over a blurred home
@@ -505,7 +505,7 @@ fun IosAppMenu(
                             MenuPage.Main -> {
                                 // App shortcuts first, then a thick separator, like iOS.
                                 val actions = quickActions.map { a ->
-                                    MenuRowSpec(a.label, Icons.Rounded.Apps, image = a.icon) { close { onQuickAction(a) } }
+                                    MenuRowSpec(a.label, Icons.Rounded.Apps, image = a.icon, round = a.photo) { close { onQuickAction(a) } }
                                 }
                                 val system = listOf(
                                     MenuRowSpec(strings.editHomeScreen, Icons.Rounded.Apps) { close(onEditHome) },
@@ -599,7 +599,7 @@ private fun MenuList(rows: List<MenuRowSpec>, separatorBefore: Set<Int> = emptyS
             ) {
                 Text(r.title, style = IosText.body.copy(color = color), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 Spacer(Modifier.width(10.dp))
-                if (r.image != null) Image(r.image, null, modifier = Modifier.size(22.dp))
+                if (r.image != null) Image(r.image, null, contentScale = androidx.compose.ui.layout.ContentScale.Crop, modifier = Modifier.size(if (r.round) 26.dp else 22.dp).then(if (r.round) Modifier.clip(androidx.compose.foundation.shape.CircleShape) else Modifier))
                 else Icon(if (r.chevron) Icons.Rounded.ChevronRight else r.icon, null, tint = color.copy(alpha = if (r.chevron) 0.5f else 1f), modifier = Modifier.size(20.dp))
             }
         }

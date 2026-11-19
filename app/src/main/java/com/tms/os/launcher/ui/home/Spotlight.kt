@@ -97,6 +97,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -156,6 +157,9 @@ class SpotlightExtras(
     val files: List<FileHit> = emptyList(),
     val photos: List<PhotoHit> = emptyList(),
     val notes: List<SpotlightNoteHit> = emptyList(),
+    /** Chats (WhatsApp …) with profile pictures, and the name of the app each belongs to. */
+    val people: List<AppQuickAction> = emptyList(),
+    val appLabel: (String) -> String = { it },
     val onNote: (String?) -> Unit = {},
     val mediaAccess: Boolean = true,
     val iconOf: (String) -> ImageBitmap? = { null },
@@ -541,6 +545,34 @@ private fun Results(
         Spacer(Modifier.height(22.dp))
     }
 
+    // ------------------------------------------------- Chats (WhatsApp …)
+    extras.people.groupBy { it.packageName }.forEach { (pkg, people) ->
+        Header(extras.appLabel(pkg))
+        val shown = people.take(if (moreResults) 6 else 3)
+        if (people.size > shown.size) truncated = true
+        shown.forEachIndexed { i, p ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().height(82.dp).clickable(remember { MutableInteractionSource() }, null) { extras.onQuickAction(p) }.padding(start = Side)
+            ) {
+                Box(Modifier.size(RowIcon).clip(CircleShape).background(Brush.verticalGradient(listOf(Color(0xFFA5A5AA), Color(0xFF7C7C81)))), contentAlignment = Alignment.Center) {
+                    if (p.icon != null) Image(p.icon, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                    else Text(p.label.trim().take(1).uppercase(), style = IosText.title1.copy(color = Color.White, fontWeight = FontWeight.Medium, fontSize = 26.sp))
+                }
+                Spacer(Modifier.width(13.dp))
+                Box(Modifier.weight(1f).fillMaxHeight().padding(end = Side)) {
+                    Column(Modifier.align(Alignment.CenterStart)) {
+                        Text(p.label, style = IosText.headline.copy(color = Color.White, fontWeight = FontWeight.Bold), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(extras.appLabel(pkg), style = IosText.subheadline.copy(color = Secondary), maxLines = 1)
+                    }
+                    Box(Modifier.align(Alignment.CenterEnd).size(30.dp)) { extras.iconOf(pkg)?.let { Image(it, null, modifier = Modifier.fillMaxSize()) } }
+                    if (i != shown.lastIndex) Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(0.5.dp).background(Hairline))
+                }
+            }
+        }
+        Spacer(Modifier.height(18.dp))
+    }
+
     // --------------------------------------------------------------- Kontakte
     if (contacts.isNotEmpty()) {
         Header(strings.contacts)
@@ -856,6 +888,7 @@ private fun SuggestedActionRow(action: AppQuickAction, appIcon: ImageBitmap?, di
         Box(Modifier.weight(1f).fillMaxHeight().padding(end = Side)) {
             Text(action.label, style = IosText.headline.copy(color = Color.White, fontWeight = FontWeight.Bold), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.align(Alignment.CenterStart).padding(end = 34.dp))
             when {
+                action.photo && action.icon != null -> Image(action.icon, null, contentScale = ContentScale.Crop, modifier = Modifier.align(Alignment.CenterEnd).size(28.dp).clip(CircleShape))
                 action.glyph != null -> Image(action.glyph, null, colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(Color.White.copy(alpha = 0.75f)), modifier = Modifier.align(Alignment.CenterEnd).size(22.dp))
                 action.icon != null -> Image(action.icon, null, modifier = Modifier.align(Alignment.CenterEnd).size(22.dp).graphicsLayer { alpha = 0.85f })
             }
@@ -897,6 +930,8 @@ private fun TopHitCard(app: AppInfo, actions: List<AppQuickAction>, onClick: (Ap
                     Box(Modifier.size(icon), contentAlignment = Alignment.Center) {
                         Box(Modifier.size(icon * 0.86f).clip(CircleShape).background(ButtonFill), contentAlignment = Alignment.Center) {
                             when {
+                                // WhatsApp chats, contacts: their profile picture fills the circle.
+                                a.photo && a.icon != null -> Image(a.icon, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
                                 a.glyph != null -> Image(a.glyph, null, colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(Color.White), modifier = Modifier.size(icon * 0.42f))
                                 a.icon != null -> Image(a.icon, null, modifier = Modifier.size(icon * 0.45f))
                                 else -> Icon(Icons.Rounded.Search, null, tint = Color.White, modifier = Modifier.size(icon * 0.4f))
@@ -917,11 +952,22 @@ private fun ContactRow(c: ContactItem, divider: Boolean, onCall: () -> Unit, onM
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth().height(82.dp).clickable(remember { MutableInteractionSource() }, null, onClick = onCall).padding(start = Side)
     ) {
+        val context = LocalContext.current
+        val photo by produceState<ImageBitmap?>(null, c.photoUri) {
+            value = c.photoUri?.let { uri ->
+                withContext(Dispatchers.IO) {
+                    runCatching {
+                        context.contentResolver.openInputStream(Uri.parse(uri))?.use { android.graphics.BitmapFactory.decodeStream(it) }?.asImageBitmap()
+                    }.getOrNull()
+                }
+            }
+        }
         Box(
             Modifier.size(RowIcon).clip(CircleShape).background(Brush.verticalGradient(listOf(Color(0xFFA5A5AA), Color(0xFF7C7C81)))),
             contentAlignment = Alignment.Center
         ) {
-            Text(c.name.trim().take(1).uppercase(), style = IosText.title1.copy(color = Color.White, fontWeight = FontWeight.Medium, fontSize = 26.sp))
+            photo?.let { Image(it, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
+                ?: Text(c.name.trim().take(1).uppercase(), style = IosText.title1.copy(color = Color.White, fontWeight = FontWeight.Medium, fontSize = 26.sp))
         }
         Spacer(Modifier.width(13.dp))
         Box(Modifier.weight(1f).fillMaxHeight().padding(end = Side)) {

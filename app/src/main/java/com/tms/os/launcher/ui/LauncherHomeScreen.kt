@@ -1309,7 +1309,7 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
         }
         val spotlightExtras = remember(
             state.spotlightTopActions, state.spotlightSuggestedActions, state.spotlightSettings,
-            state.spotlightFiles, state.spotlightPhotos, state.spotlightPhotoAccess, state.spotlightFileAccess, state.appMap, state.spotlightNotes
+            state.spotlightFiles, state.spotlightPhotos, state.spotlightPhotoAccess, state.spotlightFileAccess, state.appMap, state.spotlightNotes, state.spotlightPeople
         ) {
             com.tms.os.launcher.ui.home.SpotlightExtras(
                 topActions = state.spotlightTopActions,
@@ -1318,6 +1318,8 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                 files = state.spotlightFiles,
                 photos = state.spotlightPhotos,
                 notes = state.spotlightNotes,
+                people = state.spotlightPeople,
+                appLabel = { pkg -> state.appMap[pkg]?.displayLabel ?: pkg },
                 onNote = { id -> leftToApp = true; viewModel.openSpotlightNote(id) },
                 mediaAccess = state.spotlightPhotoAccess && state.spotlightFileAccess,
                 iconOf = { pkg -> state.appMap[pkg]?.iconBitmap },

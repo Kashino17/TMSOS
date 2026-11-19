@@ -65,6 +65,8 @@ data class LauncherUiState(
     val spotlightPhotoAccess: Boolean = false,
     /** Matching notes of the built-in Notes app (never locked ones). */
     val spotlightNotes: List<com.tms.os.launcher.ui.home.SpotlightNoteHit> = emptyList(),
+    /** Chats matching the search (WhatsApp …), with profile pictures. */
+    val spotlightPeople: List<com.tms.os.launcher.model.AppQuickAction> = emptyList(),
     val spotlightFileAccess: Boolean = false,
     val weatherForecast: com.tms.os.launcher.domain.WeatherForecast? = null,
     val isDefaultLauncher: Boolean = false,
@@ -609,6 +611,12 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             )
         }
         val suggested = _uiState.value.spotlightResults.take(8)
+        // Chats of messaging apps, read once per Spotlight opening and searched by name while typing.
+        viewModelScope.launch {
+            peopleIndex = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { repository.peopleShortcuts() }
+            val q = _uiState.value.spotlightQuery
+            if (q.isNotBlank()) _uiState.update { it.copy(spotlightPeople = matchPeople(q)) }
+        }
         viewModelScope.launch {
             // One shortcut each from the first suggested apps that publish any (like "Selfie" for the camera).
             val rows = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -616,6 +624,14 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             }
             _uiState.update { if (it.isSpotlightOpen) it.copy(spotlightSuggestedActions = rows) else it }
         }
+    }
+
+    private var peopleIndex: List<com.tms.os.launcher.model.AppQuickAction> = emptyList()
+
+    private fun matchPeople(query: String): List<com.tms.os.launcher.model.AppQuickAction> {
+        val q = query.trim().lowercase()
+        if (q.isEmpty()) return emptyList()
+        return peopleIndex.filter { p -> p.label.lowercase().let { it.startsWith(q) || it.contains(" $q") } }.take(6)
     }
 
     /** Notes whose text matches; locked notes stay out of Spotlight entirely. */
@@ -803,7 +819,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 spotlightSettings = emptyList(),
                 spotlightFiles = emptyList(),
                 spotlightPhotos = emptyList(),
-                spotlightNotes = emptyList()
+                spotlightNotes = emptyList(),
+                spotlightPeople = emptyList()
             )
         }
     }
@@ -826,7 +843,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             )
         }
         val appPairs = results.take(4).map { it.packageName to it.displayLabel }
-        _uiState.update { it.copy(spotlightNotes = searchNotesForSpotlight(query)) }
+        _uiState.update { it.copy(spotlightNotes = searchNotesForSpotlight(query), spotlightPeople = matchPeople(query)) }
         _uiState.update { it.copy(spotlightSettings = spotlightContent.searchSettings(query, appPairs)) }
         spotlightMediaJob?.cancel()
         if (query.trim().length < 2) {

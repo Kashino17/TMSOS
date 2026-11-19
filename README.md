@@ -8,6 +8,13 @@ Ein maßgeschneiderter, werbefreier und kostenloser **iOS-Style Homescreen-Launc
 
 ---
 
+## Neu in v5.11.1 – Profilbilder in der Suche
+- **WhatsApp-Kontakte mit Profilbild**: Im Toptreffer erscheinen Chats (WhatsApp, Telegram …) als runde Profilbilder statt als weiße Flächen; Symbole wie „Kamera“ oder „Neuer Tab“ bleiben weiß auf Glas.
+- **Chats in der Suche**: Ein Name findet den passenden Chat, unter dem Namen der App, mit Profilbild; ein Tipp öffnet ihn direkt.
+- **Kontakte mit Foto** statt Initialen.
+- Behoben: Spotlight durchsuchte nur die ersten 200 Kontakte.
+- Auch im Menü beim langen Drücken auf ein App-Icon sind Chats jetzt runde Profilbilder.
+
 ## Neu in v5.11.0 – Notizen-App wie auf dem iPhone
 - **Eigene Notizen-App in TMS OS**, immer installiert (App „Notizen“ mit iPhone-Icon in der App-Mediathek, auf den Home-Bildschirm legbar). Gestaltet nach der Notizen-App aus iOS 26, hell und dunkel.
 - **Ordner**: „Auf meinem Gerät“ (einklappbar), „Alle auf meinem Gerät“, „Notizen“, eigene Ordner mit Anzahl, „Zuletzt gelöscht“ (30 Tage). Neuer Ordner, „Bearbeiten“ zum Umbenennen und Löschen.

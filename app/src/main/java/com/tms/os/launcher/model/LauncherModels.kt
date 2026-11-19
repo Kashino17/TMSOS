@@ -184,7 +184,9 @@ data class AppQuickAction(
     val label: String,
     val icon: androidx.compose.ui.graphics.ImageBitmap?,
     /** Just the symbol of an adaptive shortcut icon (no backing plate), for white glyphs on glass. */
-    val glyph: androidx.compose.ui.graphics.ImageBitmap? = null
+    val glyph: androidx.compose.ui.graphics.ImageBitmap? = null,
+    /** A person (WhatsApp chat, contact …): [icon] is their profile picture, shown as a circle. */
+    val photo: Boolean = false
 )
 
 data class AppShortcutItem(
@@ -197,7 +199,9 @@ data class AppShortcutItem(
 data class ContactItem(
     val id: String,
     val name: String,
-    val phoneNumber: String
+    val phoneNumber: String,
+    /** The contact's picture (thumbnail), if it has one. */
+    val photoUri: String? = null
 )
 
 sealed class HomeGridItem(val id: String) {
