@@ -57,6 +57,13 @@ data class LauncherUiState(
     val spotlightTopActions: List<com.tms.os.launcher.model.AppQuickAction> = emptyList(),
     /** Packages recently opened from Spotlight, newest first ("Verlauf"). */
     val spotlightHistory: List<String> = emptyList(),
+    /** Shortcut rows under the suggestions while the query is empty ("Selfie", "Neuer Tab" …). */
+    val spotlightSuggestedActions: List<com.tms.os.launcher.model.AppQuickAction> = emptyList(),
+    val spotlightSettings: List<com.tms.os.launcher.data.SettingsHit> = emptyList(),
+    val spotlightFiles: List<com.tms.os.launcher.data.FileHit> = emptyList(),
+    val spotlightPhotos: List<com.tms.os.launcher.data.PhotoHit> = emptyList(),
+    val spotlightPhotoAccess: Boolean = false,
+    val spotlightFileAccess: Boolean = false,
     val weatherForecast: com.tms.os.launcher.domain.WeatherForecast? = null,
     val isDefaultLauncher: Boolean = false,
     val isBadgeServiceEnabled: Boolean = false,
@@ -83,6 +90,8 @@ data class LauncherUiState(
 class LauncherViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = LauncherRepository(application.applicationContext)
+    val spotlightContent = com.tms.os.launcher.data.SpotlightContent(application.applicationContext)
+    private var spotlightMediaJob: kotlinx.coroutines.Job? = null
     private val solvadoRepo = com.tms.os.launcher.data.SolvadoRepository(application.applicationContext)
 
     private val _uiState = MutableStateFlow(
@@ -588,8 +597,39 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 spotlightShortcuts = emptyList(),
                 spotlightContacts = emptyList(),
                 spotlightMathResult = null,
+                spotlightSettings = emptyList(),
+                spotlightFiles = emptyList(),
+                spotlightPhotos = emptyList(),
+                spotlightPhotoAccess = spotlightContent.hasPhotoAccess(),
+                spotlightFileAccess = spotlightContent.hasFileAccess(),
                 selectedAppForMenu = null
             )
+        }
+        val suggested = _uiState.value.spotlightResults.take(8)
+        viewModelScope.launch {
+            // One shortcut each from the first suggested apps that publish any (like "Selfie" for the camera).
+            val rows = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                suggested.asSequence().mapNotNull { repository.quickActions(it.packageName, limit = 1).firstOrNull() }.take(2).toList()
+            }
+            _uiState.update { if (it.isSpotlightOpen) it.copy(spotlightSuggestedActions = rows) else it }
+        }
+    }
+
+    fun openSpotlightSetting(hit: com.tms.os.launcher.data.SettingsHit) { spotlightContent.open(hit); closeSpotlight() }
+    fun openSpotlightFile(hit: com.tms.os.launcher.data.FileHit) { spotlightContent.openFile(hit); closeSpotlight() }
+    fun openSpotlightPhoto(hit: com.tms.os.launcher.data.PhotoHit) { spotlightContent.openPhoto(hit); closeSpotlight() }
+    fun openFilesApp() { spotlightContent.openFilesApp(); closeSpotlight() }
+    fun openGallery() { spotlightContent.openGallery(); closeSpotlight() }
+    fun requestFileAccess() = spotlightContent.openFileAccessSettings()
+
+    /** Called when the screen comes back (e.g. from the access settings) and after a permission answer. */
+    fun refreshSpotlightAccess() {
+        val photo = spotlightContent.hasPhotoAccess()
+        val file = spotlightContent.hasFileAccess()
+        val s = _uiState.value
+        if (photo != s.spotlightPhotoAccess || file != s.spotlightFileAccess) {
+            _uiState.update { it.copy(spotlightPhotoAccess = photo, spotlightFileAccess = file) }
+            if (s.isSpotlightOpen && s.spotlightQuery.isNotBlank()) updateSpotlightQuery(s.spotlightQuery)
         }
     }
 
@@ -729,7 +769,10 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 spotlightQuery = "",
                 spotlightShortcuts = emptyList(),
                 spotlightContacts = emptyList(),
-                spotlightMathResult = null
+                spotlightMathResult = null,
+                spotlightSettings = emptyList(),
+                spotlightFiles = emptyList(),
+                spotlightPhotos = emptyList()
             )
         }
     }
@@ -750,6 +793,18 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 spotlightMathResult = mathResult,
                 spotlightTopActions = if (results.firstOrNull()?.packageName == it.spotlightResults.firstOrNull()?.packageName && query.isNotBlank()) it.spotlightTopActions else emptyList()
             )
+        }
+        val appPairs = results.take(4).map { it.packageName to it.displayLabel }
+        _uiState.update { it.copy(spotlightSettings = spotlightContent.searchSettings(query, appPairs)) }
+        spotlightMediaJob?.cancel()
+        if (query.trim().length < 2) {
+            _uiState.update { it.copy(spotlightFiles = emptyList(), spotlightPhotos = emptyList()) }
+        } else spotlightMediaJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(120) // typing fast: only the last query reads MediaStore
+            val (files, photos) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                spotlightContent.searchFiles(query, 12) to spotlightContent.searchPhotos(query, 24)
+            }
+            _uiState.update { if (it.spotlightQuery == query) it.copy(spotlightFiles = files, spotlightPhotos = photos) else it }
         }
         val top = results.firstOrNull()
         if (top != null && query.isNotBlank()) viewModelScope.launch {

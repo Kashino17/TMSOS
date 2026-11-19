@@ -248,6 +248,7 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                 Lifecycle.Event.ON_RESUME -> {
                     viewModel.refreshScreenTime()
                     viewModel.refreshSolvado()
+                    viewModel.refreshSpotlightAccess()
                     scope.launch { refreshStatusBarTone() }
                     if (loadingNow) leftToApp = false
                     else if (leftToApp || homeZoom.value != 1f) {
@@ -499,7 +500,7 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
         }
         // Today View and App Library also dim the wallpaper a little, like iOS.
         Box(Modifier.fillMaxSize().graphicsLayer {
-            alpha = maxOf(edgeFraction() * 0.62f, spotlight.value.coerceIn(0f, 1f) * 0.72f, overlayGlass.value * 0.45f)
+            alpha = maxOf(edgeFraction() * 0.62f, spotlight.value.coerceIn(0f, 1f) * 0.34f, overlayGlass.value * 0.45f)
         }.background(Color.Black))
 
         // ------------------------------------------------------ grid geometry
@@ -1029,10 +1030,11 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                             val sp = spotlight.value.coerceIn(0f, 1f)
                             // Fades out under Spotlight; cross-fades to the frosted snapshot
                             // under folders and menus (stays faintly visible until it is ready).
-                            val f = frost.value
+                            // Under Spotlight the frosted copy takes over, as under folders.
+                            val f = if (canFrost) maxOf(frost.value, sp) else frost.value
                             // No offscreen buffer for the fade: alpha goes straight onto the draws.
                             compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha
-                            alpha = (1f - sp) * (if (canFrost) 1f - f else 1f - f * 0.75f)
+                            alpha = if (canFrost) 1f - f else (1f - sp) * (1f - f * 0.75f)
                             val s = 1f - sp * 0.03f - f * 0.02f
                             scaleX = s; scaleY = s
                         }
@@ -1199,15 +1201,17 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
             }
         }
 
-        if (canFrost && (showFrost || needsFrost)) {
+        val spotlightUp by remember { androidx.compose.runtime.derivedStateOf { spotlight.value > 0.002f } }
+        if (canFrost && (showFrost || needsFrost || spotlightUp)) {
             Box(
                 Modifier
                     .padding(top = IosMetrics.statusBarHeight)
                     .fillMaxSize()
                     .graphicsLayer {
                         compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha
-                        alpha = frost.value * 0.9f
-                        val s = 1.03f - 0.03f * frost.value
+                        val fv = maxOf(frost.value, spotlight.value.coerceIn(0f, 1f))
+                        alpha = fv * 0.9f
+                        val s = 1.03f - 0.03f * fv
                         scaleX = s; scaleY = s
                     }
                     .drawBehind {
@@ -1280,6 +1284,38 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
         }
 
         // ---------------------------------------------------------- overlays
+        val askPhotos = androidx.activity.compose.rememberLauncherForActivityResult(
+            androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+        ) { _ ->
+            viewModel.refreshSpotlightAccess()
+            if (!viewModel.spotlightContent.hasFileAccess()) viewModel.requestFileAccess()
+        }
+        val spotlightExtras = remember(
+            state.spotlightTopActions, state.spotlightSuggestedActions, state.spotlightSettings,
+            state.spotlightFiles, state.spotlightPhotos, state.spotlightPhotoAccess, state.spotlightFileAccess, state.appMap
+        ) {
+            com.tms.os.launcher.ui.home.SpotlightExtras(
+                topActions = state.spotlightTopActions,
+                suggestedActions = state.spotlightSuggestedActions,
+                settings = state.spotlightSettings,
+                files = state.spotlightFiles,
+                photos = state.spotlightPhotos,
+                mediaAccess = state.spotlightPhotoAccess && state.spotlightFileAccess,
+                iconOf = { pkg -> state.appMap[pkg]?.iconBitmap },
+                thumbnail = { uri, px -> viewModel.spotlightContent.thumbnail(uri, px) },
+                onQuickAction = { a -> leftToApp = true; viewModel.runQuickAction(a); viewModel.closeSpotlight() },
+                onSetting = { hit -> leftToApp = true; viewModel.openSpotlightSetting(hit) },
+                onFile = { f -> leftToApp = true; viewModel.openSpotlightFile(f) },
+                onPhoto = { ph -> leftToApp = true; viewModel.openSpotlightPhoto(ph) },
+                onFilesApp = { leftToApp = true; viewModel.openFilesApp() },
+                onGallery = { leftToApp = true; viewModel.openGallery() },
+                onAllowMedia = {
+                    if (!viewModel.spotlightContent.hasPhotoAccess()) askPhotos.launch(
+                        if (Build.VERSION.SDK_INT >= 33) android.Manifest.permission.READ_MEDIA_IMAGES else android.Manifest.permission.READ_EXTERNAL_STORAGE
+                    ) else viewModel.requestFileAccess()
+                }
+            )
+        }
         IosSpotlight(
             visible = state.isSpotlightOpen,
             progress = { spotlight.value },
@@ -1287,14 +1323,13 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
             results = state.spotlightResults,
             contacts = state.spotlightContacts,
             mathResult = state.spotlightMathResult,
-            history = remember(state.spotlightHistory, state.appMap) { state.spotlightHistory.filterNot { it == context.packageName }.mapNotNull { state.appMap[it] } },
             settings = settings,
             strings = strings,
             hs = hs,
+            extras = spotlightExtras,
             onQueryChange = viewModel::updateSpotlightQuery,
             onAppClick = { app -> leftToApp = true; viewModel.launchFromSpotlight(app.packageName) },
             onAppLongClick = { app -> viewModel.selectAppForContextMenu(app) },
-            onClearHistory = { viewModel.clearSpotlightHistory() },
             onContactCall = { contact -> viewModel.dialContact(contact.phoneNumber) },
             onContactMessage = { contact -> viewModel.messageContact(contact.phoneNumber) },
             onWebSearch = { query, engine -> viewModel.searchWeb(query, engine) },

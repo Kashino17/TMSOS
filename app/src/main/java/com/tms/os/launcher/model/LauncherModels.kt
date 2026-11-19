@@ -182,7 +182,9 @@ data class AppQuickAction(
     val packageName: String,
     val id: String,
     val label: String,
-    val icon: androidx.compose.ui.graphics.ImageBitmap?
+    val icon: androidx.compose.ui.graphics.ImageBitmap?,
+    /** Just the symbol of an adaptive shortcut icon (no backing plate), for white glyphs on glass. */
+    val glyph: androidx.compose.ui.graphics.ImageBitmap? = null
 )
 
 data class AppShortcutItem(

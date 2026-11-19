@@ -309,10 +309,53 @@ class LauncherRepository(private val context: Context) {
                         d.setBounds(0, 0, px, px); d.draw(android.graphics.Canvas(bmp)); bmp.asImageBitmap()
                     }
                 }.getOrNull()
-                com.tms.os.launcher.model.AppQuickAction(info.`package`, info.id, (info.shortLabel ?: info.longLabel ?: "").toString(), icon)
+                val glyph = runCatching {
+                    (la.getShortcutIconDrawable(info, density) as? android.graphics.drawable.AdaptiveIconDrawable)?.foreground?.let { fg ->
+                        // The symbol sits in the middle third of the 108dp layer: draw it 1.6x so it fills the bitmap.
+                        val px = (28 * context.resources.displayMetrics.density).toInt().coerceAtLeast(1)
+                        val bmp = Bitmap.createBitmap(px, px, Bitmap.Config.ARGB_8888)
+                        val extra = (px * 0.3f).toInt()
+                        fg.setBounds(-extra, -extra, px + extra, px + extra); fg.draw(android.graphics.Canvas(bmp)); bmp.asImageBitmap()
+                    }
+                }.getOrNull() ?: runCatching { la.getShortcutIconDrawable(info, density)?.let { glyphFromPlate(it) } }.getOrNull()
+                com.tms.os.launcher.model.AppQuickAction(info.`package`, info.id, (info.shortLabel ?: info.longLabel ?: "").toString(), icon, glyph)
             }
             .filter { it.label.isNotBlank() }
     }.getOrDefault(emptyList())
+
+    /**
+     * The symbol of a flat shortcut icon (a coloured glyph on a round plate, like
+     * Chrome's "+"): every pixel that differs from the plate colour becomes white,
+     * the plate itself becomes transparent. Icons without a plate keep their outline.
+     */
+    private fun glyphFromPlate(d: android.graphics.drawable.Drawable): androidx.compose.ui.graphics.ImageBitmap? {
+        val px = (28 * context.resources.displayMetrics.density).toInt().coerceAtLeast(8)
+        val src = Bitmap.createBitmap(px, px, Bitmap.Config.ARGB_8888)
+        d.setBounds(0, 0, px, px); d.draw(android.graphics.Canvas(src))
+        val pixels = IntArray(px * px).also { src.getPixels(it, 0, px, 0, 0, px, px) }
+        src.recycle()
+        val plate = pixels[(px * 0.14f).toInt() * px + px / 2]
+        val hasPlate = (plate ushr 24) > 200
+        val pr = plate shr 16 and 255; val pg = plate shr 8 and 255; val pb = plate and 255
+        var any = false
+        for (i in pixels.indices) {
+            val c = pixels[i]
+            val a = c ushr 24
+            val strength = if (!hasPlate) a / 255f else {
+                val dr = (c shr 16 and 255) - pr; val dg = (c shr 8 and 255) - pg; val db = (c and 255) - pb
+                (kotlin.math.sqrt((dr * dr + dg * dg + db * db).toFloat()) / 140f).coerceIn(0f, 1f) * (a / 255f)
+            }
+            val out = (strength * 255).toInt()
+            if (out > 40) any = true
+            pixels[i] = (out shl 24) or 0xFFFFFF
+        }
+        if (!any) return null
+        // Zoom the symbol: on a plate it covers only the middle half.
+        val glyph = Bitmap.createBitmap(pixels, px, px, Bitmap.Config.ARGB_8888)
+        if (!hasPlate) return glyph.asImageBitmap()
+        val crop = (px * 0.22f).toInt()
+        return Bitmap.createScaledBitmap(Bitmap.createBitmap(glyph, crop, crop, px - 2 * crop, px - 2 * crop), px, px, true).asImageBitmap()
+    }
 
     fun startQuickAction(action: com.tms.os.launcher.model.AppQuickAction) {
         runCatching {
