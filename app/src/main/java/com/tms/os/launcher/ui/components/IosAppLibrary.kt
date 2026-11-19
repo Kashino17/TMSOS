@@ -239,17 +239,24 @@ fun IosAppLibraryPage(
     val density = LocalDensity.current
     val pillBlurPx = with(density) { 14.dp.toPx() }
 
+    var pageOrigin by remember { mutableStateOf(Offset.Zero) }
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .onGloballyPositioned { pageOrigin = it.positionInRoot() }
             .graphicsLayer {
                 val p = podProgress().coerceIn(0f, 1f)
                 if (p > 0f) {
-                    // iOS: the library stays where it is and fades out under the growing category,
-                    // softening a little; it is gone at about four fifths.
-                    alpha = (1f - p * 1.25f).coerceIn(0f, 1f)
-                    if (canBlur) renderEffect = androidx.compose.ui.graphics.BlurEffect(p * 8.dp.toPx(), p * 8.dp.toPx(), androidx.compose.ui.graphics.TileMode.Decal)
-                } else renderEffect = null
+                    // iOS: the library recedes - shrinks a little around the opened pod - and
+                    // fades as the category comes forward, softening slightly.
+                    alpha = (1f - p * p).coerceIn(0f, 1f)
+                    val sc = 1f - 0.12f * p
+                    scaleX = sc; scaleY = sc
+                    podOrigin?.let { o ->
+                        transformOrigin = TransformOrigin(((o.center.x - pageOrigin.x) / size.width).coerceIn(0f, 1f), ((o.center.y - pageOrigin.y) / size.height).coerceIn(0f, 1f))
+                    }
+                    if (canBlur) renderEffect = androidx.compose.ui.graphics.BlurEffect(p * 10.dp.toPx(), p * 10.dp.toPx(), androidx.compose.ui.graphics.TileMode.Decal)
+                } else { renderEffect = null; scaleX = 1f; scaleY = 1f }
             }
     ) {
         // ------------------------------------------------------------- pods
@@ -328,7 +335,16 @@ fun IosAppLibraryPage(
                     .weight(1f)
                     .height(43.dp)
                     .onGloballyPositioned { pillOrigin = it.positionInRoot() }
-                    .then(
+                    .clickable(remember { MutableInteractionSource() }, null) {
+                        if (!searching) searching = true else { runCatching { fieldFocus.requestFocus() }; keyboard?.show() }
+                    }
+            ) {
+                // The pill's glass: iOS drops it the moment a category opens; the label stays a little longer.
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .graphicsLayer { alpha = (1f - podProgress() * 6f).coerceIn(0f, 1f) }
+                        .then(
                         if (canBlur) Modifier
                             .clip(CircleShape)
                             .wallpaperGlass(CircleShape, tint = IosMaterial.pod.copy(alpha = 0.55f), rim = 0f)
@@ -346,16 +362,12 @@ fun IosAppLibraryPage(
                             }
                             .border(0.6.dp, Color.White.copy(alpha = IosMaterial.hairline), CircleShape)
                         else Modifier.wallpaperGlass(CircleShape, tint = IosMaterial.pod)
-                    )
-                    .clickable(remember { MutableInteractionSource() }, null) {
-                        if (!searching) searching = true else { runCatching { fieldFocus.requestFocus() }; keyboard?.show() }
-                    }
-                    .padding(horizontal = 14.dp)
-            ) {
+                        )
+                )
                 // Centred at rest, gliding to the left edge when searching.
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.align(BiasAlignment(horizontalBias = -searchT, verticalBias = 0f))
+                    modifier = Modifier.padding(horizontal = 14.dp).align(BiasAlignment(horizontalBias = -searchT, verticalBias = 0f))
                 ) {
                     Icon(Icons.Rounded.Search, null, tint = Color.White.copy(alpha = 0.92f), modifier = Modifier.size(21.dp))
                     Spacer(Modifier.width(7.dp))
@@ -677,12 +689,14 @@ private fun LibraryAlphabeticalList(
 /* -------------------------------------------------------------------------- */
 
 /**
- * A category opened from the App Library, as on iOS: the whole category page (title, grid,
- * names) starts as a small, see-through miniature inside its pod and grows to full screen;
- * closing shrinks it back into the pod. Only the pod's small 2 x 2 icons fly on their own,
- * fully opaque above the page, from the cluster to their places in the grid and back.
- * [progress] is owned by the caller so the library behind can fade in step.
- * [fromPodIcons] is false for a pod that shows no icons (Hidden): nothing flies separately.
+ * A category opened from the App Library, matched frame by frame to iOS:
+ * - the whole category page (title, grid, names) starts as a see-through miniature whose
+ *   grid exactly covers the pod's small 2 x 2 cluster, and grows to full screen;
+ * - the cluster's four small icons zoom along with it as a group (top left -> first column,
+ *   top right -> last column) and fade out while the real page becomes solid;
+ * - closing runs the same thing backwards, into the cluster.
+ * [progress] is owned by the caller so the library behind can recede and fade in step.
+ * [fromPodIcons] is false for a pod that shows no icons (Hidden): it grows out of the pod's middle.
  */
 @Composable
 fun IosLibraryCategoryView(
@@ -703,17 +717,16 @@ fun IosLibraryCategoryView(
     val interactive by remember { androidx.compose.runtime.derivedStateOf { progress() > 0.3f } }
     val density = LocalDensity.current
     val iconPx = with(density) { iconSize.toPx() }
-    // The small cluster icons of the pod (root pixels): these fly on their own.
-    val heroes = remember(origin, apps.size, fromPodIcons, density) {
-        podIconSlots(origin, apps.size, fromPodIcons, density).withIndex().filter { (i, slot) -> slot.visible && slot.size < iconPx && i in 3..6 && apps.size > 4 }
+    // What the grid grows out of (root px): the span between the cluster's icon centres.
+    val span = remember(origin, apps.size, fromPodIcons, density) { podSourceSpan(origin, apps.size, fromPodIcons, density) }
+    // The cluster's small icons, which zoom with the page as a group and fade.
+    val cluster = remember(origin, apps.size, fromPodIcons, density) {
+        podIconSlots(origin, apps.size, fromPodIcons, density).withIndex().filter { (i, slot) -> slot.visible && i in 3..6 && apps.size > 4 }
     }
-    val heroIndices = remember(heroes) { heroes.map { it.index }.toSet() }
-    // Flying = on the way, not resting open or closed.
-    val inFlight: (Float) -> Boolean = { p -> p > 0f && p < 0.999f }
 
     var pageRoot by remember { mutableStateOf(Offset.Zero) }
     var inner by remember { mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null) }
-    val heroCells = remember { androidx.compose.runtime.mutableStateMapOf<Int, androidx.compose.ui.layout.LayoutCoordinates>() }
+    var firstCell by remember { mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null) }
 
     BoxWithConstraints(
         Modifier
@@ -724,35 +737,33 @@ fun IosLibraryCategoryView(
     ) {
         val pageW = constraints.maxWidth.toFloat()
         val pageH = constraints.maxHeight.toFloat()
-        val pivot = Offset(pageW / 2f, pageH / 2f)
-        // iOS: at the start the page is about half a pod wide, sitting in the pod.
-        val startScale = if (origin.width > 0f) (origin.width * 0.5f / pageW).coerceIn(0.12f, 0.4f) else 0.3f
-        val podCentre = if (origin.width > 0f) origin.center else pageRoot + pivot
-        val zoomAt: (Float) -> Float = { p -> startScale + (1f - startScale) * p }
-        val shiftAt: (Float) -> Offset = { p -> (podCentre - (pageRoot + pivot)) * (1f - p) }
-        // Where a point of the full-size page is on screen at progress p (root pixels).
-        val toScreen: (Offset, Float) -> Offset = { local, p -> pageRoot + pivot + (local - pivot) * zoomAt(p) + shiftAt(p) }
-
         val cell = (maxWidth - sidePadding * 2) / columns
         val rows = (apps.size + columns - 1) / columns
+        val cellPx = with(density) { cell.toPx() }
         val titleStyle = IosText.title1.copy(color = Color.White, fontSize = 28.sp, lineHeight = 34.sp, fontWeight = FontWeight.Bold)
         val titleModifier = Modifier.padding(start = (cell - iconSize) / 2, end = 24.dp, bottom = 20.dp)
         val fits = 54.dp + cell * rows + 118.dp <= maxHeight
-        val cellPx = with(density) { cell.toPx() }
+
+        // The grid's icon-centre span on the full-size page (page px): centre and width.
+        val gridSpan: () -> Pair<Offset, Float>? = {
+            val c = firstCell; val i = inner
+            if (c == null || i == null || !c.isAttached || !i.isAttached) null
+            else {
+                val first = i.localPositionOf(c, Offset.Zero) + Offset(cellPx / 2f, iconPx / 2f)
+                val lastY = minOf(first.y + (rows - 1) * cellPx, pageH - cellPx).coerceAtLeast(first.y)
+                val w = (columns - 1).coerceAtLeast(1) * cellPx
+                Offset(first.x + w / 2f, (first.y + lastY) / 2f) to w
+            }
+        }
+        val sourceCentre = if (span != null) span.first else pageRoot + Offset(pageW / 2f, pageH / 2f)
+        val startScaleFor: (Float) -> Float = { w -> ((span?.second ?: (w * 0.25f)) / w).coerceIn(0.05f, 1f) }
 
         @Composable
         fun Cell(index: Int, app: AppInfo) {
-            val hero = index in heroIndices
             Box(
                 Modifier
                     .width(cell).height(cell)
-                    .then(
-                        if (hero) Modifier
-                            .onGloballyPositioned { heroCells[index] = it }
-                            // Its icon is the one flying above the page.
-                            .graphicsLayer { alpha = if (inFlight(progress())) 0f else 1f }
-                        else Modifier
-                    ),
+                    .then(if (index == 0) Modifier.onGloballyPositioned { firstCell = it } else Modifier),
                 contentAlignment = Alignment.TopCenter
             ) {
                 IosAppIcon(
@@ -774,12 +785,20 @@ fun IosLibraryCategoryView(
                 .fillMaxSize()
                 .graphicsLayer {
                     val p = progress()
-                    val z = zoomAt(p)
+                    val g = gridSpan()
+                    if (g == null) { alpha = if (p > 0.99f) 1f else 0f; return@graphicsLayer }
+                    val (gc, gw) = g
+                    val s0 = startScaleFor(gw)
+                    val z = s0 + (1f - s0) * p
                     scaleX = z; scaleY = z
-                    val t = shiftAt(p)
-                    translationX = t.x; translationY = t.y
-                    // See-through while small, solid from a little past halfway.
-                    alpha = ((p - 0.05f) / 0.5f).coerceIn(0f, 1f)
+                    transformOrigin = TransformOrigin((gc.x / size.width).coerceIn(0f, 1f), (gc.y / size.height).coerceIn(0f, 1f))
+                    // The grid's centre travels from the cluster to its place.
+                    val home = pageRoot + gc
+                    val now = sourceCentre + (home - sourceCentre) * p
+                    translationX = now.x - home.x; translationY = now.y - home.y
+                    // iOS: faintly there at once, nearly solid by a third, solid a little past half.
+                    val a = (p / 0.55f).coerceIn(0f, 1f)
+                    alpha = 1f - (1f - a) * (1f - a)
                 }
                 .onGloballyPositioned { inner = it }
         ) {
@@ -806,32 +825,55 @@ fun IosLibraryCategoryView(
             }
         }
 
-        // ---------------------------------------------------- the flying icons
-        heroes.forEach { (index, slot) ->
+        // ------------------------------------------- the pod's cluster, zooming along
+        cluster.forEach { (index, slot) ->
             val app = apps[index]
             Box(
                 Modifier
                     .size(iconSize)
                     .graphicsLayer {
                         val p = progress()
-                        val c = heroCells[index]; val i = inner
-                        if (!inFlight(p) || c == null || i == null || !c.isAttached || !i.isAttached) {
-                            alpha = 0f
-                            return@graphicsLayer
+                        if (p <= 0f) { alpha = 0f; return@graphicsLayer }
+                        val g = gridSpan()
+                        // Same mapping as the page: the cluster grows with it from its own place.
+                        var z = 1f
+                        val (now, grow) = if (g == null) sourceCentre to 1f else {
+                            val s0 = startScaleFor(g.second)
+                            z = s0 + (1f - s0) * p
+                            (sourceCentre + (pageRoot + g.first - sourceCentre) * p) to (z / s0)
                         }
-                        val target = toScreen(i.localPositionOf(c, Offset.Zero) + Offset(cellPx / 2f, iconPx / 2f), p)
-                        val centre = slot.centre + (target - slot.centre) * p
-                        val edge = slot.size + (iconPx * zoomAt(p) - slot.size) * p
-                        alpha = 1f
+                        // Positions spread with the page's zoom; the icons themselves only grow
+                        // to the size the page's icons have at that moment (iOS).
+                        val centre = now + (slot.centre - sourceCentre) * grow
+                        val edge = slot.size + (iconPx * z - slot.size) * p
                         scaleX = edge / iconPx; scaleY = edge / iconPx
                         translationX = centre.x - pageRoot.x - iconPx / 2f
                         translationY = centre.y - pageRoot.y - iconPx / 2f
+                        // Solid at first, gone as the page arrives.
+                        alpha = ((1f - p) / 0.75f).coerceIn(0f, 1f)
                     }
             ) {
                 if (app.iconBitmap != null) Image(app.iconBitmap, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
                 else Box(Modifier.clip(IosSquircle)) { LibraryLetterIcon(app.displayLabel, iconSize) }
             }
         }
+    }
+}
+
+/**
+ * The span the category grid grows out of (root px): centre and the distance between the
+ * outer icon centres. With five apps or more that is the small 2 x 2 cluster; otherwise
+ * (and for a pod without icons) the two large columns.
+ */
+private fun podSourceSpan(pod: Rect, count: Int, withIcons: Boolean, density: androidx.compose.ui.unit.Density): Pair<Offset, Float>? {
+    if (pod.width <= 0f) return null
+    with(density) {
+        val pad = 12.dp.toPx(); val gap = 12.dp.toPx()
+        val large = (pod.width - 2 * pad - gap) / 2f
+        if (!withIcons || count <= 4) return pod.center to (large + gap)
+        val mini = (large - 9.dp.toPx()) / 2f
+        val clusterCentre = Offset(pod.left + pad + large + gap + large / 2f, pod.top + pad + large + gap + large / 2f)
+        return clusterCentre to (mini + 5.dp.toPx())
     }
 }
 

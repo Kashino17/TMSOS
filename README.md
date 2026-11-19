@@ -8,6 +8,13 @@ Ein maßgeschneiderter, werbefreier und kostenloser **iOS-Style Homescreen-Launc
 
 ---
 
+## Neu in v5.12.6 – Ordner der App-Mediathek Bild für Bild wie auf dem iPhone
+- Die Kategorie-Seite wächst jetzt genau aus dem kleinen Viererfeld des Ordners: Ihr Icon-Raster startet so groß wie das Viererfeld und an derselben Stelle.
+- Die vier kleinen Icons zoomen als Gruppe mit der Seite mit (oben links → erste Spalte, oben rechts → letzte Spalte) und verblassen, während die Seite deckend wird; die großen Icons bleiben im Ordner.
+- Die Mediathek weicht dabei zurück: Sie wird um den Ordner herum etwas kleiner, unscharf und blendet aus.
+- Der Glas-Hintergrund der Suchleiste verschwindet sofort beim Antippen, der Text „App-Mediathek“ etwas später – wie auf dem iPhone.
+- Schließen läuft genau rückwärts, zurück ins Viererfeld.
+
 ## Neu in v5.12.5 – Ordner-Animation ruhiger
 - Öffnen und Schließen der Ordner in der App-Mediathek laufen langsamer und ruhiger (Öffnen etwa 0,5 s, Schließen etwa 0,4 s).
 
