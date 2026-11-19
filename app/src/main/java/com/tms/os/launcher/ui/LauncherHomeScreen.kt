@@ -21,6 +21,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -324,7 +325,11 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
             val activity = generateSequence(context) { (it as? android.content.ContextWrapper)?.baseContext }.filterIsInstance<android.app.Activity>().firstOrNull()
             activity?.let { with(density) { androidx.window.layout.WindowMetricsCalculator.getOrCreate().computeCurrentWindowMetrics(it).bounds.height().toDp() } } ?: 0.dp
         }
-        val gridHeight = if (windowHeight > maxHeight) windowHeight else maxHeight
+        // For one width the grid only ever grows: a keyboard (or a system sheet) that makes
+        // the window shorter for a moment must not repack the pages - that would move the
+        // App Library to another page index under the user's finger.
+        val tallestSeen = remember(maxWidth) { floatArrayOf(0f) }
+        val gridHeight = maxOf(if (windowHeight > maxHeight) windowHeight else maxHeight, tallestSeen[0].dp).also { tallestSeen[0] = it.value }
         val layout = calculateHomeLayout(
             width = maxWidth.value / perScreen, height = gridHeight.value,
             columns = if (isUnfolded && !bookMode && settings.foldMode != com.tms.os.launcher.model.FoldPostureMode.CLASSIC_SCALED) settings.mainUnfoldedColumns else settings.coverColumns,
@@ -406,7 +411,18 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
         // the finger (dots, dock fade) reads the pager inside its own small scope.
         val isAppLibrary = pagerState.settledPage == libraryPage
         // The library is "active" only while it rests on screen; the first move of a page swipe ends that.
-        val libraryActive = remember(pagerState, libraryPage) { { pagerState.settledPage == libraryPage && !pagerState.isScrollInProgress } }
+        // The library counts as left only when it really moved away (a fifth of a page or more).
+        // A pager that merely "scrolls" by a few pixels - the window resizing for the keyboard,
+        // a slightly sideways finger while scrolling the list - must not close its search.
+        // Only a real swipe ends the library's search: the finger drags the pages a fifth of a
+        // page or more. Page numbers are not used (they move when the page count changes).
+        val pagerDragged by pagerState.interactionSource.collectIsDraggedAsState()
+        val libraryActive: () -> Boolean = {
+            val swipedAway = pagerDragged && kotlin.math.abs(pagerState.currentPageOffsetFraction) > 0.2f
+            // A quick flick away, settled on another page (the library is always the last page).
+            val elsewhere = !pagerState.isScrollInProgress && pagerState.settledPage != pagerState.pageCount - 1
+            !swipedAway && !elsewhere
+        }
         val isToday = pagerState.settledPage == 0
         val homePageIndex = (pagerState.settledPage - 1).coerceIn(0, homePageCount - 1)
 

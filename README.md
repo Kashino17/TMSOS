@@ -8,6 +8,11 @@ Ein maßgeschneiderter, werbefreier und kostenloser **iOS-Style Homescreen-Launc
 
 ---
 
+## Neu in v5.12.2 – Suche der App-Mediathek bleibt offen
+- Behoben: Die Suche der App-Mediathek schloss sich immer wieder von selbst, sobald die Tastatur erschien. Die Tastatur machte das Fenster kurz kleiner, dadurch verschob sich die Seitennummer der Mediathek, und die Suche hielt das für „weggewischt“.
+- Die Startseiten werden nicht mehr neu aufgeteilt, wenn die Tastatur das Fenster verkleinert.
+- Die Suche schließt nur noch bei einem echten Wisch zur Seite (oder wenn eine andere Seite zur Ruhe kommt), nicht bei kleinen Seitwärtsbewegungen beim Scrollen der Liste.
+
 ## Neu in v5.12.1 – Richtige Namen und Icons bei Galerien
 - iOS-Icons und -Namen bekommen nur noch die vorinstallierten Apps des Handys. Apps aus dem Store behalten ihr Icon und ihren Namen: „Edge Gallery“ (KI) ist nicht mehr „Fotos“, nur weil im Paketnamen „gallery“ steht.
 - Haben zwei Apps denselben Namen, steht der Hersteller davor: „Samsung Galerie“ und „Google Fotos“ statt zweimal „Fotos“ (gilt für alle doppelten Namen). Selbst vergebene Namen bleiben unverändert.
