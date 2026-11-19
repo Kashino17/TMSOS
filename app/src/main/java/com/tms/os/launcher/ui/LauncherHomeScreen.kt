@@ -268,7 +268,11 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
 
     // Spotlight follows the finger; the committed open/closed state lives in the VM.
     LaunchedEffect(state.isSpotlightOpen) {
-        spotlight.animateTo(if (state.isSpotlightOpen) 1f else 0f, spring(dampingRatio = 0.86f, stiffness = 320f))
+        // Slow enough to see the "Suchen" pill grow into the field (and shrink back), as on iOS.
+        spotlight.animateTo(
+            if (state.isSpotlightOpen) 1f else 0f,
+            if (state.isSpotlightOpen) spring(dampingRatio = 0.9f, stiffness = 190f) else spring(dampingRatio = 1f, stiffness = 260f)
+        )
     }
 
     val suggestions = remember(state.categorizedApps) { state.categorizedApps[AppCategory.SUGGESTIONS].orEmpty().take(16) }
@@ -478,6 +482,8 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
         else remember(dockPkgs, state.appMap) { dockPkgs.take(dockCount).mapNotNull { state.appMap[it] } }
         var dockRect by remember { mutableStateOf(Rect.Zero) }
         val dockIconRects = remember { androidx.compose.runtime.mutableStateMapOf<String, Rect>() }
+        // Where the "Suchen" pill sits: Spotlight's field grows out of it and shrinks back into it.
+        var searchPillRect by remember { mutableStateOf<Rect?>(null) }
         // Folder whose panel owns the running gesture: it must stay composed until the drop.
         var ownerFolder by remember { mutableStateOf<HomeGridItem.FolderItem?>(null) }
         val recentApps = remember(state.recentPackages, state.appMap) { state.recentPackages.mapNotNull { state.appMap[it] } }
@@ -495,7 +501,11 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
         backdrop.glass?.let {
             Image(it, null, contentScale = androidx.compose.ui.layout.ContentScale.FillBounds,
                 modifier = Modifier.fillMaxSize().graphicsLayer {
-                    alpha = maxOf(overlayGlass.value, spotlight.value.coerceIn(0f, 1f), edgeFraction())
+                    val sp = spotlight.value.coerceIn(0f, 1f)
+                    alpha = maxOf(overlayGlass.value, sp, edgeFraction())
+                    // Under Spotlight the wallpaper melts into an even tone, as on iOS.
+                    renderEffect = if (sp > 0.01f && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
+                        BlurEffect(sp * 60.dp.toPx(), sp * 60.dp.toPx(), TileMode.Clamp) else null
                 })
         }
         // Today View and App Library also dim the wallpaper a little, like iOS.
@@ -1194,7 +1204,9 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                         fade = actions.edgeFraction,
                         onSearch = actions.spotlight,
                         onAppClick = actions.openApp,
-                        onAppLongClick = actions.appMenu
+                        onAppLongClick = actions.appMenu,
+                        onSearchBounds = { searchPillRect = it },
+                        searchMorphing = { spotlight.value > 0.002f && actions.edgeFraction() < 0.01f }
                     )
                     }
                 }
@@ -1202,7 +1214,8 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
         }
 
         val spotlightUp by remember { androidx.compose.runtime.derivedStateOf { spotlight.value > 0.002f } }
-        if (canFrost && (showFrost || needsFrost || spotlightUp)) {
+        // Composed in the same frame Spotlight starts opening, so the home never shows unblurred while it fades.
+        if (canFrost && (showFrost || needsFrost || spotlightUp || state.isSpotlightOpen)) {
             Box(
                 Modifier
                     .padding(top = IosMetrics.statusBarHeight)
@@ -1216,7 +1229,9 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                     }
                     .drawBehind {
                         val k = FrostDownscale
-                        frostLayer.renderEffect = BlurEffect(7f, 7f, TileMode.Clamp)
+                        // Spotlight blurs much harder than folders: nothing of the home screen stays readable.
+                        val r = if (spotlight.value > frost.value) 16f else 7f
+                        frostLayer.renderEffect = BlurEffect(r, r, TileMode.Clamp)
                         frostLayer.record(size = IntSize((size.width / k).roundToInt().coerceAtLeast(1), (size.height / k).roundToInt().coerceAtLeast(1))) {
                             scale(1f / k, 1f / k, pivot = Offset.Zero) { drawLayer(homeLayer) }
                         }
@@ -1327,6 +1342,7 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
             strings = strings,
             hs = hs,
             extras = spotlightExtras,
+            origin = searchPillRect.takeIf { actions.edgeFraction() < 0.01f },
             onQueryChange = viewModel::updateSpotlightQuery,
             onAppClick = { app -> leftToApp = true; viewModel.launchFromSpotlight(app.packageName) },
             onAppLongClick = { app -> viewModel.selectAppForContextMenu(app) },
@@ -1716,7 +1732,10 @@ private fun HomeChrome(
     fade: () -> Float,
     onSearch: () -> Unit,
     onAppClick: (AppInfo, Rect) -> Unit,
-    onAppLongClick: (AppInfo, Rect) -> Unit
+    onAppLongClick: (AppInfo, Rect) -> Unit,
+    onSearchBounds: (Rect) -> Unit = {},
+    /** True while Spotlight's field is the pill (it grew out of it): the pill itself is not drawn. */
+    searchMorphing: () -> Boolean = { false }
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -1733,7 +1752,13 @@ private fun HomeChrome(
         Box(Modifier.height(PillAreaHeight).padding(top = 10.dp, bottom = 16.dp), contentAlignment = Alignment.Center) {
             // Pager state is read here, in this small scope, not in the whole screen.
             androidx.compose.animation.Crossfade(targetState = showSearch && !isPaging(), animationSpec = tween(200), label = "pageControl") { search ->
-                if (search) IosSearchButton(text = strings.search, onClick = onSearch)
+                if (search) IosSearchButton(
+                    text = strings.search,
+                    onClick = onSearch,
+                    modifier = Modifier
+                        .onGloballyPositioned { onSearchBounds(it.boundsInRoot()) }
+                        .graphicsLayer { alpha = if (searchMorphing()) 0f else 1f }
+                )
                 else IosPageDots(count = pageCount, selected = currentPage())
             }
         }

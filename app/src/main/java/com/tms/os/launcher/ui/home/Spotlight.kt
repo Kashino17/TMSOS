@@ -1,3 +1,4 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 package com.tms.os.launcher.ui.home
 
 import android.content.Intent
@@ -78,6 +79,13 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.BiasAlignment
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.foundation.layout.requiredWidth
+import kotlin.math.roundToInt
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
@@ -128,10 +136,12 @@ private val HeaderColor = Color.White.copy(alpha = 0.62f)
 private val Secondary = Color.White.copy(alpha = 0.58f)
 private val Hairline = Color.White.copy(alpha = 0.14f)
 /** The light frosted cards (suggestions, top hit) on the blurred home screen. */
-private val CardFill = Color.White.copy(alpha = 0.10f)
-private val CardRim = Color.White.copy(alpha = 0.10f)
+private val CardFill = Color.White.copy(alpha = 0.155f)
+private val CardRim = Color.White.copy(alpha = 0.09f)
+private val CardShape = RoundedCornerShape(30.dp)
+private val CardMargin = 18.dp
 private val ButtonFill = Color.White.copy(alpha = 0.15f)
-private val Side = 16.dp
+private val Side = 20.dp
 private val RowIcon = 58.dp
 private val SmallIcon = 30.dp
 
@@ -176,6 +186,8 @@ fun IosSpotlight(
     strings: IosStrings,
     hs: HomeStrings,
     extras: SpotlightExtras,
+    /** The home screen's "Suchen" pill (root coordinates): the field grows out of it. */
+    origin: androidx.compose.ui.geometry.Rect? = null,
     onQueryChange: (String) -> Unit,
     onAppClick: (AppInfo) -> Unit,
     onAppLongClick: (AppInfo) -> Unit,
@@ -251,7 +263,17 @@ fun IosSpotlight(
             // The blurred home screen lies underneath; this only darkens it a little more.
             .background(Color.Black.copy(alpha = 0.001f))
             .drawWithContent {
-                drawRect(Color(0xFF8E8E93).copy(alpha = 0.10f * p()))
+                // iOS: the home screen is blurred beyond recognition and sinks into a dark,
+                // even grey that is a touch lighter in the middle.
+                val t = p()
+                drawRect(Color(0xFF0C0C0E).copy(alpha = 0.80f * t))
+                drawRect(
+                    Brush.radialGradient(
+                        listOf(Color.White.copy(alpha = 0.075f * t), Color.Transparent),
+                        center = Offset(size.width / 2f, size.height * 0.42f),
+                        radius = size.maxDimension * 0.62f
+                    )
+                )
                 drawContent()
             }
             // Tap on empty space or swipe up: back to the home screen. Only while it is open:
@@ -333,96 +355,150 @@ fun IosSpotlight(
 
             // --------------------------------------------------------- search field
             // Above the keyboard while typing; a bar at the very bottom once the keyboard is away.
+            // On the way in the field *is* the home screen's "Suchen" pill: it grows out of the
+            // pill's place and size and shrinks back into it when Spotlight closes.
             val idle = !imeUp && !focused && q.isNotEmpty()
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .graphicsLayer {
-                        // Grows out of the "Suchen" pill above the dock.
-                        val t = p()
-                        alpha = (t * 2.2f).coerceAtMost(1f)
-                        val s = 0.42f + 0.58f * t
-                        scaleX = s
-                        scaleY = 0.8f + 0.2f * t
-                        translationY = (1f - t) * -28.dp.toPx()
-                    }
+            var slot by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
+            val morphFrom = origin?.takeIf { it.width > 0f && it.height > 0f }
+            Box(
+                Modifier
                     .align(Alignment.CenterHorizontally)
                     .widthIn(max = 620.dp)
-                    .padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = if (imeUp) 8.dp else 6.dp)
+                    .padding(start = 8.dp, end = 8.dp, top = 6.dp, bottom = if (imeUp) 8.dp else 6.dp)
                     .fillMaxWidth()
-                    .height(44.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFF3A3A3D).copy(alpha = 0.72f))
-                    .border(0.6.dp, Color.White.copy(alpha = 0.10f), CircleShape)
-                    .clickable(remember { MutableInteractionSource() }, null) { runCatching { focus.requestFocus() }; keyboard?.show() }
-                    .padding(start = 13.dp, end = 11.dp)
+                    .height(48.dp)
+                    .onGloballyPositioned { slot = it.boundsInRoot() }
             ) {
-                Icon(Icons.Rounded.Search, null, tint = Color.White.copy(alpha = 0.62f), modifier = Modifier.size(21.dp))
-                Spacer(Modifier.width(7.dp))
-                Box(Modifier.weight(1f), contentAlignment = if (idle) Alignment.Center else Alignment.CenterStart) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box {
-                            if (query.isEmpty()) Text(strings.searchPlaceholder, style = IosText.body.copy(color = Color.White.copy(alpha = 0.5f)), maxLines = 1)
-                            BasicTextField(
-                                value = query,
-                                onValueChange = onQueryChange,
-                                singleLine = true,
-                                textStyle = IosText.body.copy(color = Color.White, textAlign = if (idle) TextAlign.Center else TextAlign.Start),
-                                cursorBrush = SolidColor(Color(0xFF0A84FF)),
-                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-                                keyboardActions = KeyboardActions(onGo = {
-                                    if (top != null) onAppClick(top) else if (q.isNotEmpty()) onWebSearch(q, "google")
-                                }),
-                                modifier = Modifier
-                                    .width(IntrinsicSize.Min)
-                                    .widthIn(min = 2.dp)
-                                    .focusRequester(focus)
-                                    .onFocusChanged { focused = it.isFocused }
+                // 0 = the pill, 1 = the field.
+                val m = { if (morphFrom == null || slot.width <= 0f) 1f else p() }
+                Box(
+                    Modifier
+                        .layout { measurable, constraints ->
+                            val t = m()
+                            val w = constraints.maxWidth
+                            val h = constraints.maxHeight
+                            if (morphFrom == null || t >= 1f) {
+                                val pl = measurable.measure(androidx.compose.ui.unit.Constraints.fixed(w, h))
+                                layout(w, h) { pl.place(0, 0) }
+                            } else {
+                                val cw = (morphFrom.width + (w - morphFrom.width) * t).roundToInt().coerceAtLeast(1)
+                                val ch = (morphFrom.height + (h - morphFrom.height) * t).roundToInt().coerceAtLeast(1)
+                                val pl = measurable.measure(androidx.compose.ui.unit.Constraints.fixed(cw, ch))
+                                val dx = ((morphFrom.left - slot.left) * (1f - t)).roundToInt()
+                                val dy = ((morphFrom.top - slot.top) * (1f - t)).roundToInt()
+                                layout(w, h) { pl.place(dx, dy) }
+                            }
+                        }
+                        .graphicsLayer {
+                            // Without a pill to grow from: a short scale-in instead.
+                            if (morphFrom == null) {
+                                val t = p()
+                                alpha = (t * 2f).coerceAtMost(1f)
+                                scaleX = 0.6f + 0.4f * t; scaleY = 0.85f + 0.15f * t
+                            }
+                        }
+                        .drawBehind {
+                            val t = m()
+                            // Pill material -> field material.
+                            val fill = androidx.compose.ui.graphics.lerp(Color(0xD1242426), Color(0xB83A3A3E), t)
+                            val r = size.height / 2f
+                            drawRoundRect(fill, cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r))
+                            drawRoundRect(
+                                Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.16f), Color.White.copy(alpha = 0.05f))),
+                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r),
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 0.7.dp.toPx())
                             )
                         }
-                        // Completion: the app that Return opens, "gm — Google Maps".
-                        if (top != null && q.isNotEmpty() && !idle) {
-                            Text(
-                                "— ${top.displayLabel}",
-                                style = IosText.body.copy(color = Color.White.copy(alpha = 0.45f)),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier
-                                    .padding(start = 5.dp)
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(Color.White.copy(alpha = 0.09f))
-                                    .clickable { onAppClick(top) }
-                                    .padding(horizontal = 5.dp, vertical = 1.dp)
-                            )
+                        .clip(CircleShape)
+                        .clickable(remember { MutableInteractionSource() }, null) { runCatching { focus.requestFocus() }; keyboard?.show() }
+                ) {
+                    // Icon and text glide from the pill's centre to the field's left edge and grow to body size.
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .align(BiasAlignment(horizontalBias = if (idle) 0f else -m(), verticalBias = 0f))
+                            .graphicsLayer {
+                                val t = m()
+                                val s = 0.72f + 0.28f * t
+                                scaleX = s; scaleY = s
+                                transformOrigin = androidx.compose.ui.graphics.TransformOrigin(if (idle) 0.5f else 0.5f * (1f - t), 0.5f)
+                            }
+                            .padding(start = 14.dp, end = 12.dp)
+                            .then(if (idle || m() < 1f) Modifier else Modifier.fillMaxWidth())
+                    ) {
+                        Icon(Icons.Rounded.Search, null, tint = Color.White.copy(alpha = 0.62f + 0.38f * (1f - m())), modifier = Modifier.size(21.dp))
+                        Spacer(Modifier.width(7.dp))
+                        Row(Modifier.then(if (idle || m() < 1f) Modifier else Modifier.weight(1f)), verticalAlignment = Alignment.CenterVertically) {
+                            Box {
+                                if (query.isEmpty()) Text(
+                                    strings.searchPlaceholder,
+                                    style = IosText.body.copy(color = Color.White.copy(alpha = 0.5f + 0.5f * (1f - m())), fontWeight = if (m() < 0.5f) FontWeight.Bold else FontWeight.Normal),
+                                    maxLines = 1
+                                )
+                                BasicTextField(
+                                    value = query,
+                                    onValueChange = onQueryChange,
+                                    singleLine = true,
+                                    textStyle = IosText.body.copy(color = Color.White, textAlign = if (idle) TextAlign.Center else TextAlign.Start),
+                                    cursorBrush = SolidColor(Color(0xFF0A84FF)),
+                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+                                    keyboardActions = KeyboardActions(onGo = {
+                                        if (top != null) onAppClick(top) else if (q.isNotEmpty()) onWebSearch(q, "google")
+                                    }),
+                                    modifier = Modifier
+                                        .width(IntrinsicSize.Min)
+                                        .widthIn(min = 2.dp)
+                                        .focusRequester(focus)
+                                        .onFocusChanged { focused = it.isFocused }
+                                )
+                            }
+                            // Completion: the app that Return opens, "gm — Google Maps".
+                            if (top != null && q.isNotEmpty() && !idle) {
+                                Text(
+                                    "— ${top.displayLabel}",
+                                    style = IosText.body.copy(color = Color.White.copy(alpha = 0.45f)),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier
+                                        .padding(start = 5.dp)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(Color.White.copy(alpha = 0.09f))
+                                        .clickable { onAppClick(top) }
+                                        .padding(horizontal = 5.dp, vertical = 1.dp)
+                                )
+                            }
+                            if (!idle && m() >= 1f) Spacer(Modifier.weight(1f))
                         }
-                    }
-                }
-                if (query.isNotEmpty()) {
-                    Icon(
-                        Icons.Rounded.Cancel, null, tint = Color.White.copy(alpha = 0.55f),
-                        modifier = Modifier.size(20.dp).clickable(remember { MutableInteractionSource() }, null) {
-                            onQueryChange(""); runCatching { focus.requestFocus() }; keyboard?.show()
-                        }
-                    )
-                } else {
-                    Icon(
-                        Icons.Rounded.Mic, null, tint = Color.White.copy(alpha = 0.62f),
-                        modifier = Modifier.size(22.dp).clickable(remember { MutableInteractionSource() }, null) {
-                            runCatching {
-                                dictate.launch(
-                                    Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
-                                        .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_WEB_SEARCH)
+                        if (m() >= 1f || idle) {
+                            Spacer(Modifier.width(8.dp))
+                            if (query.isNotEmpty()) {
+                                Icon(
+                                    Icons.Rounded.Cancel, null, tint = Color.White.copy(alpha = 0.55f),
+                                    modifier = Modifier.size(20.dp).clickable(remember { MutableInteractionSource() }, null) {
+                                        onQueryChange(""); runCatching { focus.requestFocus() }; keyboard?.show()
+                                    }
+                                )
+                            } else {
+                                Icon(
+                                    Icons.Rounded.Mic, null, tint = Color.White.copy(alpha = 0.62f),
+                                    modifier = Modifier.size(22.dp).clickable(remember { MutableInteractionSource() }, null) {
+                                        runCatching {
+                                            dictate.launch(
+                                                Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+                                                    .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_WEB_SEARCH)
+                                            )
+                                        }
+                                    }
                                 )
                             }
                         }
-                    )
+                    }
                 }
             }
         }
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun Results(
     q: String,
@@ -688,32 +764,42 @@ private fun SmallTile(bitmap: ImageBitmap?, fallback: ImageVector, tile: Color, 
 @Composable
 private fun SuggestionsCard(apps: List<AppInfo>, onClick: (AppInfo) -> Unit, onLongClick: (AppInfo) -> Unit) {
     if (apps.isEmpty()) return
-    Column(
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-        modifier = Modifier
-            .padding(horizontal = 12.dp)
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(26.dp))
-            .background(CardFill)
-            .border(0.6.dp, CardRim, RoundedCornerShape(26.dp))
-            .animateContentSize(spring(dampingRatio = 0.9f, stiffness = 380f))
-            .clickable(remember { MutableInteractionSource() }, null) {}
-            .padding(horizontal = 4.dp, vertical = 12.dp)
-    ) {
-        apps.chunked(4).forEach { row ->
-            Row(Modifier.fillMaxWidth()) {
-                for (i in 0 until 4) {
-                    val app = row.getOrNull(i)
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.weight(1f).then(
-                            if (app != null) Modifier.combinedClickable(remember { MutableInteractionSource() }, null, onClick = { onClick(app) }, onLongClick = { onLongClick(app) }) else Modifier
-                        )
-                    ) {
-                        if (app != null) {
-                            BigIcon(app.iconBitmap, null)
-                            Spacer(Modifier.height(5.dp))
-                            Text(app.displayLabel, style = IosText.iconLabel.copy(color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 11.5.sp), maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 3.dp))
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.padding(horizontal = CardMargin).fillMaxWidth()) {
+        // As on the iPhone the four icons almost fill the card: 16dp inside, 18dp between.
+        val icon = ((maxWidth - 32.dp - 54.dp) / 4).coerceIn(52.dp, 76.dp)
+        Column(
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(CardShape)
+                .background(CardFill)
+                .border(0.6.dp, CardRim, CardShape)
+                .animateContentSize(spring(dampingRatio = 0.9f, stiffness = 380f))
+                .clickable(remember { MutableInteractionSource() }, null) {}
+                .padding(horizontal = 16.dp, vertical = 16.dp)
+        ) {
+            apps.chunked(4).forEach { row ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    for (i in 0 until 4) {
+                        val app = row.getOrNull(i)
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.width(icon).then(
+                                if (app != null) Modifier.combinedClickable(remember { MutableInteractionSource() }, null, onClick = { onClick(app) }, onLongClick = { onLongClick(app) }) else Modifier
+                            )
+                        ) {
+                            if (app != null) {
+                                Box(Modifier.size(icon)) {
+                                    app.iconBitmap?.let { Image(it, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
+                                }
+                                Spacer(Modifier.height(6.dp))
+                                Text(
+                                    app.displayLabel,
+                                    style = IosText.iconLabel.copy(color = Color.White, fontWeight = FontWeight.Medium, fontSize = 12.sp),
+                                    maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
+                                    modifier = Modifier.requiredWidth(icon + 18.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -746,42 +832,43 @@ private fun SuggestedActionRow(action: AppQuickAction, appIcon: ImageBitmap?, di
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun TopHitCard(app: AppInfo, actions: List<AppQuickAction>, onClick: (AppInfo) -> Unit, onLongClick: (AppInfo) -> Unit, onAction: (AppQuickAction) -> Unit) {
-    Row(
-        modifier = Modifier
-            .padding(horizontal = 12.dp)
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(26.dp))
-            .background(CardFill)
-            .border(0.6.dp, CardRim, RoundedCornerShape(26.dp))
-            .animateContentSize(spring(dampingRatio = 0.9f, stiffness = 380f))
-            .padding(horizontal = 4.dp, vertical = 13.dp)
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.weight(1f).combinedClickable(remember { MutableInteractionSource() }, null, onClick = { onClick(app) }, onLongClick = { onLongClick(app) })
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.padding(horizontal = CardMargin).fillMaxWidth()) {
+        // Same grid as "Siri-Vorschläge": four columns, icons almost filling the card.
+        val icon = ((maxWidth - 32.dp - 54.dp) / 4).coerceIn(52.dp, 76.dp)
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(18.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(CardShape)
+                .background(CardFill)
+                .border(0.6.dp, CardRim, CardShape)
+                .animateContentSize(spring(dampingRatio = 0.9f, stiffness = 380f))
+                .padding(16.dp)
         ) {
-            BigIcon(app.iconBitmap, null)
-            Spacer(Modifier.height(5.dp))
-            Text(app.displayLabel, style = IosText.iconLabel.copy(color = Color.White, fontWeight = FontWeight.SemiBold), maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 3.dp))
-        }
-        for (i in 0 until 3) {
-            val a = actions.getOrNull(i)
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.weight(1f).then(if (a != null) Modifier.clickable(remember { MutableInteractionSource() }, null) { onAction(a) } else Modifier)
+                modifier = Modifier.width(icon).combinedClickable(remember { MutableInteractionSource() }, null, onClick = { onClick(app) }, onLongClick = { onLongClick(app) })
             ) {
-                if (a != null) {
-                    Box(Modifier.size(RowIcon), contentAlignment = Alignment.Center) {
-                        Box(Modifier.size(52.dp).clip(CircleShape).background(ButtonFill), contentAlignment = Alignment.Center) {
+                Box(Modifier.size(icon)) { app.iconBitmap?.let { Image(it, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) } }
+                Spacer(Modifier.height(6.dp))
+                Text(app.displayLabel, style = IosText.iconLabel.copy(color = Color.White, fontWeight = FontWeight.Medium, fontSize = 12.sp), maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, modifier = Modifier.requiredWidth(icon + 18.dp))
+            }
+            actions.take(3).forEach { a ->
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.width(icon).clickable(remember { MutableInteractionSource() }, null) { onAction(a) }
+                ) {
+                    Box(Modifier.size(icon), contentAlignment = Alignment.Center) {
+                        Box(Modifier.size(icon * 0.86f).clip(CircleShape).background(ButtonFill), contentAlignment = Alignment.Center) {
                             when {
-                                a.glyph != null -> Image(a.glyph, null, colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(Color.White), modifier = Modifier.size(28.dp))
-                                a.icon != null -> Image(a.icon, null, modifier = Modifier.size(30.dp))
-                                else -> Icon(Icons.Rounded.Search, null, tint = Color.White, modifier = Modifier.size(26.dp))
+                                a.glyph != null -> Image(a.glyph, null, colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(Color.White), modifier = Modifier.size(icon * 0.42f))
+                                a.icon != null -> Image(a.icon, null, modifier = Modifier.size(icon * 0.45f))
+                                else -> Icon(Icons.Rounded.Search, null, tint = Color.White, modifier = Modifier.size(icon * 0.4f))
                             }
                         }
                     }
-                    Spacer(Modifier.height(5.dp))
-                    Text(a.label, style = IosText.iconLabel.copy(color = Color.White, fontWeight = FontWeight.SemiBold), maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 3.dp))
+                    Spacer(Modifier.height(6.dp))
+                    Text(a.label, style = IosText.iconLabel.copy(color = Color.White, fontWeight = FontWeight.Medium, fontSize = 12.sp), maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, modifier = Modifier.requiredWidth(icon + 18.dp))
                 }
             }
         }
@@ -846,11 +933,11 @@ private fun Calculator(q: String, mathResult: String, strings: IosStrings, hs: H
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
-            .padding(horizontal = 12.dp)
+            .padding(horizontal = CardMargin)
             .fillMaxWidth()
-            .clip(RoundedCornerShape(26.dp))
+            .clip(CardShape)
             .background(CardFill)
-            .border(0.6.dp, CardRim, RoundedCornerShape(26.dp))
+            .border(0.6.dp, CardRim, CardShape)
             .clickable(remember { MutableInteractionSource() }, null) {
                 clipboard.setText(androidx.compose.ui.text.AnnotatedString(calc?.plain ?: mathResult))
                 haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)

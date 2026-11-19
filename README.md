@@ -8,6 +8,12 @@ Ein maßgeschneiderter, werbefreier und kostenloser **iOS-Style Homescreen-Launc
 
 ---
 
+## Neu in v5.10.1 – Suche wie auf dem iPhone, Teil 2
+- **Die „Suchen“-Pille wird zum Suchfeld**: Sie wächst an ihrer Stelle in die Breite, wird zum Feld und fährt mit der Tastatur hoch; beim Schließen schrumpft sie wieder in die Pille.
+- **Hintergrund wie beim iPhone**: viel stärker verschwommen und dunkel, ohne erkennbare Formen oder Farbflecken.
+- **Siri-Vorschläge und Toptreffer**: schmalere Karte mit mehr Rand, Icons füllen sie fast aus, leichtere Beschriftung, rundere Ecken, Karte heller abgesetzt.
+- Suchfeld etwas höher, wie beim iPhone.
+
 ## Neu in v5.10.0 – Suche und App-Mediathek wie auf dem iPhone
 - **Spotlight neu gebaut**: Der Home-Bildschirm verschwimmt dahinter, das Suchfeld wächst aus der „Suchen“-Pille und sitzt direkt über der Tastatur. Ohne Eingabe: „Siri-Vorschläge“ (8 Apps, Weniger/Mehr) und Kurzbefehl-Vorschläge der Apps.
 - **Beim Tippen**: „Toptreffer“ mit bis zu drei Schnellaktionen der App als runde Glas-Knöpfe, „Vorschläge“ (Websuche ↗), „Einstellungen“ (Systemseiten wie WLAN, Bluetooth, Akku … und „Einstellungen für X öffnen“), Apps mit „Mehr“, Kontakte, **Dateien** und **Fotos**, „Mehr Ergebnisse anzeigen“ und „In Apps suchen“. Im Feld steht die Vervollständigung („gm — Google Maps“), Return öffnet sie; das Mikrofon diktiert.
