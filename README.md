@@ -8,6 +8,11 @@ Ein maßgeschneiderter, werbefreier und kostenloser **iOS-Style Homescreen-Launc
 
 ---
 
+## Neu in v5.12.1 – Richtige Namen und Icons bei Galerien
+- iOS-Icons und -Namen bekommen nur noch die vorinstallierten Apps des Handys. Apps aus dem Store behalten ihr Icon und ihren Namen: „Edge Gallery“ (KI) ist nicht mehr „Fotos“, nur weil im Paketnamen „gallery“ steht.
+- Haben zwei Apps denselben Namen, steht der Hersteller davor: „Samsung Galerie“ und „Google Fotos“ statt zweimal „Fotos“ (gilt für alle doppelten Namen). Selbst vergebene Namen bleiben unverändert.
+- Die Icons werden dafür einmal neu gezeichnet.
+
 ## Neu in v5.12.0 – Text markieren wie auf dem iPhone
 - **Notizen**: Markierter Text ist gelb hinterlegt mit iOS-Griffen (Strich mit Punkt oben am Anfang, unten am Ende). Darüber erscheint die Glas-Kapsel „Ausschneiden | Kopieren | Einsetzen | ›“; der Pfeil öffnet die Karte mit den drei Symbol-Knöpfen und Löschen, Format › (Fett, Kursiv, Unterstrichen, Durchgestrichen), Datei anhängen, Auswahl suchen, Teilen, Aktionen anderer Apps (z. B. Übersetzen) und Alles auswählen.
 - Ein Tipp auf den Cursor zeigt „Auswählen | Alles auswählen | Einsetzen“, ein zweiter Tipp blendet es aus; Tippen schließt das Menü.

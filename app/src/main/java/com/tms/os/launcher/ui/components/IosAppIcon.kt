@@ -102,8 +102,8 @@ fun IosAppIcon(
     modifier: Modifier = Modifier
 ) {
     val settings = LocalLauncherSettings.current
-    val isClock = settings.useIosSystemIcons && (app.packageName.contains("deskclock") || app.packageName.contains("clockpackage") || app.packageName.endsWith(".clock"))
-    val isCalendar = settings.useIosSystemIcons && app.packageName.contains("calendar")
+    val isClock = settings.useIosSystemIcons && app.isSystemApp && (app.packageName.contains("deskclock") || app.packageName.contains("clockpackage") || app.packageName.endsWith(".clock"))
+    val isCalendar = settings.useIosSystemIcons && app.isSystemApp && app.packageName.contains("calendar")
     var displayedIcon by remember(app.iconBitmap) { mutableStateOf(app.iconBitmap) }
     // Live clock hands and today's date – only while the home screen is in front.
     com.tms.os.launcher.ui.theme.WhileResumed(app.packageName, isClock, isCalendar, settings.iconThemeMode, settings.tintAccentColor, settings.appLanguage) {

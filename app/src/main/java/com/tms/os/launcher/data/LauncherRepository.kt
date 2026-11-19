@@ -224,7 +224,10 @@ class LauncherRepository(private val context: Context) {
 
             // Rendered once per app version and icon style, then kept in memory and on disk.
             // Only the calendar icon depends on the day.
-            val cacheKey = "${pkg}_${settings.useIosSystemIcons}_${settings.fullBleedAdaptiveIcons}_${settings.iconThemeMode.id}_${settings.tintAccentColor.id}_${settings.appLanguage.code}_${packageInfo?.lastUpdateTime ?: 0L}_${if (pkg.contains("calendar")) today else ""}"
+            // iOS icons and names replace the phone's own (preinstalled) apps only; apps from the
+            // store keep their look ("Edge Gallery" is no "Fotos").
+            val iosLook = (settings.useIosSystemIcons && isSystem) || isNotes
+            val cacheKey = "v2_${pkg}_${iosLook}_${settings.fullBleedAdaptiveIcons}_${settings.iconThemeMode.id}_${settings.tintAccentColor.id}_${settings.appLanguage.code}_${packageInfo?.lastUpdateTime ?: 0L}_${if (pkg.contains("calendar")) today else ""}"
             usedKeys.add(cacheKey)
             val iconBitmap = iconCache[cacheKey] ?: (
                 diskIcons.read(pkg, cacheKey) ?: try {
@@ -233,7 +236,7 @@ class LauncherRepository(private val context: Context) {
                         label = rawLabel,
                         drawable = ri.loadIcon(pm),
                         sizePx = 192,
-                        useIosSystemIcons = settings.useIosSystemIcons || isNotes,
+                        useIosSystemIcons = iosLook,
                         fullBleedAdaptive = settings.fullBleedAdaptiveIcons,
                         themeMode = settings.iconThemeMode,
                         tintAccent = settings.tintAccentColor,
@@ -253,8 +256,9 @@ class LauncherRepository(private val context: Context) {
                         com.tms.os.launcher.model.AppLanguage.TR -> "Notlar"
                         else -> "Notizen"
                     }
-                    else if (settings.useIosSystemIcons) com.tms.os.launcher.domain.IosSystemIcons.localizedLabel(pkg, rawLabel, settings.appLanguage)
+                    else if (iosLook) com.tms.os.launcher.domain.IosSystemIcons.localizedLabel(pkg, rawLabel, settings.appLanguage)
                     else rawLabel,
+                originalLabel = rawLabel,
                 customLabel = customLabels[pkg],
                 category = category,
                 isSystemApp = isSystem,
@@ -283,7 +287,42 @@ class LauncherRepository(private val context: Context) {
         iconCache.keys.retainAll(usedKeys)
         android.util.Log.i("TmsOs", "apps: ${result.size} loaded in ${android.os.SystemClock.elapsedRealtime() - startedAt} ms")
 
-        result.sortedBy { it.displayLabel.lowercase(Locale.ROOT) }
+        withMakerNames(result).sortedBy { it.displayLabel.lowercase(Locale.ROOT) }
+    }
+
+    /**
+     * Two apps with the same name (Samsung's gallery shown as "Fotos" next to
+     * Google's "Fotos"): each gets its maker in front of its own name, e.g.
+     * "Samsung Galerie" and "Google Fotos". Names the user set are kept.
+     */
+    private fun withMakerNames(apps: List<AppInfo>): List<AppInfo> {
+        val groups = apps.filter { it.customLabel.isNullOrBlank() }.groupBy { it.label.trim().lowercase(Locale.ROOT) }.filterValues { it.size > 1 }
+        if (groups.isEmpty()) return apps
+        val renamed = HashMap<String, String>()
+        groups.values.forEach { group ->
+            group.forEach { app ->
+                val own = app.originalLabel.ifBlank { app.label }.trim()
+                val maker = makerOf(app.packageName)
+                renamed[app.packageName] = when {
+                    maker == null -> own
+                    own.startsWith(maker, ignoreCase = true) -> own
+                    else -> "$maker $own"
+                }
+            }
+        }
+        return apps.map { a -> renamed[a.packageName]?.let { a.copy(label = it) } ?: a }
+    }
+
+    private fun makerOf(pkg: String): String? = when {
+        pkg.startsWith("com.google.") || pkg.startsWith("com.android.chrome") -> "Google"
+        pkg.startsWith("com.samsung.") || pkg.startsWith("com.sec.") -> "Samsung"
+        pkg.startsWith("com.microsoft.") -> "Microsoft"
+        pkg.startsWith("com.huawei.") -> "Huawei"
+        pkg.startsWith("com.miui.") || pkg.startsWith("com.xiaomi.") -> "Xiaomi"
+        pkg.startsWith("com.oneplus.") -> "OnePlus"
+        pkg.startsWith("com.motorola.") -> "Motorola"
+        pkg == NOTES_PKG -> "TMS"
+        else -> pkg.split('.').getOrNull(1)?.replaceFirstChar { it.uppercase() }
     }
 
     private fun createFallbackBitmap(sizePx: Int): ImageBitmap {

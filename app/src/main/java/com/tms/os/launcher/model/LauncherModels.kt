@@ -159,6 +159,8 @@ data class AppInfo(
     val activityName: String,
     val label: String,
     val customLabel: String? = null,
+    /** The app's own name, before the iOS name ("Galerie" for Samsung's gallery shown as "Fotos"). */
+    val originalLabel: String = "",
     val category: AppCategory,
     val isSystemApp: Boolean,
     val firstInstallTime: Long,
