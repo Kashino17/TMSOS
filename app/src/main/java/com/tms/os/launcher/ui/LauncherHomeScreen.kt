@@ -249,6 +249,8 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                     viewModel.refreshScreenTime()
                     viewModel.refreshSolvado()
                     viewModel.refreshSpotlightAccess()
+                    // Notes may have changed in the Notes app: the widget and Spotlight re-read them.
+                    com.tms.os.launcher.notes.NoteStore.get(context).reloadIfChanged()
                     scope.launch { refreshStatusBarTone() }
                     if (loadingNow) leftToApp = false
                     else if (leftToApp || homeZoom.value != 1f) {
@@ -1307,7 +1309,7 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
         }
         val spotlightExtras = remember(
             state.spotlightTopActions, state.spotlightSuggestedActions, state.spotlightSettings,
-            state.spotlightFiles, state.spotlightPhotos, state.spotlightPhotoAccess, state.spotlightFileAccess, state.appMap
+            state.spotlightFiles, state.spotlightPhotos, state.spotlightPhotoAccess, state.spotlightFileAccess, state.appMap, state.spotlightNotes
         ) {
             com.tms.os.launcher.ui.home.SpotlightExtras(
                 topActions = state.spotlightTopActions,
@@ -1315,6 +1317,8 @@ private fun LauncherHomeContent(viewModel: LauncherViewModel, onOpenSettingsActi
                 settings = state.spotlightSettings,
                 files = state.spotlightFiles,
                 photos = state.spotlightPhotos,
+                notes = state.spotlightNotes,
+                onNote = { id -> leftToApp = true; viewModel.openSpotlightNote(id) },
                 mediaAccess = state.spotlightPhotoAccess && state.spotlightFileAccess,
                 iconOf = { pkg -> state.appMap[pkg]?.iconBitmap },
                 thumbnail = { uri, px -> viewModel.spotlightContent.thumbnail(uri, px) },

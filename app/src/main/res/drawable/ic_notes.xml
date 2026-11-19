@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- iOS-style Notes icon: white page, yellow header, ruled lines. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:fillColor="#FFFFFF" android:pathData="M30,18h48a12,12 0 0,1 12,12v48a12,12 0 0,1 -12,12h-48a12,12 0 0,1 -12,-12v-48a12,12 0 0,1 12,-12z" />
+    <path android:fillColor="#FFD60A" android:pathData="M30,18h48a12,12 0 0,1 12,12v8h-72v-8a12,12 0 0,1 12,-12z" />
+    <path android:fillColor="#D6D6DB" android:pathData="M18,52h72v1.6h-72z M18,64h72v1.6h-72z M18,76h72v1.6h-72z" />
+    <path android:fillColor="#B9B9BF" android:pathData="M27,45m-1.6,0a1.6,1.6 0 1,0 3.2,0a1.6,1.6 0 1,0 -3.2,0 M35,45m-1.6,0a1.6,1.6 0 1,0 3.2,0a1.6,1.6 0 1,0 -3.2,0 M43,45m-1.6,0a1.6,1.6 0 1,0 3.2,0a1.6,1.6 0 1,0 -3.2,0 M51,45m-1.6,0a1.6,1.6 0 1,0 3.2,0a1.6,1.6 0 1,0 -3.2,0 M59,45m-1.6,0a1.6,1.6 0 1,0 3.2,0a1.6,1.6 0 1,0 -3.2,0 M67,45m-1.6,0a1.6,1.6 0 1,0 3.2,0a1.6,1.6 0 1,0 -3.2,0 M75,45m-1.6,0a1.6,1.6 0 1,0 3.2,0a1.6,1.6 0 1,0 -3.2,0 M83,45m-1.6,0a1.6,1.6 0 1,0 3.2,0a1.6,1.6 0 1,0 -3.2,0" />
+</vector>

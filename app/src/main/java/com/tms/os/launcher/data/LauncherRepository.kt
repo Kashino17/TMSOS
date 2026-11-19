@@ -200,7 +200,9 @@ class LauncherRepository(private val context: Context) {
 
         fun build(ri: android.content.pm.ResolveInfo): AppInfo? {
             val activityInfo = ri.activityInfo ?: return null
-            val pkg = activityInfo.packageName ?: return null
+            // The built-in Notes app shares the launcher's APK but is its own app on the home screen.
+            val isNotes = activityInfo.packageName == context.packageName && activityInfo.name == NOTES_ACTIVITY
+            val pkg = if (isNotes) NOTES_PKG else activityInfo.packageName ?: return null
 
             val rawLabel = try {
                 ri.loadLabel(pm)?.toString()?.trim().takeUnless { it.isNullOrEmpty() } ?: pkg
@@ -230,7 +232,7 @@ class LauncherRepository(private val context: Context) {
                         label = rawLabel,
                         drawable = ri.loadIcon(pm),
                         sizePx = 192,
-                        useIosSystemIcons = settings.useIosSystemIcons,
+                        useIosSystemIcons = settings.useIosSystemIcons || isNotes,
                         fullBleedAdaptive = settings.fullBleedAdaptiveIcons,
                         themeMode = settings.iconThemeMode,
                         tintAccent = settings.tintAccentColor,
@@ -245,6 +247,11 @@ class LauncherRepository(private val context: Context) {
                 packageName = pkg,
                 activityName = activityInfo.name ?: "",
                 label = if (pkg == context.packageName) "TMS OS"
+                    else if (isNotes) when (settings.appLanguage) {
+                        com.tms.os.launcher.model.AppLanguage.EN -> "Notes"
+                        com.tms.os.launcher.model.AppLanguage.TR -> "Notlar"
+                        else -> "Notizen"
+                    }
                     else if (settings.useIosSystemIcons) com.tms.os.launcher.domain.IosSystemIcons.localizedLabel(pkg, rawLabel, settings.appLanguage)
                     else rawLabel,
                 customLabel = customLabels[pkg],
@@ -262,7 +269,10 @@ class LauncherRepository(private val context: Context) {
         }
 
         // Labels, package info and icons of all apps, on four workers side by side.
-        val unique = resolveInfos.filter { it.activityInfo?.packageName != null }.distinctBy { it.activityInfo.packageName }
+        // One entry per app; the built-in Notes app counts as its own app next to "TMS OS".
+        val unique = resolveInfos.filter { it.activityInfo?.packageName != null }.distinctBy {
+            if (it.activityInfo.packageName == context.packageName && it.activityInfo.name == NOTES_ACTIVITY) NOTES_PKG else it.activityInfo.packageName
+        }
         val result = kotlinx.coroutines.coroutineScope {
             unique.chunked(((unique.size + 3) / 4).coerceAtLeast(1)).map { chunk ->
                 async(Dispatchers.Default) { chunk.mapNotNull { build(it) } }
@@ -1176,6 +1186,11 @@ class LauncherRepository(private val context: Context) {
 
     fun launchApp(packageName: String, options: android.os.Bundle? = null): Boolean {
         return try {
+            if (packageName == NOTES_PKG) {
+                context.startActivity(Intent(context, com.tms.os.launcher.notes.NotesActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), options)
+                recordAppLaunch(packageName)
+                return true
+            }
             if (packageName == context.packageName) {
                 val intent = Intent(context, Class.forName("com.tms.os.launcher.SettingsActivity")).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -1240,7 +1255,7 @@ class LauncherRepository(private val context: Context) {
     fun openAppSystemSettings(packageName: String) {
         try {
             val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                data = Uri.fromParts("package", packageName, null)
+                data = Uri.fromParts("package", if (packageName == NOTES_PKG) context.packageName else packageName, null)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.startActivity(intent)
@@ -1249,6 +1264,8 @@ class LauncherRepository(private val context: Context) {
     }
 
     fun requestUninstallApp(packageName: String) {
+        // Notes is part of TMS OS: it can be removed from the home screen, not uninstalled.
+        if (packageName == NOTES_PKG) return
         try {
             val intent = Intent(Intent.ACTION_DELETE).apply {
                 data = Uri.fromParts("package", packageName, null)
@@ -1310,3 +1327,8 @@ private class DiskIconCache(context: Context) {
         }
     }
 }
+
+
+/** The built-in Notes app: shown as its own app although it lives in the launcher's APK. */
+const val NOTES_PKG = "com.tms.os.launcher.notes"
+const val NOTES_ACTIVITY = "com.tms.os.launcher.notes.NotesActivity"

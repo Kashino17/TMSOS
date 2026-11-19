@@ -12,8 +12,8 @@ android {
         applicationId = "com.tms.os.launcher"
         minSdk = 28
         targetSdk = 35
-        versionCode = 28
-        versionName = "5.10.1"
+        versionCode = 29
+        versionName = "5.11.0"
     }
 
     buildTypes {
@@ -61,4 +61,6 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.window:window:1.3.0")
+    // Notes: "Dokumente scannen" (Google's document scanner from Play services).
+    implementation("com.google.android.gms:play-services-mlkit-document-scanner:16.0.0-beta1")
 }

@@ -69,6 +69,36 @@
             </intent-filter>
         </activity>
 
+        <!-- TMS OS Notes: an own app in the launcher's APK (always installed). -->
+        <activity
+            android:name=".notes.NotesActivity"
+            android:exported="true"
+            android:label="Notizen"
+            android:icon="@drawable/ic_notes"
+            android:roundIcon="@drawable/ic_notes"
+            android:taskAffinity="com.tms.os.launcher.notes"
+            android:process=":notes"
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
+            android:theme="@style/Theme.TMSOSLauncher">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Lets the camera app write "Foto aufnehmen" straight into the note's storage. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.notes.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/notes_paths" />
+        </provider>
+
         <!-- Notification Badge Listener Service -->
         <service
             android:name=".service.BadgeNotificationService"

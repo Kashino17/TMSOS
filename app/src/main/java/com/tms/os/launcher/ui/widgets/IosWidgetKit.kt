@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -887,10 +888,14 @@ private fun Modifier.pointerTap(onTap: () -> Unit): Modifier =
 @Composable
 private fun NotesWidget(family: WidgetSize, env: WidgetEnv) {
     val dark = env.dark
-    val text = env.note.trim()
-    val title = text.lineSequence().firstOrNull().orEmpty().ifBlank { env.strings.notesEmpty }
-    val body = text.lineSequence().drop(1).joinToString(" ").trim()
-    val date = remember(env.language) { SimpleDateFormat("dd.MM.yy", env.locale).format(Date()) }
+    // The latest notes of the built-in Notes app (written by its own process, re-read here).
+    val store = com.tms.os.launcher.notes.NoteStore.get(androidx.compose.ui.platform.LocalContext.current)
+    LaunchedEffect(Unit) { store.reloadIfChanged() }
+    val notesState by store.state.collectAsState()
+    val notes = remember(notesState) {
+        notesState.live.sortedWith(compareByDescending<com.tms.os.launcher.notes.Note> { it.pinned }.thenByDescending { it.modifiedAt })
+    }
+    val count = when (family) { WidgetSize.SMALL -> 1; WidgetSize.MEDIUM -> 2; else -> 6 }
     Box(Modifier.fillMaxSize().background(bg(dark))) {
         Column(Modifier.fillMaxSize()) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 14.dp, top = 12.dp, end = 14.dp)) {
@@ -903,11 +908,24 @@ private fun NotesWidget(family: WidgetSize, env: WidgetEnv) {
             }
             Spacer(Modifier.height(8.dp))
             Box(Modifier.fillMaxWidth().height(0.5.dp).background(fg2(dark).copy(alpha = 0.25f)))
-            Column(Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
-                Text(title, style = ts(15.sp, FontWeight.SemiBold, fg(dark)), maxLines = if (family == WidgetSize.SMALL) 2 else 1, overflow = TextOverflow.Ellipsis)
-                Spacer(Modifier.height(2.dp))
-                Text(date, style = ts(13.sp, FontWeight.Normal, fg2(dark)))
-                if (body.isNotEmpty()) Text(body, style = ts(13.sp, FontWeight.Normal, fg2(dark)), maxLines = 3, overflow = TextOverflow.Ellipsis)
+            if (notes.isEmpty()) {
+                // No notes yet: the old quick note, or "Keine Notiz".
+                val text = env.note.trim()
+                Column(Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
+                    Text(text.lineSequence().firstOrNull().orEmpty().ifBlank { env.strings.notesEmpty }, style = ts(15.sp, FontWeight.SemiBold, fg(dark)), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+            } else Column(Modifier.padding(horizontal = 14.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(if (family == WidgetSize.SMALL) 2.dp else 7.dp)) {
+                notes.take(count).forEachIndexed { i, n ->
+                    Column {
+                        Text(n.title.ifEmpty { "Neue Notiz" }, style = ts(if (family == WidgetSize.SMALL) 15.sp else 14.sp, FontWeight.SemiBold, fg(dark)), maxLines = if (family == WidgetSize.SMALL) 2 else 1, overflow = TextOverflow.Ellipsis)
+                        Row {
+                            Text(com.tms.os.launcher.notes.listDate(n.modifiedAt), style = ts(12.sp, FontWeight.Normal, fg(dark)))
+                            Spacer(Modifier.width(5.dp))
+                            Text(if (n.locked) "Gesperrt" else n.preview ?: "Kein zusätzlicher Text", style = ts(12.sp, FontWeight.Normal, fg2(dark)), maxLines = if (family == WidgetSize.SMALL) 3 else 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                    if (family != WidgetSize.SMALL && i != minOf(count, notes.size) - 1) Box(Modifier.fillMaxWidth().height(0.5.dp).background(fg2(dark).copy(alpha = 0.2f)))
+                }
             }
         }
     }

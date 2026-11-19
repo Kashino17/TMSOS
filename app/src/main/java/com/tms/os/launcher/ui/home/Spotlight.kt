@@ -145,6 +145,9 @@ private val Side = 20.dp
 private val RowIcon = 58.dp
 private val SmallIcon = 30.dp
 
+/** A note from the built-in Notes app. */
+data class SpotlightNoteHit(val id: String, val title: String, val subtitle: String, val folder: String)
+
 /** Everything Spotlight can find besides apps, plus how to open it. */
 class SpotlightExtras(
     val topActions: List<AppQuickAction> = emptyList(),
@@ -152,6 +155,8 @@ class SpotlightExtras(
     val settings: List<SettingsHit> = emptyList(),
     val files: List<FileHit> = emptyList(),
     val photos: List<PhotoHit> = emptyList(),
+    val notes: List<SpotlightNoteHit> = emptyList(),
+    val onNote: (String?) -> Unit = {},
     val mediaAccess: Boolean = true,
     val iconOf: (String) -> ImageBitmap? = { null },
     val thumbnail: (Uri, Int) -> ImageBitmap? = { _, _ -> null },
@@ -623,6 +628,37 @@ private fun Results(
             }
         }
         Spacer(Modifier.height(16.dp))
+    }
+
+    // ---------------------------------------------------------------- Notizen
+    if (extras.notes.isNotEmpty()) {
+        Header("Notizen", hs.searchInApp, onAction = { extras.onNote(null) })
+        val shown = extras.notes.take(if (moreResults) 12 else 3)
+        if (extras.notes.size > shown.size) truncated = true
+        val notesIcon = extras.iconOf("com.tms.os.launcher.notes")
+        shown.forEachIndexed { i, n ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(remember { MutableInteractionSource() }, null) { extras.onNote(n.id) }
+                    .padding(start = Side)
+            ) {
+                Box(Modifier.size(RowIcon), contentAlignment = Alignment.Center) {
+                    notesIcon?.let { Image(it, null, modifier = Modifier.size(44.dp)) }
+                }
+                Spacer(Modifier.width(13.dp))
+                Box(Modifier.weight(1f).padding(end = Side)) {
+                    Column(Modifier.padding(vertical = 14.dp)) {
+                        Text(n.title, style = IosText.headline.copy(color = Color.White, fontWeight = FontWeight.Bold), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(n.subtitle, style = IosText.subheadline.copy(color = Secondary), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (n.folder.isNotEmpty()) Text(n.folder, style = IosText.subheadline.copy(color = Secondary), maxLines = 1)
+                    }
+                    if (i != shown.lastIndex) Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(0.5.dp).background(Hairline))
+                }
+            }
+        }
+        Spacer(Modifier.height(18.dp))
     }
 
     // ---------------------------------------------------------------- Dateien

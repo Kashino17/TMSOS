@@ -8,6 +8,17 @@ Ein maßgeschneiderter, werbefreier und kostenloser **iOS-Style Homescreen-Launc
 
 ---
 
+## Neu in v5.11.0 – Notizen-App wie auf dem iPhone
+- **Eigene Notizen-App in TMS OS**, immer installiert (App „Notizen“ mit iPhone-Icon in der App-Mediathek, auf den Home-Bildschirm legbar). Gestaltet nach der Notizen-App aus iOS 26, hell und dunkel.
+- **Ordner**: „Auf meinem Gerät“ (einklappbar), „Alle auf meinem Gerät“, „Notizen“, eigene Ordner mit Anzahl, „Zuletzt gelöscht“ (30 Tage). Neuer Ordner, „Bearbeiten“ zum Umbenennen und Löschen.
+- **Notizliste**: großer Titel mit Anzahl, Gruppen nach Datum (Heute, Gestern, Vorherige 7/30 Tage, Monate), „Angeheftet“. Wischen nach rechts heftet an, nach links: Bewegen, Löschen. Langes Drücken: Menü. „…“: Notizen auswählen, Sortieren, Gruppieren, Ordner umbenennen. Suche und Neue-Notiz-Knopf unten.
+- **Editor**: Datum oben, erste Zeile als Titel, gelber „Fertig“-Haken, Rückgängig, Teilen. Über der Tastatur: Aa, Checkliste, Tabelle, Anhang, Zeichnen. **Format**: Titel, Überschrift, Unterüberschrift, Text, Monostil; fett, kursiv, unterstrichen, durchgestrichen, Markierung, Textfarbe; Aufzählung, Strich-Liste, Nummerierung, Einrücken, Zitat. Listen laufen beim Zeilenumbruch weiter.
+- **Checklisten** zum Abhaken, **Tabellen** (Zeilen/Spalten einfügen und löschen), **Fotos** (auswählen oder aufnehmen), **Dokumente scannen**, **Zeichnen** (Stift, Marker, Bleistift, Radierer, Farben).
+- **Notiz sperren** mit Touch ID; gesperrte Notizen zeigen in Listen nur „Gesperrt“.
+- **Spotlight findet Notizen** (Titel und Inhalt, gesperrte nicht).
+- **Notizen-Widget** zeigt jetzt die neuesten Notizen der App.
+- Notizen läuft in einem eigenen Prozess: ein Fehler dort kann den Home-Bildschirm nicht mitreißen.
+
 ## Neu in v5.10.1 – Suche wie auf dem iPhone, Teil 2
 - **Die „Suchen“-Pille wird zum Suchfeld**: Sie wächst an ihrer Stelle in die Breite, wird zum Feld und fährt mit der Tastatur hoch; beim Schließen schrumpft sie wieder in die Pille.
 - **Hintergrund wie beim iPhone**: viel stärker verschwommen und dunkel, ohne erkennbare Formen oder Farbflecken.

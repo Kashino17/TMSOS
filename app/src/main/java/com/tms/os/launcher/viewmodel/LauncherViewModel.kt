@@ -63,6 +63,8 @@ data class LauncherUiState(
     val spotlightFiles: List<com.tms.os.launcher.data.FileHit> = emptyList(),
     val spotlightPhotos: List<com.tms.os.launcher.data.PhotoHit> = emptyList(),
     val spotlightPhotoAccess: Boolean = false,
+    /** Matching notes of the built-in Notes app (never locked ones). */
+    val spotlightNotes: List<com.tms.os.launcher.ui.home.SpotlightNoteHit> = emptyList(),
     val spotlightFileAccess: Boolean = false,
     val weatherForecast: com.tms.os.launcher.domain.WeatherForecast? = null,
     val isDefaultLauncher: Boolean = false,
@@ -588,6 +590,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun openSpotlight() {
+        com.tms.os.launcher.notes.NoteStore.get(getApplication()).reloadIfChanged()
         val apps = _uiState.value.allApps
         _uiState.update {
             it.copy(
@@ -613,6 +616,33 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             }
             _uiState.update { if (it.isSpotlightOpen) it.copy(spotlightSuggestedActions = rows) else it }
         }
+    }
+
+    /** Notes whose text matches; locked notes stay out of Spotlight entirely. */
+    private fun searchNotesForSpotlight(query: String): List<com.tms.os.launcher.ui.home.SpotlightNoteHit> {
+        if (query.isBlank()) return emptyList()
+        val notes = com.tms.os.launcher.notes.NoteStore.get(getApplication()).state.value
+        val open = notes.live.filterNot { it.locked }
+        return com.tms.os.launcher.notes.searchNotes(open, query).take(12).map { n ->
+            com.tms.os.launcher.ui.home.SpotlightNoteHit(
+                id = n.id,
+                title = n.title.ifEmpty { "Neue Notiz" },
+                subtitle = com.tms.os.launcher.notes.listDate(n.modifiedAt) + "  " + (matchLine(n, query) ?: n.preview ?: "Kein zusätzlicher Text"),
+                folder = notes.folderName(n.folderId)
+            )
+        }
+    }
+
+    private fun matchLine(n: com.tms.os.launcher.notes.Note, query: String): String? {
+        val q = query.trim()
+        return n.blocks.filterIsInstance<com.tms.os.launcher.notes.NoteBlock.Text>()
+            .flatMap { it.rich.text.split('\n') }.drop(1)
+            .firstOrNull { it.contains(q, ignoreCase = true) }?.trim()
+    }
+
+    fun openSpotlightNote(id: String?) {
+        com.tms.os.launcher.notes.NotesActivity.open(getApplication(), id)
+        closeSpotlight()
     }
 
     fun openSpotlightSetting(hit: com.tms.os.launcher.data.SettingsHit) { spotlightContent.open(hit); closeSpotlight() }
@@ -772,7 +802,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 spotlightMathResult = null,
                 spotlightSettings = emptyList(),
                 spotlightFiles = emptyList(),
-                spotlightPhotos = emptyList()
+                spotlightPhotos = emptyList(),
+                spotlightNotes = emptyList()
             )
         }
     }
@@ -795,6 +826,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             )
         }
         val appPairs = results.take(4).map { it.packageName to it.displayLabel }
+        _uiState.update { it.copy(spotlightNotes = searchNotesForSpotlight(query)) }
         _uiState.update { it.copy(spotlightSettings = spotlightContent.searchSettings(query, appPairs)) }
         spotlightMediaJob?.cancel()
         if (query.trim().length < 2) {
