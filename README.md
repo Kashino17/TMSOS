@@ -8,6 +8,10 @@ Ein maßgeschneiderter, werbefreier und kostenloser **iOS-Style Homescreen-Launc
 
 ---
 
+## Neu in v5.12.8 – Kurzbefehl-Symbole in der Suche
+- Behoben: Kurzbefehle mancher Apps (z. B. ChatGPT: Bilder, Kamera, Audio) zeigten in der Suche und im Haptic-Touch-Menü nur ein weißes Quadrat. Diese Apps legen die Platte mit in das Symbolbild; TMS OS erkennt das jetzt und zeigt nur das eigentliche Symbol.
+- Auch kein blasses Quadrat mehr hinter Symbolen wie bei Chrome („Neuer Tab“, „Inkognito“). Lässt sich kein Symbol finden, erscheint das App-Icon statt eines weißen Feldes.
+
 ## Neu in v5.12.7 – Große Icons verschwinden schneller
 - Beim Öffnen eines Ordners in der App-Mediathek verschwinden dessen große Icons jetzt sofort (nach einem Viertel der Animation) statt langsam mit der Mediathek auszublenden. Beim Schließen kommen sie erst ganz am Ende zurück.
 

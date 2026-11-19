@@ -359,15 +359,7 @@ class LauncherRepository(private val context: Context) {
                     info.categories?.contains(android.content.pm.ShortcutInfo.SHORTCUT_CATEGORY_CONVERSATION) == true
                 val photo = conversation || (d != null && !info.isDeclaredInManifest && isBitmapIcon(d) && looksLikePhoto(d))
                 val icon = d?.let { runCatching { if (photo) renderPhoto(it) else renderIcon(it) }.getOrNull() }
-                val glyph = if (photo || d == null) null else runCatching {
-                    (d as? android.graphics.drawable.AdaptiveIconDrawable)?.foreground?.let { fg ->
-                        // The symbol sits in the middle third of the 108dp layer: draw it 1.6x so it fills the bitmap.
-                        val px = (28 * context.resources.displayMetrics.density).toInt().coerceAtLeast(1)
-                        val bmp = Bitmap.createBitmap(px, px, Bitmap.Config.ARGB_8888)
-                        val extra = (px * 0.3f).toInt()
-                        fg.setBounds(-extra, -extra, px + extra, px + extra); fg.draw(android.graphics.Canvas(bmp)); bmp.asImageBitmap()
-                    }
-                }.getOrNull() ?: runCatching { glyphFromPlate(d) }.getOrNull()
+                val glyph = if (photo || d == null) null else runCatching { shortcutGlyph(d) }.getOrNull()
                 com.tms.os.launcher.model.AppQuickAction(info.`package`, info.id, (info.shortLabel ?: info.longLabel ?: "").toString(), icon, glyph, photo)
             }
             .filter { it.label.isNotBlank() }
@@ -445,31 +437,65 @@ class LauncherRepository(private val context: Context) {
      * Chrome's "+"): every pixel that differs from the plate colour becomes white,
      * the plate itself becomes transparent. Icons without a plate keep their outline.
      */
-    private fun glyphFromPlate(d: android.graphics.drawable.Drawable): androidx.compose.ui.graphics.ImageBitmap? {
+    /**
+     * A shortcut's symbol as a white mask (the UI tints it). Adaptive icons: the foreground
+     * layer, drawn 1.6x because the symbol sits in its middle third; other icons: the whole
+     * drawable, zoomed when it sits on a plate.
+     * Some apps (ChatGPT) bake the plate into the foreground; tinting that would give a white
+     * square, so a mostly opaque picture is read as "symbol on plate": the plate is its most
+     * common colour and the symbol is whatever stands out from it.
+     */
+    private fun shortcutGlyph(d: android.graphics.drawable.Drawable): androidx.compose.ui.graphics.ImageBitmap? {
         val px = (28 * context.resources.displayMetrics.density).toInt().coerceAtLeast(8)
         val src = Bitmap.createBitmap(px, px, Bitmap.Config.ARGB_8888)
-        d.setBounds(0, 0, px, px); d.draw(android.graphics.Canvas(src))
+        val canvas = android.graphics.Canvas(src)
+        val fg = (d as? android.graphics.drawable.AdaptiveIconDrawable)?.foreground
+        if (fg != null) {
+            val extra = (px * 0.3f).toInt()
+            fg.setBounds(-extra, -extra, px + extra, px + extra); fg.draw(canvas)
+        } else {
+            d.setBounds(0, 0, px, px); d.draw(canvas)
+        }
         val pixels = IntArray(px * px).also { src.getPixels(it, 0, px, 0, 0, px, px) }
         src.recycle()
-        val plate = pixels[(px * 0.14f).toInt() * px + px / 2]
-        val hasPlate = (plate ushr 24) > 200
-        val pr = plate shr 16 and 255; val pg = plate shr 8 and 255; val pb = plate and 255
-        var any = false
+
+        // Plate or not: how much of the picture is solid, and its most common solid colour.
+        val counts = HashMap<Int, Int>()
+        var solid = 0
+        for (c in pixels) if ((c ushr 24) > 200) {
+            solid++
+            val q = ((c shr 20 and 0xF) shl 8) or ((c shr 12 and 0xF) shl 4) or (c shr 4 and 0xF)
+            counts[q] = (counts[q] ?: 0) + 1
+        }
+        val onPlate = solid > pixels.size / 2
+        var pr = 0; var pg = 0; var pb = 0
+        if (onPlate) {
+            // The exact plate colour: the average of the pixels in its colour bucket.
+            val q = counts.maxByOrNull { it.value }!!.key
+            var n = 0L; var sr = 0L; var sg = 0L; var sb = 0L
+            for (c in pixels) if ((c ushr 24) > 200 && (((c shr 20 and 0xF) shl 8) or ((c shr 12 and 0xF) shl 4) or (c shr 4 and 0xF)) == q) {
+                n++; sr += c shr 16 and 255; sg += c shr 8 and 255; sb += c and 255
+            }
+            pr = (sr / n).toInt(); pg = (sg / n).toInt(); pb = (sb / n).toInt()
+        }
+        var covered = 0
         for (i in pixels.indices) {
             val c = pixels[i]
             val a = c ushr 24
-            val strength = if (!hasPlate) a / 255f else {
+            val strength = if (!onPlate) a / 255f else {
                 val dr = (c shr 16 and 255) - pr; val dg = (c shr 8 and 255) - pg; val db = (c and 255) - pb
-                (kotlin.math.sqrt((dr * dr + dg * dg + db * db).toFloat()) / 140f).coerceIn(0f, 1f) * (a / 255f)
+                // Shading and anti-aliasing of the plate itself stay below the threshold.
+                ((kotlin.math.sqrt((dr * dr + dg * dg + db * db).toFloat()) - 28f) / 112f).coerceIn(0f, 1f) * (a / 255f)
             }
             val out = (strength * 255).toInt()
-            if (out > 40) any = true
+            if (out > 40) covered++
             pixels[i] = (out shl 24) or 0xFFFFFF
         }
-        if (!any) return null
-        // Zoom the symbol: on a plate it covers only the middle half.
+        // Nothing found, or still a block: no symbol - the caller shows the app icon instead.
+        if (covered == 0 || covered > pixels.size * 0.7f) return null
         val glyph = Bitmap.createBitmap(pixels, px, px, Bitmap.Config.ARGB_8888)
-        if (!hasPlate) return glyph.asImageBitmap()
+        // A whole icon on a plate: the symbol covers only its middle half - zoom it.
+        if (fg != null || !onPlate) return glyph.asImageBitmap()
         val crop = (px * 0.22f).toInt()
         return Bitmap.createScaledBitmap(Bitmap.createBitmap(glyph, crop, crop, px - 2 * crop, px - 2 * crop), px, px, true).asImageBitmap()
     }
