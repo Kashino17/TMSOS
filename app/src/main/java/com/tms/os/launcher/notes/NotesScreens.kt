@@ -467,26 +467,15 @@ fun NoteListScreen(
             }, onDismiss = { rowMenu = null })
         }
 
-        NotesSheet(moveIds != null, if ((moveIds?.size ?: 0) == 1) "1 Notiz bewegen" else "${moveIds?.size ?: 0} Notizen bewegen", onDismiss = { moveIds = null }) {
-            Spacer(Modifier.height(8.dp))
-            InsetGroup {
-                state.folders.forEachIndexed { i, f ->
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth().height(54.dp).clickable {
-                            moveIds?.let { store.move(it, f.id) }
-                            moveIds = null; selecting = false; selected.clear()
-                        }.padding(horizontal = 16.dp)
-                    ) {
-                        Icon(Icons.Outlined.Folder, null, tint = c.folder, modifier = Modifier.size(26.dp))
-                        Spacer(Modifier.width(14.dp))
-                        Text(f.name, style = NotesText.body.copy(color = c.text), modifier = Modifier.weight(1f))
-                        if (f.id == folderId) Icon(Icons.Rounded.CheckCircle, null, tint = c.accent, modifier = Modifier.size(20.dp))
-                    }
-                    if (i != state.folders.lastIndex) RowSeparator(56)
-                }
-            }
-        }
+        MoveNotesSheet(
+            visible = moveIds != null,
+            count = moveIds?.size ?: 0,
+            folders = state.folders,
+            currentFolder = folderId.takeIf { it != NoteStore.ALL && it != NoteStore.DELETED },
+            onDismiss = { moveIds = null },
+            onMove = { target -> moveIds?.let { store.move(it, target) }; moveIds = null; selecting = false; selected.clear() },
+            onCreateFolder = { name -> store.createFolder(name).id }
+        )
 
         if (renameFolder && folder != null) NotesAlert("Ordner umbenennen", null, field = folder.name, placeholder = "Name", confirm = "Sichern",
             onConfirm = { store.renameFolder(folder.id, it); renameFolder = false }, onDismiss = { renameFolder = false })

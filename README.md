@@ -8,6 +8,16 @@ Ein maßgeschneiderter, werbefreier und kostenloser **iOS-Style Homescreen-Launc
 
 ---
 
+## Neu in v5.11.4 – Notizen: kein Datenverlust mehr, Scanner, Verschieben
+- **Notizen verschwinden nicht mehr**: Speicherte die App automatisch und ging gleichzeitig in den Hintergrund, schrieben zwei Vorgänge parallel in dieselbe Datei; der Verlierer löschte dabei die Notizdatei. Jetzt wird nacheinander geschrieben, auf den Speicher synchronisiert und atomar ersetzt; die alte Datei wird nie vorher gelöscht. Dazu eine Sicherung (`notes.json.bak`), aus der beim Start automatisch wiederhergestellt wird. Eine unlesbare Datei wird beiseitegelegt, nie überschrieben.
+- Eine Notiz, die Inhalt hatte und geleert wurde, landet in „Zuletzt gelöscht“ statt endgültig zu verschwinden.
+- **Dokumente scannen stürzt nicht mehr ab**: Der Google-Scanner wurde im eigenen Prozess der Notizen nicht initialisiert. Beim ersten Scannen lädt Google Play-Dienste das Scanner-Modul.
+- **Büroklammer-Menü** erscheint über der Tastatur statt dahinter.
+- **Tippen irgendwo auf die Notiz** öffnet die Tastatur und schreibt am Ende weiter.
+- **Tastatur zu = Bearbeiten beendet**: Die untere Leiste mit Büroklammer verschwindet nicht mehr.
+- **Notiz bewegen**: kompaktes Fenster wie auf dem iPhone, mit „Neuer Ordner“ (anlegen und direkt hineinbewegen).
+- Menüs sind nicht mehr durchscheinend.
+
 ## Neu in v5.11.3 – Notizen: Diagnose-Rekorder
 - Die Notizen-App zeichnet die letzten Minuten auf: jede Berührung (wann sie ankam, wie lange die App brauchte), jeden Klick, Seitenwechsel, Tastatur und Fokus. Bei jeder Stockung über 0,05 s auf dem Hauptthread steht dazu, welcher Code gerade lief.
 - Die Aufzeichnung steht in `Download/TMS-Notizen-Diagnose.txt` und wird alle paar Sekunden aktualisiert.

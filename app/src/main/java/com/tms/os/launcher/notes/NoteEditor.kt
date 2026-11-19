@@ -107,6 +107,8 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -149,15 +151,16 @@ fun NoteEditorScreen(
     // Saving on leave lives above every early return (locked note, missing note),
     // so it runs exactly once, when the editor really goes away, with the text
     // still in the editors (they are kept until then, see onRelease below).
-    val saver = remember(noteId) { object { var snapshot: (() -> List<NoteBlock>)? = null; var readOnly = false } }
+    val saver = remember(noteId) { object { var snapshot: (() -> List<NoteBlock>)? = null; var readOnly = false; var hadContent: Boolean? = null } }
     DisposableEffect(noteId) {
         onDispose {
             saver.snapshot?.let { snap -> if (!saver.readOnly) store.updateBlocks(noteId, snap()) }
-            store.discardIfEmpty(noteId)
+            store.discardIfEmpty(noteId, hadContent = saver.hadContent ?: true)
         }
     }
     val note = state.notes.firstOrNull { it.id == noteId }
     if (note == null) { LaunchedEffect(Unit) { onBack() }; return }
+    if (saver.hadContent == null) saver.hadContent = !note.isEmpty
 
     var unlocked by remember(noteId) { mutableStateOf(!note.locked) }
     if (note.locked && !unlocked) {
@@ -229,7 +232,11 @@ fun NoteEditorScreen(
     }
     fun focusEnd() {
         val last = blocks.lastOrNull { it is NoteBlock.Text } ?: return
-        editors[last.id]?.let { ed -> ed.requestFocus(); ed.setSelection(ed.text?.length ?: 0); imm.showSoftInput(ed, 0) }
+        editors[last.id]?.let { ed ->
+            ed.requestFocus(); ed.setSelection(ed.text?.length ?: 0)
+            // The keyboard is asked for once the field really has the input connection.
+            ed.post { imm.showSoftInput(ed, 0) }
+        }
     }
 
     /** Puts [block] where the cursor is: the text is split around it, and typing continues below it. */
@@ -298,11 +305,27 @@ fun NoteEditorScreen(
     // Back leaves the note the same way the back button does: editing ends first.
     BackHandler { done(); onBack() }
     BackHandler(enabled = formatPanel) { formatPanel = false; activeId?.let { editors[it] }?.let { imm.showSoftInput(it, 0) } }
-    LaunchedEffect(imeUp) { NotesDiagnostics.event("Tastatur sichtbar=$imeUp"); if (imeUp) formatPanel = false }
+    // Closing the keyboard (back gesture, keyboard's own button) ends editing, as
+    // on iOS: the cursor goes and the bottom bar with the paperclip comes back.
+    var imeWasUp by remember { mutableStateOf(false) }
+    LaunchedEffect(imeUp) {
+        NotesDiagnostics.event("Tastatur sichtbar=$imeUp")
+        if (imeUp) formatPanel = false
+        else if (imeWasUp && !formatPanel && !attachMenu && drawing == null && !newDrawing) done()
+        imeWasUp = imeUp
+    }
 
     Box(Modifier.fillMaxSize().background(c.background)) {
         // -------------------------------------------------------------- content
-        Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars)).onSizeChanged { viewport = it.height }) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
+                .onSizeChanged { viewport = it.height }
+                // A tap anywhere that is not text, a table or a picture continues
+                // writing at the end of the note, with the keyboard, as on iOS.
+                .pointerInput(readOnly) { if (!readOnly) detectTapGestures(onTap = { NotesDiagnostics.event("Tipp auf freie Fläche"); focusEnd() }) }
+        ) {
             Column(
                 Modifier
                     .fillMaxSize()
@@ -369,7 +392,7 @@ fun NoteEditorScreen(
                     }
                 }
                 // Tapping below the text continues writing at its end, as on iOS.
-                Box(Modifier.fillMaxWidth().heightIn(min = 320.dp).clickable(remember { MutableInteractionSource() }, null, enabled = !readOnly) { focusEnd() })
+                Spacer(Modifier.fillMaxWidth().height(320.dp))
             }
         }
 
@@ -393,13 +416,13 @@ fun NoteEditorScreen(
         // ------------------------------------------------------------ bottom bars
         Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))) {
             if (!readOnly && !formatPanel) {
-                if (editing && imeUp) KeyboardToolbar(
+                if (imeUp && editing) KeyboardToolbar(
                     onFormat = { formatPanel = true; hideKeyboard() },
                     onChecklist = { activeId?.let { editors[it] }?.toggleList(ListKind.CHECK) ?: run { focusEnd() } },
                     onTable = { insertAtCursor(NoteBlock.Table(store.newId(), List(2) { List(2) { "" } })) },
                     onAttach = { attachMenu = true },
                     onDraw = { done(); newDrawing = true }
-                ) else if (!editing) Row(
+                ) else if (!imeUp) Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
                 ) {
@@ -451,25 +474,17 @@ fun NoteEditorScreen(
             MenuItem("Dokumente scannen", Icons.Outlined.DocumentScanner) {
                 NoteScanner.start(context) { sender -> scan.launch(IntentSenderRequest.Builder(sender).build()) }
             }
-        ), onDismiss = { attachMenu = false }, alignTop = false)
+        ), onDismiss = { attachMenu = false }, alignTop = false, alignStart = !imeUp)
 
-        NotesSheet(moveSheet, "Notiz bewegen", onDismiss = { moveSheet = false }) {
-            Spacer(Modifier.height(8.dp))
-            InsetGroup {
-                state.folders.forEachIndexed { i, f ->
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth().height(54.dp).clickable { store.move(listOf(noteId), f.id); moveSheet = false }.padding(horizontal = 16.dp)
-                    ) {
-                        Icon(Icons.Outlined.Folder, null, tint = c.folder, modifier = Modifier.size(26.dp))
-                        Spacer(Modifier.width(14.dp))
-                        Text(f.name, style = NotesText.body.copy(color = c.text), modifier = Modifier.weight(1f))
-                        if (f.id == note.folderId) Icon(Icons.Rounded.Check, null, tint = c.accent, modifier = Modifier.size(20.dp))
-                    }
-                    if (i != state.folders.lastIndex) RowSeparator(56)
-                }
-            }
-        }
+        MoveNotesSheet(
+            visible = moveSheet,
+            count = 1,
+            folders = state.folders,
+            currentFolder = note.folderId,
+            onDismiss = { moveSheet = false },
+            onMove = { target -> store.move(listOf(noteId), target); moveSheet = false },
+            onCreateFolder = { name -> store.createFolder(name).id }
+        )
 
         viewer?.let { file -> PictureViewer(file) { viewer = null } }
 

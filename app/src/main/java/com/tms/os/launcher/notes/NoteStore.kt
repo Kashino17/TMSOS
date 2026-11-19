@@ -124,18 +124,35 @@ class NoteStore private constructor(context: Context) {
         if (file.lastModified() != loadedStamp) scope.launch { load() }
     }
 
+    private val backup = File(dir, "notes.json.bak")
+    private val tmp = File(dir, "notes.json.tmp")
+    /** All writes run one after another on this single lane, never two at once. */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val writeLane = Dispatchers.IO.limitedParallelism(1)
+
+    private fun readState(f: File): NotesState? =
+        if (!f.exists() || f.length() == 0L) null else runCatching { parse(JSONObject(f.readText())) }.getOrNull()
+
     private fun load() {
         run {
             loadedStamp = file.lastModified()
-            val loaded = runCatching { if (file.exists()) parse(JSONObject(file.readText())) else null }.getOrNull()
+            // The newest readable copy wins: the file, else the last good backup, else an unfinished write.
+            val fromFile = readState(file)
+            val loaded = fromFile ?: readState(backup) ?: readState(tmp)
                 ?: NotesState(folders = listOf(NoteFolder(DEFAULT_FOLDER, "Notizen", System.currentTimeMillis())))
+            if (writer) {
+                if (fromFile != null) runCatching { file.copyTo(backup, overwrite = true) }
+                // An unreadable file is kept aside, never overwritten, so nothing is lost for good.
+                else if (file.exists() && file.length() > 0) runCatching { file.copyTo(File(dir, "notes.unreadable-${System.currentTimeMillis()}.json")) }
+            }
             // "Zuletzt gelöscht" keeps notes for 30 days, as on iOS.
             val now = System.currentTimeMillis()
             val (expired, kept) = loaded.notes.partition { it.deletedAt != null && now - it.deletedAt > PURGE_AFTER_MS }
             expired.forEach { deleteMedia(it) }
             val folders = if (loaded.folders.none { it.id == DEFAULT_FOLDER }) listOf(NoteFolder(DEFAULT_FOLDER, "Notizen", now)) + loaded.folders else loaded.folders
             _state.value = NotesState(loaded = true, folders = folders, notes = kept)
-            if (expired.isNotEmpty()) scheduleSave()
+            // Recovered from the backup: notes.json is rewritten right away.
+            if (expired.isNotEmpty() || (fromFile == null && file.exists())) scheduleSave()
         }
     }
 
@@ -165,14 +182,18 @@ class NoteStore private constructor(context: Context) {
         scheduleSave()
     }
 
-    /** Leaving an empty note throws it away, as on iOS. */
-    fun discardIfEmpty(id: String) {
+    /**
+     * Leaving an empty note: a note that never had content is thrown away, as on
+     * iOS; one that had content (and was emptied) goes to "Zuletzt gelöscht", so
+     * nothing ever disappears without a trace.
+     */
+    fun discardIfEmpty(id: String, hadContent: Boolean = false) {
         val n = _state.value.notes.firstOrNull { it.id == id } ?: return
-        if (n.isEmpty) {
-            _state.update { s -> s.copy(notes = s.notes.filterNot { it.id == id }) }
-            deleteMedia(n)
-            scheduleSave()
-        }
+        if (!n.isEmpty || n.deletedAt != null) return
+        if (hadContent) { moveToTrash(listOf(id)); return }
+        _state.update { s -> s.copy(notes = s.notes.filterNot { it.id == id }) }
+        deleteMedia(n)
+        scheduleSave()
     }
 
     fun moveToTrash(ids: Collection<String>) {
@@ -236,25 +257,33 @@ class NoteStore private constructor(context: Context) {
     /* --------------------------------------------------------- persistence */
 
     private fun scheduleSave() {
-        if (!writer) return
+        if (!writer || !_state.value.loaded) return
         saveJob?.cancel()
         saveJob = scope.launch {
             delay(350)
-            val json = serialize(_state.value).toString()
-            val tmp = File(dir, "notes.json.tmp")
-            tmp.writeText(json)
-            if (!tmp.renameTo(file)) { file.delete(); tmp.renameTo(file) }
+            writeNow()
         }
     }
 
     /** Writes immediately (called when the app goes to the background). */
     fun flush() {
-        if (!writer) return
+        if (!writer || !_state.value.loaded) return
         saveJob?.cancel()
-        scope.launch {
-            val tmp = File(dir, "notes.json.tmp")
-            tmp.writeText(serialize(_state.value).toString())
-            if (!tmp.renameTo(file)) { file.delete(); tmp.renameTo(file) }
+        scope.launch { writeNow() }
+    }
+
+    /**
+     * One write at a time (single lane): the full state goes to a temporary file,
+     * is synced to the disk, and then atomically replaces notes.json. The old
+     * file is never deleted first, so a failed or interrupted write leaves the
+     * previous version in place.
+     */
+    private suspend fun writeNow() = kotlinx.coroutines.withContext(writeLane + kotlinx.coroutines.NonCancellable) {
+        val json = serialize(_state.value).toString()
+        runCatching {
+            java.io.FileOutputStream(tmp).use { out -> out.write(json.toByteArray()); out.fd.sync() }
+            java.nio.file.Files.move(tmp.toPath(), file.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE)
+            loadedStamp = file.lastModified()
         }
     }
 

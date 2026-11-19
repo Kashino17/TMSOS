@@ -30,6 +30,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -45,6 +49,9 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Cancel
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.outlined.CreateNewFolder
+import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Icon
@@ -228,7 +235,7 @@ data class MenuItem(val label: String, val icon: ImageVector? = null, val destru
 
 /** An iOS context menu: a glass card listing actions, over a dimmed screen. */
 @Composable
-fun NotesMenu(visible: Boolean, items: List<MenuItem>, onDismiss: () -> Unit, alignTop: Boolean = true) {
+fun NotesMenu(visible: Boolean, items: List<MenuItem>, onDismiss: () -> Unit, alignTop: Boolean = true, alignStart: Boolean = false) {
     val c = LocalNotesColors.current
     if (visible) BackHandler(onBack = onDismiss)
     AnimatedVisibility(visible, enter = fadeIn(tween(150)), exit = fadeOut(tween(150))) {
@@ -236,13 +243,14 @@ fun NotesMenu(visible: Boolean, items: List<MenuItem>, onDismiss: () -> Unit, al
     }
     AnimatedVisibility(
         visible,
-        enter = fadeIn(tween(160)) + scaleIn(spring(dampingRatio = 0.8f, stiffness = 500f), initialScale = 0.85f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, if (alignTop) 0f else 1f)),
-        exit = fadeOut(tween(120)) + scaleOut(tween(120), targetScale = 0.9f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, if (alignTop) 0f else 1f))
+        enter = fadeIn(tween(160)) + scaleIn(spring(dampingRatio = 0.8f, stiffness = 500f), initialScale = 0.85f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(if (alignStart) 0f else 1f, if (alignTop) 0f else 1f)),
+        exit = fadeOut(tween(120)) + scaleOut(tween(120), targetScale = 0.9f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(if (alignStart) 0f else 1f, if (alignTop) 0f else 1f))
     ) {
-        Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.navigationBars).padding(top = if (alignTop) 96.dp else 0.dp, bottom = if (alignTop) 0.dp else 76.dp, start = 16.dp, end = 16.dp)) {
+        // Bottom menus sit above the keyboard when it is open (and above the toolbar on it).
+        Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars)).padding(top = if (alignTop) 96.dp else 0.dp, bottom = if (alignTop) 0.dp else 76.dp, start = 16.dp, end = 16.dp)) {
             Column(
                 Modifier
-                    .align(if (alignTop) Alignment.TopEnd else Alignment.BottomEnd)
+                    .align(when { alignTop && alignStart -> Alignment.TopStart; alignTop -> Alignment.TopEnd; alignStart -> Alignment.BottomStart; else -> Alignment.BottomEnd })
                     .widthIn(min = 230.dp, max = 290.dp)
                     .notesGlass(c, RoundedCornerShape(24.dp))
                     .padding(vertical = 6.dp)
@@ -315,7 +323,10 @@ fun NotesAlert(
     }
 }
 
-/** A bottom sheet with a title bar ("Abbrechen" / title) and scrollable content. */
+/**
+ * An iOS sheet: as tall as its content (at most 88 % of the screen), docked to
+ * the bottom with rounded corners and a grabber; title bar with "Abbrechen".
+ */
 @Composable
 fun NotesSheet(visible: Boolean, title: String, onDismiss: () -> Unit, content: @Composable () -> Unit) {
     val c = LocalNotesColors.current
@@ -328,26 +339,80 @@ fun NotesSheet(visible: Boolean, title: String, onDismiss: () -> Unit, content: 
         enter = slideInVertically(spring(dampingRatio = 0.92f, stiffness = 380f)) { it },
         exit = slideOutVertically(tween(220)) { it }
     ) {
-        Box(Modifier.fillMaxSize().padding(top = 60.dp)) {
+        BoxWithConstraints(Modifier.fillMaxSize()) {
             Column(
-                Modifier.fillMaxSize().clip(RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp)).background(if (c.dark) c.card else c.background)
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .heightIn(max = maxHeight * 0.88f)
+                    .clip(RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp))
+                    .background(if (c.dark) c.card else c.background)
                     .clickable(remember { MutableInteractionSource() }, null) {}
+                    .windowInsetsPadding(WindowInsets.navigationBars)
             ) {
-                Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp)) {
+                Box(Modifier.padding(top = 6.dp).align(Alignment.CenterHorizontally).size(36.dp, 5.dp).clip(CircleShape).background(c.tertiary))
+                Box(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp)) {
                     Text("Abbrechen", style = NotesText.body.copy(color = c.accent), modifier = Modifier.align(Alignment.CenterStart).clickable(onClick = onDismiss))
-                    Text(title, style = NotesText.headline.copy(color = c.text), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.align(Alignment.Center))
+                    Text(title, style = NotesText.headline.copy(color = c.text), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.align(Alignment.Center).padding(horizontal = 96.dp))
                 }
-                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).windowInsetsPadding(WindowInsets.navigationBars)) { content() }
+                Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 16.dp)) { content() }
             }
         }
     }
 }
 
+/**
+ * "Notiz bewegen": a sheet with "Neuer Ordner" on top (creates the folder and
+ * moves the notes into it) and the folders below, the current one ticked.
+ */
+@Composable
+fun MoveNotesSheet(
+    visible: Boolean,
+    count: Int,
+    folders: List<NoteFolder>,
+    currentFolder: String?,
+    onDismiss: () -> Unit,
+    onMove: (String) -> Unit,
+    onCreateFolder: (String) -> String
+) {
+    val c = LocalNotesColors.current
+    var naming by remember { mutableStateOf(false) }
+    NotesSheet(visible, if (count == 1) "Notiz bewegen" else "$count Notizen bewegen", onDismiss) {
+        InsetGroup(color = if (c.dark) c.elevated else c.card) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().height(54.dp).clickable { naming = true }.padding(horizontal = 16.dp)
+            ) {
+                Icon(Icons.Outlined.CreateNewFolder, null, tint = c.accent, modifier = Modifier.size(26.dp))
+                Spacer(Modifier.width(14.dp))
+                Text("Neuer Ordner", style = NotesText.body.copy(color = c.accent))
+            }
+        }
+        Text("Auf meinem Gerät", style = NotesText.headline.copy(color = c.text, fontWeight = FontWeight.Bold), modifier = Modifier.padding(start = 20.dp, top = 22.dp, bottom = 8.dp))
+        InsetGroup(color = if (c.dark) c.elevated else c.card) {
+            folders.forEachIndexed { i, f ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().height(54.dp).clickable { onMove(f.id) }.padding(horizontal = 16.dp)
+                ) {
+                    Icon(Icons.Outlined.Folder, null, tint = c.folder, modifier = Modifier.size(26.dp))
+                    Spacer(Modifier.width(14.dp))
+                    Text(f.name, style = NotesText.body.copy(color = c.text), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    if (f.id == currentFolder) Icon(Icons.Rounded.Check, null, tint = c.accent, modifier = Modifier.size(20.dp))
+                }
+                if (i != folders.lastIndex) RowSeparator(56)
+            }
+        }
+    }
+    if (naming) NotesAlert("Neuer Ordner", "Gib einen Namen für diesen Ordner ein.", field = "", placeholder = "Name", confirm = "Sichern",
+        onConfirm = { name -> naming = false; onMove(onCreateFolder(name)) }, onDismiss = { naming = false })
+}
+
 /** Rounded inset group of rows ("insetGrouped" table style). */
 @Composable
-fun InsetGroup(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+fun InsetGroup(modifier: Modifier = Modifier, color: Color? = null, content: @Composable () -> Unit) {
     val c = LocalNotesColors.current
-    Column(modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(26.dp)).background(c.card)) { content() }
+    Column(modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(26.dp)).background(color ?: c.card)) { content() }
 }
 
 @Composable

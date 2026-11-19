@@ -64,6 +64,17 @@ class NoteMedia(private val context: Context, private val store: NoteStore) {
 object NoteScanner {
     fun start(context: Context, launch: (IntentSender) -> Unit) {
         val activity = context.findActivity() ?: return
+        // ML Kit sets itself up through a content provider that only runs in the app's
+        // main process; Notes has its own process (":notes"), so it is set up here.
+        val ready = runCatching { com.google.mlkit.common.sdkinternal.MlKitContext.initializeIfNeeded(context.applicationContext) }.isSuccess
+        if (!ready) { unavailable(context); return }
+        runCatching { startScan(activity, context, launch) }.onFailure { unavailable(context) }
+    }
+
+    private fun unavailable(context: Context) =
+        Toast.makeText(context, "Der Scanner ist auf diesem Gerät nicht verfügbar.", Toast.LENGTH_SHORT).show()
+
+    private fun startScan(activity: Activity, context: Context, launch: (IntentSender) -> Unit) {
         val options = GmsDocumentScannerOptions.Builder()
             .setGalleryImportAllowed(true)
             .setPageLimit(24)
@@ -71,13 +82,13 @@ object NoteScanner {
             .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_FULL)
             .build()
         GmsDocumentScanning.getClient(options).getStartScanIntent(activity)
-            .addOnSuccessListener { launch(it) }
-            .addOnFailureListener { Toast.makeText(context, "Der Scanner ist auf diesem Gerät nicht verfügbar.", Toast.LENGTH_SHORT).show() }
+            .addOnSuccessListener { runCatching { launch(it) }.onFailure { unavailable(context) } }
+            .addOnFailureListener { unavailable(context) }
     }
 
     fun pages(resultCode: Int, data: Intent?): List<Uri> =
         if (resultCode != Activity.RESULT_OK) emptyList()
-        else GmsDocumentScanningResult.fromActivityResultIntent(data)?.pages?.map { it.imageUri }.orEmpty()
+        else runCatching { GmsDocumentScanningResult.fromActivityResultIntent(data)?.pages?.map { it.imageUri } }.getOrNull().orEmpty()
 }
 
 tailrec fun Context.findActivity(): Activity? = when (this) {

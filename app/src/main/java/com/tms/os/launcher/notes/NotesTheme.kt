@@ -67,7 +67,7 @@ val DarkNotes = NotesColors(
     tertiary = Color(0x4DEBEBF5),
     accent = Color(0xFFFFD60A),
     onAccent = Color.Black,
-    glass = Color(0xDE333336),
+    glass = Color(0xF7303033),
     glassRim = Color(0x2EFFFFFF),
     folder = Color(0xFFFFD60A)
 )
@@ -83,7 +83,7 @@ val LightNotes = NotesColors(
     tertiary = Color(0x4D3C3C43),
     accent = Color(0xFFE3AA00),
     onAccent = Color.White,
-    glass = Color(0xEBFFFFFF),
+    glass = Color(0xF7FFFFFF),
     glassRim = Color(0x1A000000),
     folder = Color(0xFFE3AA00),
     destructive = Color(0xFFFF3B30),
