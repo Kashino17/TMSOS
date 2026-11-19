@@ -61,6 +61,15 @@ data class ParaAttrs(
 data class SpanRec(val kind: String, val start: Int, val end: Int, val v: Long = 0)
 
 data class RichText(val text: String, val spans: List<SpanRec>) {
+    /** This text, a line break, then [other]; the formatting of both is kept. */
+    fun joinedWith(other: RichText): RichText {
+        if (text.isEmpty()) return other
+        if (other.text.isEmpty()) return this
+        val shift = text.length + 1
+        val mine = spans.map { if (it.kind == "p" && it.end >= text.length) it.copy(end = text.length + 1) else it }
+        return RichText(text + "\n" + other.text, mine + other.spans.map { it.copy(start = it.start + shift, end = it.end + shift) })
+    }
+
     fun toJson(): JSONObject = JSONObject().put("text", text).put("spans", JSONArray().apply {
         spans.forEach { put(JSONArray().put(it.kind).put(it.start).put(it.end).put(it.v)) }
     })

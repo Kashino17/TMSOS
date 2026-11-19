@@ -34,7 +34,7 @@ class NoteImporter(private val context: Context, private val store: NoteStore) {
         val now = System.currentTimeMillis()
         uris.forEachIndexed { i, uri ->
             val name = displayName(uri)
-            val title = name.substringBeforeLast('.').trim()
+            val title = NoteImages.cleanTitle(name.substringBeforeLast('.').trim())
             val time = lastModified(uri) ?: (now - i)
             val type = (context.contentResolver.getType(uri) ?: "").lowercase()
             val ext = name.substringAfterLast('.', "").lowercase()
@@ -275,6 +275,8 @@ class NoteImporter(private val context: Context, private val store: NoteStore) {
                             if (titled && (line.isNotEmpty() || images.isEmpty())) text.para(runs, attrs)
                             images.forEach { id ->
                                 val bytes = targets[id]?.let { files[it] } ?: return@forEach
+                                // Samsung's empty drawing layer: a blank picture is left out.
+                                if (NoteImages.isBlank(bytes)) return@forEach
                                 val tmp = File(context.cacheDir, "import_${UUID.randomUUID()}")
                                 tmp.writeBytes(bytes)
                                 media.importFile(tmp)?.let { f ->
@@ -299,6 +301,7 @@ class NoteImporter(private val context: Context, private val store: NoteStore) {
         }
         flushText()
         if (blocks.isEmpty()) return listOf(titleBlock(fileTitle))
+        // A note that starts with a picture gets its title (the file name) above it.
         if (blocks.first() !is NoteBlock.Text) blocks.add(0, titleBlock(fileTitle))
         if (blocks.last() !is NoteBlock.Text) blocks += NoteBlock.Text(store.newId(), RichText.EMPTY_BODY)
         return blocks

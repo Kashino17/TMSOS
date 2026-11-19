@@ -150,10 +150,49 @@ class NoteStore private constructor(context: Context) {
             val (expired, kept) = loaded.notes.partition { it.deletedAt != null && now - it.deletedAt > PURGE_AFTER_MS }
             expired.forEach { deleteMedia(it) }
             val folders = if (loaded.folders.none { it.id == DEFAULT_FOLDER }) listOf(NoteFolder(DEFAULT_FOLDER, "Notizen", now)) + loaded.folders else loaded.folders
-            _state.value = NotesState(loaded = true, folders = folders, notes = kept)
+            // One-time clean-up (before anything is shown): blank pictures from Samsung Notes imports.
+            val cleaned = if (writer) removeBlankPicturesOnce(kept) else null
+            _state.value = NotesState(loaded = true, folders = folders, notes = cleaned ?: kept)
             // Recovered from the backup: notes.json is rewritten right away.
-            if (expired.isNotEmpty() || (fromFile == null && file.exists())) scheduleSave()
+            if (expired.isNotEmpty() || cleaned != null || (fromFile == null && file.exists())) scheduleSave()
         }
+    }
+
+    /**
+     * Samsung Notes puts blank pictures (its empty drawing layer) into its Word
+     * exports; imports before v5.11.6 kept them, plus the file name as an extra
+     * title ("Title_YYMMDD_HHMMSS") above the first one. Removed once, here; the
+     * notes keep their dates. Returns null when nothing changed.
+     */
+    private fun removeBlankPicturesOnce(notes: List<Note>): List<Note>? {
+        val marker = File(dir, ".blank_pictures_v1")
+        if (marker.exists()) return null
+        val blank = HashSet<String>()
+        notes.forEach { n -> n.blocks.forEach { b -> if (b is NoteBlock.Image && !b.scan && b.file !in blank && NoteImages.isBlankFile(mediaFile(b.file))) blank += b.file } }
+        runCatching { marker.createNewFile() }
+        if (blank.isEmpty()) return null
+        blank.forEach { mediaFile(it).delete() }
+        return notes.map { n ->
+            if (n.blocks.none { it is NoteBlock.Image && it.file in blank }) n
+            else n.copy(blocks = tidyBlocks(n.blocks.filterNot { it is NoteBlock.Image && it.file in blank }))
+        }
+    }
+
+    /** After pictures were taken out: no file-name title in front of the real one, and neighbouring texts joined. */
+    private fun tidyBlocks(list: List<NoteBlock>): List<NoteBlock> {
+        var blocks = list
+        val first = blocks.firstOrNull() as? NoteBlock.Text
+        if (first != null && blocks.getOrNull(1) is NoteBlock.Text && '\n' !in first.rich.text && NoteImages.SAMSUNG_STAMP.containsMatchIn(first.rich.text)) {
+            blocks = blocks.drop(1)
+        }
+        val out = ArrayList<NoteBlock>()
+        blocks.forEach { b ->
+            val prev = out.lastOrNull()
+            if (b is NoteBlock.Text && prev is NoteBlock.Text) out[out.lastIndex] = NoteBlock.Text(prev.id, prev.rich.joinedWith(b.rich))
+            else out += b
+        }
+        if (out.none { it is NoteBlock.Text }) out.add(0, NoteBlock.Text(newId(), RichText.EMPTY_TITLE))
+        return out
     }
 
     /* ----------------------------------------------------------- mutations */

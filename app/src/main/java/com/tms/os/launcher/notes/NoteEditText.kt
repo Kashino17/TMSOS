@@ -312,7 +312,13 @@ class NoteEditText(context: Context, val m: NoteMetrics) : EditText(context) {
         val probe = android.text.SpannableString(e.toString())
         if (!android.text.util.Linkify.addLinks(probe, android.text.util.Linkify.WEB_URLS or android.text.util.Linkify.EMAIL_ADDRESSES or android.text.util.Linkify.PHONE_NUMBERS)) return
         probe.getSpans(0, probe.length, android.text.style.URLSpan::class.java).forEach { u ->
-            e.setSpan(NoteLinkSpan(u.url, m.accent), probe.getSpanStart(u), probe.getSpanEnd(u), CHAR_FLAGS)
+            val a = probe.getSpanStart(u); val b = probe.getSpanEnd(u)
+            // Numbers glued to words or underscores ("Titel_210625_185056") are no phone numbers.
+            if (u.url.startsWith("tel:")) {
+                val before = e.getOrNull(a - 1); val after = e.getOrNull(b)
+                if ('_' in e.subSequence(a, b) || before?.let { it.isLetterOrDigit() || it == '_' } == true || after?.let { it.isLetterOrDigit() || it == '_' } == true) return@forEach
+            }
+            e.setSpan(NoteLinkSpan(u.url, m.accent), a, b, CHAR_FLAGS)
         }
     }
 

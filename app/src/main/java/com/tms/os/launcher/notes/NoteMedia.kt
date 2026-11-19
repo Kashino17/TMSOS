@@ -42,6 +42,7 @@ class NoteMedia(private val context: Context, private val store: NoteStore) {
                 }
             } ?: 0f
             if (rotation != 0f) bmp = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, Matrix().apply { postRotate(rotation) }, true)
+            bmp = NoteImages.onWhite(bmp)
             val name = "${UUID.randomUUID()}.jpg"
             store.mediaFile(name).outputStream().use { bmp.compress(Bitmap.CompressFormat.JPEG, 88, it) }
             name

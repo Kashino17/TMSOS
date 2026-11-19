@@ -8,6 +8,13 @@ Ein maßgeschneiderter, werbefreier und kostenloser **iOS-Style Homescreen-Launc
 
 ---
 
+## Neu in v5.11.6 – Samsung-Import ohne leere Bilder
+- Samsung Notes legt in jede Word-Datei leere Bilder (seine leere Zeichenebene), oben und unten. Der Import erkennt leere Bilder (durchsichtig oder rein weiß) und lässt sie weg; echte Bilder und Zeichnungen bleiben.
+- Kein doppelter Titel mehr: Samsungs Datumsanhang im Dateinamen („_210625_185056“) wird entfernt, der Dateiname steht nur noch vor Notizen, die mit einem Bild beginnen.
+- Schon importierte Notizen werden beim ersten Start einmalig bereinigt: leere Bilder und der zusätzliche Dateiname-Titel verschwinden, der Text dazwischen wird wieder zusammengefügt. Datum der Notizen bleibt.
+- Zahlen, die an Wörter oder Unterstriche grenzen, werden nicht mehr als Telefonnummer verlinkt.
+- Durchsichtige Bildteile werden beim Import weiß statt schwarz.
+
 ## Neu in v5.11.5 – Notizen: Links, Import aus Samsung Notes
 - **Links werden automatisch erkannt**: Webadressen, E-Mail-Adressen und Telefonnummern erscheinen gelb unterstrichen wie auf dem iPhone. Beim Lesen öffnet ein Tipp den Browser (bzw. Mail oder Telefon); beim Schreiben setzt ein Tipp nur den Cursor.
 - **Import aus Samsung Notes**: Samsung Notes gibt seine Notizen nicht direkt an andere Apps heraus, aber als Dateien. In Samsung Notes Notizen auswählen → „Teilen“ → „Microsoft Word-Datei“ (mit Bildern und Formatierung) oder „Textdatei“ → „Notizen“ wählen → Zielordner wählen oder neu anlegen.
