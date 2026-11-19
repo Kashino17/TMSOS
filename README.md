@@ -8,6 +8,10 @@ Ein maßgeschneiderter, werbefreier und kostenloser **iOS-Style Homescreen-Launc
 
 ---
 
+## Neu in v5.12.9 – Keine doppelten App-Icons beim Öffnen eines Ordners
+- Tippt man in der App-Mediathek auf einen Ordner, verschwinden dessen Icons sofort – ohne Vergrößern oder Ausblenden. Zu sehen ist nur noch die Kategorie-Seite, die sich aus dem Ordner auffächert; keine App erscheint doppelt.
+- Beim Schließen tauchen die Icons erst wieder auf, wenn die Seite ganz im Ordner verschwunden ist.
+
 ## Neu in v5.12.8 – Kurzbefehl-Symbole in der Suche
 - Behoben: Kurzbefehle mancher Apps (z. B. ChatGPT: Bilder, Kamera, Audio) zeigten in der Suche und im Haptic-Touch-Menü nur ein weißes Quadrat. Diese Apps legen die Platte mit in das Symbolbild; TMS OS erkennt das jetzt und zeigt nur das eigentliche Symbol.
 - Auch kein blasses Quadrat mehr hinter Symbolen wie bei Chrome („Neuer Tab“, „Inkognito“). Lässt sich kein Symbol finden, erscheint das App-Icon statt eines weißen Feldes.

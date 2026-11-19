@@ -12,8 +12,8 @@ android {
         applicationId = "com.tms.os.launcher"
         minSdk = 28
         targetSdk = 35
-        versionCode = 44
-        versionName = "5.12.8"
+        versionCode = 45
+        versionName = "5.12.9"
     }
 
     buildTypes {

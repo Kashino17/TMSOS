@@ -133,7 +133,6 @@ private data class LibraryPod(
 )
 
 private const val HiddenPodId = "pod_hidden"
-private val NeverAway: () -> Boolean = { false }
 private val FullyThere: () -> Float = { 1f }
 private val LibrarySideMargin = 33.dp
 private val PodGap = 22.dp
@@ -294,9 +293,9 @@ fun IosAppLibraryPage(
                 items(pods, key = { it.id }) { pod ->
                     LibraryCategoryPod(
                         pod = pod,
-                        iconsAway = if (pod.title == openPodTitle) ({ podProgress() > 0f }) else NeverAway,
-                        // The opened pod's large icons leave quickly - gone at a quarter of the way (iOS).
-                        iconsFade = if (pod.title == openPodTitle) ({ (1f - podProgress() * 4f).coerceIn(0f, 1f) }) else FullyThere,
+                        // The opened pod's icons are gone the moment it is tapped, and back only once
+                        // the category has fully closed: never the same app twice on screen.
+                        iconsFade = if (pod.title == openPodTitle) ({ if (podProgress() > 0f) 0f else 1f }) else FullyThere,
                         onAppClick = onAppClick,
                         onAppLongClick = onAppLongClick,
                         onOpen = { origin -> if (pod.id == HiddenPodId) onOpenHidden(origin) else onOpenPod(pod.title, pod.all, origin) }
@@ -435,7 +434,6 @@ private fun buildLibraryPods(
 @Composable
 private fun LibraryCategoryPod(
     pod: LibraryPod,
-    iconsAway: () -> Boolean,
     iconsFade: () -> Float,
     onAppClick: (AppInfo, Rect) -> Unit,
     onAppLongClick: (AppInfo, Rect) -> Unit,
@@ -484,8 +482,6 @@ private fun LibraryCategoryPod(
                                 modifier = Modifier
                                     .size(large)
                                     .clickable(remember { MutableInteractionSource() }, null, onClick = open)
-                                    // While its category is open these fly as part of it (iOS); the big ones stay.
-                                    .graphicsLayer { alpha = if (iconsAway()) 0f else 1f }
                             ) {
                                 Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                                     for (row in 0..1) Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -696,8 +692,7 @@ private fun LibraryAlphabeticalList(
  * A category opened from the App Library, matched frame by frame to iOS:
  * - the whole category page (title, grid, names) starts as a see-through miniature whose
  *   grid exactly covers the pod's small 2 x 2 cluster, and grows to full screen;
- * - the cluster's four small icons zoom along with it as a group (top left -> first column,
- *   top right -> last column) and fade out while the real page becomes solid;
+ * - the pod's own icons vanish at once, so no app is ever shown twice;
  * - closing runs the same thing backwards, into the cluster.
  * [progress] is owned by the caller so the library behind can recede and fade in step.
  * [fromPodIcons] is false for a pod that shows no icons (Hidden): it grows out of the pod's middle.
@@ -723,11 +718,6 @@ fun IosLibraryCategoryView(
     val iconPx = with(density) { iconSize.toPx() }
     // What the grid grows out of (root px): the span between the cluster's icon centres.
     val span = remember(origin, apps.size, fromPodIcons, density) { podSourceSpan(origin, apps.size, fromPodIcons, density) }
-    // The cluster's small icons, which zoom with the page as a group and fade.
-    val cluster = remember(origin, apps.size, fromPodIcons, density) {
-        podIconSlots(origin, apps.size, fromPodIcons, density).withIndex().filter { (i, slot) -> slot.visible && i in 3..6 && apps.size > 4 }
-    }
-
     var pageRoot by remember { mutableStateOf(Offset.Zero) }
     var inner by remember { mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null) }
     var firstCell by remember { mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null) }
@@ -829,38 +819,6 @@ fun IosLibraryCategoryView(
             }
         }
 
-        // ------------------------------------------- the pod's cluster, zooming along
-        cluster.forEach { (index, slot) ->
-            val app = apps[index]
-            Box(
-                Modifier
-                    .size(iconSize)
-                    .graphicsLayer {
-                        val p = progress()
-                        if (p <= 0f) { alpha = 0f; return@graphicsLayer }
-                        val g = gridSpan()
-                        // Same mapping as the page: the cluster grows with it from its own place.
-                        var z = 1f
-                        val (now, grow) = if (g == null) sourceCentre to 1f else {
-                            val s0 = startScaleFor(g.second)
-                            z = s0 + (1f - s0) * p
-                            (sourceCentre + (pageRoot + g.first - sourceCentre) * p) to (z / s0)
-                        }
-                        // Positions spread with the page's zoom; the icons themselves only grow
-                        // to the size the page's icons have at that moment (iOS).
-                        val centre = now + (slot.centre - sourceCentre) * grow
-                        val edge = slot.size + (iconPx * z - slot.size) * p
-                        scaleX = edge / iconPx; scaleY = edge / iconPx
-                        translationX = centre.x - pageRoot.x - iconPx / 2f
-                        translationY = centre.y - pageRoot.y - iconPx / 2f
-                        // Solid at first, gone as the page arrives.
-                        alpha = ((1f - p) / 0.75f).coerceIn(0f, 1f)
-                    }
-            ) {
-                if (app.iconBitmap != null) Image(app.iconBitmap, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                else Box(Modifier.clip(IosSquircle)) { LibraryLetterIcon(app.displayLabel, iconSize) }
-            }
-        }
     }
 }
 
@@ -878,38 +836,6 @@ private fun podSourceSpan(pod: Rect, count: Int, withIcons: Boolean, density: an
         val mini = (large - 9.dp.toPx()) / 2f
         val clusterCentre = Offset(pod.left + pad + large + gap + large / 2f, pod.top + pad + large + gap + large / 2f)
         return clusterCentre to (mini + 5.dp.toPx())
-    }
-}
-
-/** One app's place in a pod: icon centre and edge length in root pixels; [visible] = drawn in the pod. */
-private class PodSlot(val centre: Offset, val size: Float, val visible: Boolean)
-
-/**
- * Mirrors [LibraryCategoryPod]'s layout: 12 dp padding, 12 dp gap, two large icons per row;
- * from five apps on, the fourth quarter is a 2 x 2 cluster of small icons (5 dp apart).
- * Apps after the seventh are not in the pod: they start as tiny icons in the cluster's middle.
- */
-private fun podIconSlots(pod: Rect, count: Int, withIcons: Boolean, density: androidx.compose.ui.unit.Density): List<PodSlot> {
-    if (pod.width <= 0f || count == 0) return emptyList()
-    with(density) {
-        val pad = 12.dp.toPx(); val gap = 12.dp.toPx(); val miniGap = 5.dp.toPx()
-        val large = (pod.width - 2 * pad - gap) / 2f
-        val mini = (large - 9.dp.toPx()) / 2f
-        fun largeAt(col: Int, row: Int) = Offset(pod.left + pad + col * (large + gap) + large / 2f, pod.top + pad + row * (large + gap) + large / 2f)
-        val clusterCentre = largeAt(1, 1)
-        if (!withIcons) return List(count) { PodSlot(pod.center, mini * 0.6f, false) }
-        return List(count) { i ->
-            when {
-                i < 3 -> PodSlot(largeAt(i % 2, i / 2), large, true)
-                i == 3 && count <= 4 -> PodSlot(clusterCentre, large, true)
-                i < 7 -> {
-                    val c = (i - 3) % 2; val r = (i - 3) / 2
-                    val off = (mini + miniGap) / 2f
-                    PodSlot(clusterCentre + Offset(if (c == 0) -off else off, if (r == 0) -off else off), mini, true)
-                }
-                else -> PodSlot(clusterCentre, mini * 0.6f, false)
-            }
-        }
     }
 }
 
