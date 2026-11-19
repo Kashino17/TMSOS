@@ -8,6 +8,9 @@ Ein maßgeschneiderter, werbefreier und kostenloser **iOS-Style Homescreen-Launc
 
 ---
 
+## Neu in v5.12.7 – Große Icons verschwinden schneller
+- Beim Öffnen eines Ordners in der App-Mediathek verschwinden dessen große Icons jetzt sofort (nach einem Viertel der Animation) statt langsam mit der Mediathek auszublenden. Beim Schließen kommen sie erst ganz am Ende zurück.
+
 ## Neu in v5.12.6 – Ordner der App-Mediathek Bild für Bild wie auf dem iPhone
 - Die Kategorie-Seite wächst jetzt genau aus dem kleinen Viererfeld des Ordners: Ihr Icon-Raster startet so groß wie das Viererfeld und an derselben Stelle.
 - Die vier kleinen Icons zoomen als Gruppe mit der Seite mit (oben links → erste Spalte, oben rechts → letzte Spalte) und verblassen, während die Seite deckend wird; die großen Icons bleiben im Ordner.

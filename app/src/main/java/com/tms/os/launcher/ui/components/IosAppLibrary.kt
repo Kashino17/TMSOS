@@ -134,6 +134,7 @@ private data class LibraryPod(
 
 private const val HiddenPodId = "pod_hidden"
 private val NeverAway: () -> Boolean = { false }
+private val FullyThere: () -> Float = { 1f }
 private val LibrarySideMargin = 33.dp
 private val PodGap = 22.dp
 /** Lighter than the dock: the pods read as frosted glass over the wallpaper, as on iOS. */
@@ -294,6 +295,8 @@ fun IosAppLibraryPage(
                     LibraryCategoryPod(
                         pod = pod,
                         iconsAway = if (pod.title == openPodTitle) ({ podProgress() > 0f }) else NeverAway,
+                        // The opened pod's large icons leave quickly - gone at a quarter of the way (iOS).
+                        iconsFade = if (pod.title == openPodTitle) ({ (1f - podProgress() * 4f).coerceIn(0f, 1f) }) else FullyThere,
                         onAppClick = onAppClick,
                         onAppLongClick = onAppLongClick,
                         onOpen = { origin -> if (pod.id == HiddenPodId) onOpenHidden(origin) else onOpenPod(pod.title, pod.all, origin) }
@@ -433,6 +436,7 @@ private fun buildLibraryPods(
 private fun LibraryCategoryPod(
     pod: LibraryPod,
     iconsAway: () -> Boolean,
+    iconsFade: () -> Float,
     onAppClick: (AppInfo, Rect) -> Unit,
     onAppLongClick: (AppInfo, Rect) -> Unit,
     onOpen: (Rect) -> Unit
@@ -464,7 +468,7 @@ private fun LibraryCategoryPod(
                 val gap = 12.dp
                 val large = (podSize - 24.dp - gap) / 2
                 val mini = (large - 9.dp) / 2
-                Column(verticalArrangement = Arrangement.spacedBy(gap)) {
+                Column(verticalArrangement = Arrangement.spacedBy(gap), modifier = Modifier.graphicsLayer { alpha = iconsFade() }) {
                     Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
                         LibraryAppIcon(apps.getOrNull(0), large, onAppClick, onAppLongClick)
                         LibraryAppIcon(apps.getOrNull(1), large, onAppClick, onAppLongClick)
