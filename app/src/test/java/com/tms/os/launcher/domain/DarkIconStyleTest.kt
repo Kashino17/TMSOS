@@ -148,4 +148,29 @@ class DarkIconStyleTest {
             write("out_b_$name.rgb", out)
         }
     }
+
+    /**
+     * Samsung Calendar: a coloured header band across the whole top (it reaches both top
+     * corners) over a light grey page with a black date. The page is the plate - it must go
+     * dark and the date light, while the header keeps its colour.
+     */
+    @Test
+    fun `calendar with a coloured header over a light page darkens the page`() {
+        val teal = rgb(0, 140, 120)
+        val page = rgb(226, 226, 226)
+        val px = IntArray(size * size) { i ->
+            val x = i % size; val y = i / size
+            when {
+                y < 32 && x in 30..60 && y in 10..22 -> rgb(255, 255, 255)   // "DO." on the header
+                y < 32 -> teal
+                x in 28..68 && y in 44..80 -> rgb(20, 20, 20)                 // "19"
+                else -> page
+            }
+        }
+        assertEquals(DarkIconStyle.Kind.LIGHT_PLATE, DarkIconStyle.apply(px, size, size))
+        assertTrue("page must turn dark", lum(px[88 * size + 8]) < 0.2)
+        assertTrue("date must turn light", lum(px[60 * size + 48]) > 0.8)
+        val h = px[26 * size + 8]
+        assertTrue("header keeps its colour", ((h ushr 8) and 0xFF) > 110 && ((h ushr 16) and 0xFF) < 40)
+    }
 }

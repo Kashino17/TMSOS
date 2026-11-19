@@ -227,7 +227,7 @@ class LauncherRepository(private val context: Context) {
             // iOS icons and names replace the phone's own (preinstalled) apps only; apps from the
             // store keep their look ("Edge Gallery" is no "Fotos").
             val iosLook = (settings.useIosSystemIcons && isSystem) || isNotes
-            val cacheKey = "v2_${pkg}_${iosLook}_${settings.fullBleedAdaptiveIcons}_${settings.iconThemeMode.id}_${settings.tintAccentColor.id}_${settings.appLanguage.code}_${packageInfo?.lastUpdateTime ?: 0L}_${if (pkg.contains("calendar")) today else ""}"
+            val cacheKey = "v3_${pkg}_${iosLook}_${settings.fullBleedAdaptiveIcons}_${settings.iconThemeMode.id}_${settings.tintAccentColor.id}_${settings.appLanguage.code}_${packageInfo?.lastUpdateTime ?: 0L}_${if (pkg.contains("calendar")) today else ""}"
             usedKeys.add(cacheKey)
             val iconBitmap = iconCache[cacheKey] ?: (
                 diskIcons.read(pkg, cacheKey) ?: try {

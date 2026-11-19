@@ -8,6 +8,11 @@ Ein maßgeschneiderter, werbefreier und kostenloser **iOS-Style Homescreen-Launc
 
 ---
 
+## Neu in v5.12.12 – Dunkle App-Symbole: Kalender & Co.
+- Behoben: Icons mit einem farbigen Kopfbalken über einer hellen Fläche (z. B. Samsung Kalender) blieben im Symbolstil „iOS Dunkel“ hell. TMS OS hielt den farbigen Balken für einen Teil des Hintergrunds. Jetzt wird nur die helle Fläche dunkel, der Balken behält seine Farbe und das Datum wird hell.
+- Die transparenten Ecken klassischer Icons werden mit der Farbe aufgefüllt, die die meisten Ränder haben – nicht mehr mit der Farbe der Oberkante.
+- Alle App-Symbole werden einmal neu berechnet, damit die Korrektur sofort überall greift.
+
 ## Neu in v5.12.11 – Ordner schließen weicher
 - Beim Schließen wird die Kategorie-Seite sofort durchscheinend und ist nur noch ein Hauch, wenn sie den Ordner erreicht – wie auf dem iPhone, statt als voller Block hineinzuschrumpfen.
 - Der Titel verblasst früh und geht nicht mehr mit in den Ordner.

@@ -278,10 +278,13 @@ object IconEngine {
             pixels[midY * w + (minX + insetX).coerceIn(0, w - 1)],
             pixels[midY * w + (maxX - insetX).coerceIn(0, w - 1)]
         )
-        for (c in candidates) {
-            if (((c ushr 24) and 0xFF) > 200) return c or (0xFF shl 24)
-        }
-        return Color.WHITE
+        // The colour most edges agree on: a coloured header band at the top (Samsung
+        // Calendar) must not become the fill around a light page.
+        val opaque = candidates.filter { ((it ushr 24) and 0xFF) > 200 }
+        if (opaque.isEmpty()) return Color.WHITE
+        fun close(a: Int, b: Int) = kotlin.math.abs(Color.red(a) - Color.red(b)) + kotlin.math.abs(Color.green(a) - Color.green(b)) + kotlin.math.abs(Color.blue(a) - Color.blue(b)) < 60
+        val best = opaque.maxByOrNull { c -> opaque.count { close(it, c) } }!!
+        return best or (0xFF shl 24)
     }
 
     /**

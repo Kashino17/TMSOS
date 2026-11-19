@@ -319,8 +319,28 @@ object DarkIconStyle {
                 if (i < w * (h - 1)) visit(i + w)
             }
         }
-        val largest = sizes.max()
-        return BooleanArray(w * h) { region[it] != 0 && sizes[region[it]] >= largest * 0.5f }
+        // Mean colour of each corner region.
+        val sum = Array(5) { LongArray(3) }
+        for (i in pixels.indices) {
+            val k = region[i]; if (k == 0) continue
+            val c = pixels[i]
+            sum[k][0] += (c ushr 16) and 0xFF; sum[k][1] += (c ushr 8) and 0xFF; sum[k][2] += c and 0xFF
+        }
+        fun mean(k: Int) = FloatArray(3) { sum[k][it] / (sizes[k].coerceAtLeast(1) * 255f) }
+        var main = 1
+        for (k in 1..4) if (sizes[k] > sizes[main]) main = k
+        val largest = sizes[main]
+        val ref = mean(main)
+        // A corner region counts as plate if it is big enough AND has the plate's colour:
+        // a coloured header band reaching the top corners (Samsung Calendar) is artwork.
+        val keep = BooleanArray(5) { k ->
+            k != 0 && sizes[k] >= largest * 0.5f && run {
+                val m = mean(k)
+                val dr = m[0] - ref[0]; val dg = m[1] - ref[1]; val db = m[2] - ref[2]
+                sqrt(dr * dr + dg * dg + db * db) < 0.2f
+            }
+        }
+        return BooleanArray(w * h) { keep[region[it]] }
     }
 
     /**
